@@ -85,6 +85,8 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
         self_play_older_weight=cfg.self_play.older_weight,
         self_play_anchor_weight=cfg.self_play.anchor_weight,
         self_play_recent_window=cfg.self_play.recent_window,
+        endpoint_depth_bucket_width=cfg.traversal.endpoint_depth_bucket_width,
+        endpoint_depth_bucket_max=cfg.traversal.endpoint_depth_bucket_max,
         encoding=cfg.encoding,
         rng=np.random.default_rng(batch.worker_seed),
     )

@@ -47,6 +47,10 @@ class IterationMetrics:
     traversal_depth_cutoffs: int
     traversal_node_limit_cutoffs: int
     traversal_max_depth_reached: int
+    traversal_endpoint_depth_sum: int
+    traversal_endpoints: int
+    traversal_avg_endpoint_depth: float
+    traversal_endpoint_depth_buckets: dict[str, int]
     eval_metrics: dict[str, float | int]
 
     def to_dict(self) -> dict[str, float | int]:
@@ -61,6 +65,13 @@ class IterationMetrics:
             "traversal_depth_cutoffs": self.traversal_depth_cutoffs,
             "traversal_node_limit_cutoffs": self.traversal_node_limit_cutoffs,
             "traversal_max_depth_reached": self.traversal_max_depth_reached,
+            "traversal_endpoint_depth_sum": self.traversal_endpoint_depth_sum,
+            "traversal_endpoints": self.traversal_endpoints,
+            "traversal_avg_endpoint_depth": self.traversal_avg_endpoint_depth,
+            **{
+                f"traversal_endpoint_depth_bucket_{key}": value
+                for key, value in self.traversal_endpoint_depth_buckets.items()
+            },
         }
         data.update(self.eval_metrics)
         return data
@@ -174,6 +185,10 @@ class DeepCFRTrainer:
             traversal_depth_cutoffs=total_stats.depth_cutoffs,
             traversal_node_limit_cutoffs=total_stats.node_limit_cutoffs,
             traversal_max_depth_reached=total_stats.max_depth_reached,
+            traversal_endpoint_depth_sum=total_stats.endpoint_depth_sum,
+            traversal_endpoints=total_stats.endpoints,
+            traversal_avg_endpoint_depth=total_stats.avg_endpoint_depth,
+            traversal_endpoint_depth_buckets=dict(total_stats.endpoint_depth_buckets),
             eval_metrics=eval_metrics,
         )
 
@@ -206,6 +221,8 @@ class DeepCFRTrainer:
             self_play_older_weight=self.config.self_play.older_weight,
             self_play_anchor_weight=self.config.self_play.anchor_weight,
             self_play_recent_window=self.config.self_play.recent_window,
+            endpoint_depth_bucket_width=self.config.traversal.endpoint_depth_bucket_width,
+            endpoint_depth_bucket_max=self.config.traversal.endpoint_depth_bucket_max,
             encoding=self.config.encoding,
             rng=self.rng,
         )

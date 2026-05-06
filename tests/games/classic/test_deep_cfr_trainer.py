@@ -124,6 +124,8 @@ def test_deep_cfr_trainer_smoke_run() -> None:
     assert metrics[0].strategy_samples > 0
     assert metrics[0].traversal_nodes > 0
     assert metrics[0].traversal_max_depth_reached <= 3
+    assert metrics[0].traversal_endpoints > 0
+    assert metrics[0].traversal_avg_endpoint_depth >= 0.0
     assert metrics[0].advantage_loss >= 0.0
     assert metrics[0].strategy_loss >= 0.0
 

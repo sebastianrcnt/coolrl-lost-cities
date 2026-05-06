@@ -65,6 +65,8 @@ class TraversalStats:
             "traversal_cutoff_rollouts": self.cutoff_rollouts,
             "traversal_cutoff_rollout_steps": self.cutoff_rollout_steps,
             "traversal_cutoff_rollout_timeouts": self.cutoff_rollout_timeouts,
+            "traversal_endpoint_depth_sum": self.endpoint_depth_sum,
+            "traversal_endpoints": self.endpoints,
             "traversal_avg_endpoint_depth": self.avg_endpoint_depth,
             **{
                 f"traversal_endpoint_depth_bucket_{key}": value
@@ -103,6 +105,8 @@ class DeepCFRTraverser:
         self_play_older_weight: float = 0.2,
         self_play_anchor_weight: float = 0.0,
         self_play_recent_window: int = 5,
+        endpoint_depth_bucket_width: int = 10,
+        endpoint_depth_bucket_max: int = 100,
         encoding=None,
         rng: np.random.Generator | None = None,
     ) -> None:
@@ -146,6 +150,8 @@ class DeepCFRTraverser:
         self.self_play_older_weight = max(0.0, float(self_play_older_weight))
         self.self_play_anchor_weight = max(0.0, float(self_play_anchor_weight))
         self.self_play_recent_window = max(0, int(self_play_recent_window))
+        self.endpoint_depth_bucket_width = max(1, int(endpoint_depth_bucket_width))
+        self.endpoint_depth_bucket_max = max(1, int(endpoint_depth_bucket_max))
         self.encoding = encoding
         self.rng = rng or np.random.default_rng()
         self._safe_heuristic_rollout_bot = (
@@ -451,6 +457,8 @@ class DeepCFRTraverser:
 
     def _record_endpoint(self, stats: TraversalStats, depth: int) -> None:
         stats.endpoint_depth_sum += depth
-        start = min(depth // 10 * 10, 100)
-        key = "100_plus" if start >= 100 else f"{start}_{start + 9}"
+        width = self.endpoint_depth_bucket_width
+        max_depth = self.endpoint_depth_bucket_max
+        start = min(depth // width * width, max_depth)
+        key = f"{max_depth}_plus" if start >= max_depth else f"{start}_{start + width - 1}"
         stats.endpoint_depth_buckets[key] = stats.endpoint_depth_buckets.get(key, 0) + 1
