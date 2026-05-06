@@ -14,6 +14,9 @@ from coolrl_lost_cities.games.classic.deep_cfr.evaluate import (
     evaluate_strategy_network,
     load_strategy_policy_from_checkpoint,
 )
+from coolrl_lost_cities.games.classic.deep_cfr.imitation import (
+    new_pretrained_strategy_network,
+)
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
 from coolrl_lost_cities.games.classic.game import classic_config
 
@@ -80,6 +83,23 @@ def benchmark_command(args: argparse.Namespace) -> None:
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
+def pretrain_command(args: argparse.Namespace) -> None:
+    network, metrics = new_pretrained_strategy_network(
+        classic_config(seed=args.seed),
+        hidden_size=args.hidden_size,
+        games=args.games,
+        seed=args.seed,
+        steps=args.steps,
+    )
+    if args.output:
+        import torch
+
+        torch.save(
+            {"strategy_network": network.state_dict(), "metrics": metrics.__dict__}, args.output
+        )
+    print(json.dumps(metrics.__dict__, sort_keys=True))
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Lost Cities classic Deep CFR tools.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -113,6 +133,14 @@ def main(argv: list[str] | None = None) -> None:
     benchmark.add_argument("--seed", type=int, default=1)
     benchmark.add_argument("--compare", action="store_true")
     benchmark.set_defaults(func=benchmark_command)
+
+    pretrain = subparsers.add_parser("pretrain")
+    pretrain.add_argument("--games", type=int, default=4)
+    pretrain.add_argument("--steps", type=int, default=32)
+    pretrain.add_argument("--hidden-size", type=int, default=64)
+    pretrain.add_argument("--seed", type=int, default=1)
+    pretrain.add_argument("--output")
+    pretrain.set_defaults(func=pretrain_command)
 
     args = parser.parse_args(argv)
     args.func(args)
