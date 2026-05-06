@@ -16,6 +16,49 @@ from coolrl_lost_cities.games.classic.policy import LostCitiesPolicy, PolicyInpu
 
 
 @dataclass
+class EvalRuntimeCounters:
+    policy_turns: int = 0
+    opponent_turns: int = 0
+    policy_select_seconds: float = 0.0
+    policy_legal_mask_seconds: float = 0.0
+    policy_encoding_seconds: float = 0.0
+    policy_network_seconds: float = 0.0
+    policy_postprocess_seconds: float = 0.0
+    opponent_act_seconds: float = 0.0
+    apply_action_seconds: float = 0.0
+    diagnostics_seconds: float = 0.0
+    final_scoring_seconds: float = 0.0
+
+    def accumulate(self, other: EvalRuntimeCounters) -> None:
+        self.policy_turns += other.policy_turns
+        self.opponent_turns += other.opponent_turns
+        self.policy_select_seconds += other.policy_select_seconds
+        self.policy_legal_mask_seconds += other.policy_legal_mask_seconds
+        self.policy_encoding_seconds += other.policy_encoding_seconds
+        self.policy_network_seconds += other.policy_network_seconds
+        self.policy_postprocess_seconds += other.policy_postprocess_seconds
+        self.opponent_act_seconds += other.opponent_act_seconds
+        self.apply_action_seconds += other.apply_action_seconds
+        self.diagnostics_seconds += other.diagnostics_seconds
+        self.final_scoring_seconds += other.final_scoring_seconds
+
+    def to_dict(self) -> dict[str, float | int]:
+        return {
+            "policy_turns": self.policy_turns,
+            "opponent_turns": self.opponent_turns,
+            "policy_select_seconds": self.policy_select_seconds,
+            "policy_legal_mask_seconds": self.policy_legal_mask_seconds,
+            "policy_encoding_seconds": self.policy_encoding_seconds,
+            "policy_network_seconds": self.policy_network_seconds,
+            "policy_postprocess_seconds": self.policy_postprocess_seconds,
+            "opponent_act_seconds": self.opponent_act_seconds,
+            "apply_action_seconds": self.apply_action_seconds,
+            "diagnostics_seconds": self.diagnostics_seconds,
+            "final_scoring_seconds": self.final_scoring_seconds,
+        }
+
+
+@dataclass
 class PolicyEvalDiagnostics:
     games: int = 0
     wins: int = 0
@@ -51,13 +94,14 @@ class PolicyEvalDiagnostics:
     negative_expedition_scores: list[int] = field(default_factory=list)
     first_open_positive_recoverable_scores: list[float] = field(default_factory=list)
     first_open_negative_recoverable_scores: list[float] = field(default_factory=list)
+    runtime: EvalRuntimeCounters = field(default_factory=EvalRuntimeCounters)
 
     def to_dict(self, elapsed_seconds: float) -> dict[str, float | int]:
         games = max(1, self.games)
         total_steps = sum(self.lengths)
         opened_expeditions = len(self.final_expedition_scores)
         total_policy_actions = max(1, self.policy_actions)
-        return {
+        data: dict[str, float | int] = {
             "games": self.games,
             "wins0": self.wins,
             "wins1": self.losses,
@@ -111,6 +155,8 @@ class PolicyEvalDiagnostics:
                 self.first_open_negative_recoverable_scores
             ),
         }
+        data.update(self.runtime.to_dict())
+        return data
 
 
 class StrategyNetPolicy(LostCitiesPolicy):
@@ -128,25 +174,36 @@ class StrategyNetPolicy(LostCitiesPolicy):
         self.sample = sample
         self.rng = np.random.default_rng(seed)
         self.encoding = encoding
+        self.runtime = EvalRuntimeCounters()
 
     def action_distribution(self, state: GameState) -> tuple[np.ndarray, np.ndarray]:
+        started = time.perf_counter()
         legal = np.asarray(state.unified_legal_mask(), dtype=bool)
         legal_actions = np.flatnonzero(legal)
+        self.runtime.policy_legal_mask_seconds += time.perf_counter() - started
         if len(legal_actions) == 0:
             raise RuntimeError("no legal action available")
+        started = time.perf_counter()
         info = encode_info_state(state, state.current_player, self.encoding)
+        self.runtime.policy_encoding_seconds += time.perf_counter() - started
+        started = time.perf_counter()
         with torch.inference_mode():
             x = torch.as_tensor(info, dtype=torch.float32, device=self.device).unsqueeze(0)
             logits = self.strategy_network(x).squeeze(0).detach().cpu().numpy()
+        self.runtime.policy_network_seconds += time.perf_counter() - started
+        started = time.perf_counter()
         masked = np.where(legal, logits, -np.inf)
         stable = masked[legal_actions] - np.max(masked[legal_actions])
         probs = np.exp(stable)
         probs = probs / probs.sum()
         distribution = np.zeros_like(masked, dtype=np.float32)
         distribution[legal_actions] = probs.astype(np.float32)
+        self.runtime.policy_postprocess_seconds += time.perf_counter() - started
         return legal_actions, distribution
 
     def select_action(self, state: GameState) -> tuple[int, float]:
+        started = time.perf_counter()
+        self.runtime.policy_turns += 1
         legal_actions, distribution = self.action_distribution(state)
         probs = distribution[legal_actions]
         entropy = _entropy(probs)
@@ -154,7 +211,9 @@ class StrategyNetPolicy(LostCitiesPolicy):
             unified = int(self.rng.choice(legal_actions, p=probs))
         else:
             unified = int(legal_actions[int(np.argmax(probs))])
-        return state.from_unified_action(unified), entropy
+        action = state.from_unified_action(unified)
+        self.runtime.policy_select_seconds += time.perf_counter() - started
+        return action, entropy
 
     def act(self, obs_or_state: PolicyInput) -> int:
         if not isinstance(obs_or_state, GameState):
@@ -225,6 +284,7 @@ def _evaluate_strategy_network_with_diagnostics(
             seed=game_seed,
             max_steps=max_steps,
         )
+        game_diag.runtime.accumulate(policy.runtime)
         _accumulate_game_diagnostics(diagnostics, game_diag)
     return diagnostics.to_dict(time.perf_counter() - started)
 
@@ -249,15 +309,23 @@ def _evaluate_one_game(
         if current_player == policy_player and isinstance(policy, StrategyNetPolicy):
             action, entropy = policy.select_action(state)
             diagnostics.entropies.append(entropy)
+            diagnostics_started = time.perf_counter()
             _record_policy_action(diagnostics, state, action, first_open_recoverable_by_color)
+            diagnostics.runtime.diagnostics_seconds += time.perf_counter() - diagnostics_started
         else:
+            diagnostics.runtime.opponent_turns += 1
+            opponent_started = time.perf_counter()
             action = policy.act(state)
+            diagnostics.runtime.opponent_act_seconds += time.perf_counter() - opponent_started
+        apply_started = time.perf_counter()
         state.apply_action(action)
+        diagnostics.runtime.apply_action_seconds += time.perf_counter() - apply_started
         steps += 1
 
     timed_out = not state.terminal
     if timed_out:
         steps = max_steps
+    final_started = time.perf_counter()
     _record_final_game_state(
         diagnostics,
         state,
@@ -266,6 +334,7 @@ def _evaluate_one_game(
         timed_out,
         first_open_recoverable_by_color,
     )
+    diagnostics.runtime.final_scoring_seconds += time.perf_counter() - final_started
     return diagnostics
 
 
@@ -427,6 +496,7 @@ def _accumulate_game_diagnostics(
     target.first_open_negative_recoverable_scores.extend(
         source.first_open_negative_recoverable_scores
     )
+    target.runtime.accumulate(source.runtime)
 
 
 def _visible_recoverable_summary(
