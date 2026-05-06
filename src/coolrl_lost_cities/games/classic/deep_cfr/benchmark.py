@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from dataclasses import replace
 
 from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
@@ -13,14 +12,19 @@ def benchmark_traversal(
     *,
     num_workers: int = 0,
 ) -> dict[str, float | int]:
-    base = config or DeepCFRConfig(
-        iterations=1,
-        traversals_per_iteration=8,
-        max_traversal_depth=4,
-        save_every_iteration=False,
+    base = config or DeepCFRConfig.model_validate(
+        {
+            "run": {"iterations": 1},
+            "traversal": {"traversals_per_iteration": 8, "max_depth": 4},
+            "checkpoint": {"save_every_iteration": False},
+        }
     )
-    cfg = replace(base, num_workers=num_workers, save_every_iteration=False, eval_every=0)
-    trainer = DeepCFRTrainer(cfg, classic_config(seed=cfg.seed))
+    data = base.model_dump(mode="python")
+    data["traversal"]["num_workers"] = num_workers
+    data["checkpoint"]["save_every_iteration"] = False
+    data["evaluation"]["eval_every"] = 0
+    cfg = DeepCFRConfig.model_validate(data)
+    trainer = DeepCFRTrainer(cfg, classic_config(seed=cfg.run.seed))
     started = time.perf_counter()
     metrics = trainer.run_iteration(1)
     elapsed = time.perf_counter() - started

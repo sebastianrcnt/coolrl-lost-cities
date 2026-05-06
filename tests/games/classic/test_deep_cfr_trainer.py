@@ -7,25 +7,43 @@ from coolrl_lost_cities.games.classic.deep_cfr.benchmark import (
     benchmark_traversal,
     benchmark_traversal_modes,
 )
-from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig
+from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig, load_config
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
 from coolrl_lost_cities.games.classic.deep_cfr.traverser import DeepCFRTraverser
 
 
+def _deep_cfr_config(data: dict) -> DeepCFRConfig:
+    return DeepCFRConfig.model_validate(data)
+
+
+def test_deep_cfr_loads_smoke_yaml_config() -> None:
+    config = load_config("configs/deep_cfr/smoke.yaml")
+
+    assert config.run.iterations == 1
+    assert config.network.hidden_size == 16
+    assert config.traversal.traversals_per_iteration == 1
+    assert config.checkpoint.directory == "runs/deep_cfr/smoke"
+
+
 def test_deep_cfr_trainer_smoke_run() -> None:
     trainer = DeepCFRTrainer(
-        DeepCFRConfig(
-            iterations=1,
-            traversals_per_iteration=1,
-            max_traversal_depth=3,
-            max_nodes_per_traversal=64,
-            advantage_train_steps=1,
-            strategy_train_steps=1,
-            batch_size=2,
-            hidden_size=16,
-            seed=23,
-            save_every_iteration=False,
+        _deep_cfr_config(
+            {
+                "run": {"iterations": 1, "seed": 23},
+                "network": {"hidden_size": 16},
+                "traversal": {
+                    "traversals_per_iteration": 1,
+                    "max_depth": 3,
+                    "max_nodes": 64,
+                },
+                "optimization": {
+                    "advantage_train_steps": 1,
+                    "strategy_train_steps": 1,
+                    "batch_size": 2,
+                },
+                "checkpoint": {"save_every_iteration": False},
+            }
         ),
         LostCitiesConfig(seed=23),
     )
@@ -43,15 +61,18 @@ def test_deep_cfr_trainer_smoke_run() -> None:
 
 def test_deep_cfr_recursive_traverser_restores_state_and_collects_samples() -> None:
     trainer = DeepCFRTrainer(
-        DeepCFRConfig(
-            iterations=1,
-            traversals_per_iteration=1,
-            max_traversal_depth=2,
-            max_nodes_per_traversal=32,
-            batch_size=2,
-            hidden_size=16,
-            seed=29,
-            save_every_iteration=False,
+        _deep_cfr_config(
+            {
+                "run": {"iterations": 1, "seed": 29},
+                "network": {"hidden_size": 16},
+                "traversal": {
+                    "traversals_per_iteration": 1,
+                    "max_depth": 2,
+                    "max_nodes": 32,
+                },
+                "optimization": {"batch_size": 2},
+                "checkpoint": {"save_every_iteration": False},
+            }
         ),
         LostCitiesConfig(seed=29),
     )
@@ -85,22 +106,25 @@ def test_deep_cfr_recursive_traverser_restores_state_and_collects_samples() -> N
 
 def test_deep_cfr_traverser_supports_outcome_sampling_and_rollout_cutoffs() -> None:
     trainer = DeepCFRTrainer(
-        DeepCFRConfig(
-            iterations=1,
-            traversals_per_iteration=1,
-            max_traversal_depth=1,
-            max_nodes_per_traversal=32,
-            outcome_sampling_epsilon=0.25,
-            outcome_sampling_value_clip=100.0,
-            outcome_unsampled_regret="zero",
-            cutoff_value_mode="random_rollout",
-            cutoff_rollouts=2,
-            cutoff_rollout_policy="random",
-            cutoff_rollout_max_steps=16,
-            batch_size=2,
-            hidden_size=16,
-            seed=31,
-            save_every_iteration=False,
+        _deep_cfr_config(
+            {
+                "run": {"iterations": 1, "seed": 31},
+                "network": {"hidden_size": 16},
+                "traversal": {
+                    "traversals_per_iteration": 1,
+                    "max_depth": 1,
+                    "max_nodes": 32,
+                    "outcome_sampling_epsilon": 0.25,
+                    "outcome_sampling_value_clip": 100.0,
+                    "outcome_unsampled_regret": "zero",
+                    "cutoff_value_mode": "random_rollout",
+                    "cutoff_rollouts": 2,
+                    "cutoff_rollout_policy": "random",
+                    "cutoff_rollout_max_steps": 16,
+                },
+                "optimization": {"batch_size": 2},
+                "checkpoint": {"save_every_iteration": False},
+            }
         ),
         LostCitiesConfig(seed=31),
     )
@@ -161,19 +185,22 @@ def test_reservoir_memory_caps_samples_and_filters_player_batches() -> None:
 def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None:
     checkpoint_dir = tmp_path / "deep_cfr"
     trainer = DeepCFRTrainer(
-        DeepCFRConfig(
-            iterations=1,
-            traversals_per_iteration=1,
-            max_traversal_depth=2,
-            max_nodes_per_traversal=32,
-            batch_size=2,
-            hidden_size=16,
-            seed=41,
-            checkpoint_dir=str(checkpoint_dir),
-            save_every_iteration=True,
-            eval_every=1,
-            eval_games=2,
-            eval_opponents=("random",),
+        _deep_cfr_config(
+            {
+                "run": {"iterations": 1, "seed": 41},
+                "network": {"hidden_size": 16},
+                "traversal": {
+                    "traversals_per_iteration": 1,
+                    "max_depth": 2,
+                    "max_nodes": 32,
+                },
+                "optimization": {"batch_size": 2},
+                "checkpoint": {
+                    "directory": str(checkpoint_dir),
+                    "save_every_iteration": True,
+                },
+                "evaluation": {"eval_every": 1, "games": 2, "opponents": ("random",)},
+            }
         ),
         LostCitiesConfig(seed=41),
     )
@@ -181,11 +208,15 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
     metrics = trainer.train()
     latest = checkpoint_dir / "latest.pt"
     restored = DeepCFRTrainer(
-        DeepCFRConfig(
-            hidden_size=16,
-            seed=41,
-            checkpoint_dir=str(checkpoint_dir),
-            save_every_iteration=False,
+        _deep_cfr_config(
+            {
+                "run": {"seed": 41},
+                "network": {"hidden_size": 16},
+                "checkpoint": {
+                    "directory": str(checkpoint_dir),
+                    "save_every_iteration": False,
+                },
+            }
         ),
         LostCitiesConfig(seed=41),
     )
@@ -202,18 +233,23 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
 
 def test_deep_cfr_trainer_multiprocessing_smoke_run(tmp_path) -> None:
     trainer = DeepCFRTrainer(
-        DeepCFRConfig(
-            iterations=1,
-            traversals_per_iteration=2,
-            max_traversal_depth=2,
-            max_nodes_per_traversal=32,
-            batch_size=2,
-            hidden_size=16,
-            seed=43,
-            checkpoint_dir=str(tmp_path / "mp"),
-            save_every_iteration=False,
-            num_workers=2,
-            traversal_worker_chunk_size=1,
+        _deep_cfr_config(
+            {
+                "run": {"iterations": 1, "seed": 43},
+                "network": {"hidden_size": 16},
+                "traversal": {
+                    "traversals_per_iteration": 2,
+                    "max_depth": 2,
+                    "max_nodes": 32,
+                    "num_workers": 2,
+                    "worker_chunk_size": 1,
+                },
+                "optimization": {"batch_size": 2},
+                "checkpoint": {
+                    "directory": str(tmp_path / "mp"),
+                    "save_every_iteration": False,
+                },
+            }
         ),
         LostCitiesConfig(seed=43),
     )
@@ -226,24 +262,26 @@ def test_deep_cfr_trainer_multiprocessing_smoke_run(tmp_path) -> None:
 
 def test_deep_cfr_traversal_benchmark_smoke() -> None:
     result = benchmark_traversal(
-        DeepCFRConfig(
-            traversals_per_iteration=1,
-            max_traversal_depth=2,
-            hidden_size=16,
-            save_every_iteration=False,
-            seed=47,
+        _deep_cfr_config(
+            {
+                "run": {"seed": 47},
+                "network": {"hidden_size": 16},
+                "traversal": {"traversals_per_iteration": 1, "max_depth": 2},
+                "checkpoint": {"save_every_iteration": False},
+            }
         )
     )
 
     assert result["traversal_nodes"] > 0
     assert result["nodes_per_second"] > 0.0
     comparison = benchmark_traversal_modes(
-        DeepCFRConfig(
-            traversals_per_iteration=1,
-            max_traversal_depth=2,
-            hidden_size=16,
-            save_every_iteration=False,
-            seed=48,
+        _deep_cfr_config(
+            {
+                "run": {"seed": 48},
+                "network": {"hidden_size": 16},
+                "traversal": {"traversals_per_iteration": 1, "max_depth": 2},
+                "checkpoint": {"save_every_iteration": False},
+            }
         )
     )
     assert comparison["summary"]["speedup"] > 0.0
@@ -251,20 +289,27 @@ def test_deep_cfr_traversal_benchmark_smoke() -> None:
 
 def test_deep_cfr_self_play_league_records_snapshots(tmp_path) -> None:
     trainer = DeepCFRTrainer(
-        DeepCFRConfig(
-            iterations=2,
-            traversals_per_iteration=1,
-            max_traversal_depth=2,
-            max_nodes_per_traversal=32,
-            batch_size=2,
-            hidden_size=16,
-            seed=53,
-            checkpoint_dir=str(tmp_path / "league"),
-            save_every_iteration=False,
-            opponent_policy="self_play_league",
-            self_play_snapshot_every=1,
-            self_play_max_snapshots=1,
-            self_play_anchor_probability=1.0,
+        _deep_cfr_config(
+            {
+                "run": {"iterations": 2, "seed": 53},
+                "network": {"hidden_size": 16},
+                "traversal": {
+                    "traversals_per_iteration": 1,
+                    "max_depth": 2,
+                    "max_nodes": 32,
+                    "opponent_policy": "self_play_league",
+                },
+                "self_play": {
+                    "snapshot_every": 1,
+                    "max_snapshots": 1,
+                    "anchor_probability": 1.0,
+                },
+                "optimization": {"batch_size": 2},
+                "checkpoint": {
+                    "directory": str(tmp_path / "league"),
+                    "save_every_iteration": False,
+                },
+            }
         ),
         LostCitiesConfig(seed=53),
     )
@@ -277,24 +322,31 @@ def test_deep_cfr_self_play_league_records_snapshots(tmp_path) -> None:
 
 def test_deep_cfr_weighted_self_play_league_uses_snapshot_bucket(tmp_path) -> None:
     trainer = DeepCFRTrainer(
-        DeepCFRConfig(
-            iterations=2,
-            traversals_per_iteration=1,
-            max_traversal_depth=2,
-            max_nodes_per_traversal=32,
-            batch_size=2,
-            hidden_size=16,
-            seed=59,
-            checkpoint_dir=str(tmp_path / "weighted-league"),
-            save_every_iteration=False,
-            opponent_policy="self_play_league",
-            self_play_snapshot_every=1,
-            self_play_max_snapshots=2,
-            self_play_current_weight=0.0,
-            self_play_recent_weight=1.0,
-            self_play_older_weight=0.0,
-            self_play_anchor_weight=0.0,
-            self_play_recent_window=1,
+        _deep_cfr_config(
+            {
+                "run": {"iterations": 2, "seed": 59},
+                "network": {"hidden_size": 16},
+                "traversal": {
+                    "traversals_per_iteration": 1,
+                    "max_depth": 2,
+                    "max_nodes": 32,
+                    "opponent_policy": "self_play_league",
+                },
+                "self_play": {
+                    "snapshot_every": 1,
+                    "max_snapshots": 2,
+                    "current_weight": 0.0,
+                    "recent_weight": 1.0,
+                    "older_weight": 0.0,
+                    "anchor_weight": 0.0,
+                    "recent_window": 1,
+                },
+                "optimization": {"batch_size": 2},
+                "checkpoint": {
+                    "directory": str(tmp_path / "weighted-league"),
+                    "save_every_iteration": False,
+                },
+            }
         ),
         LostCitiesConfig(seed=59),
     )

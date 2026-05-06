@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import replace
-from pathlib import Path
+from typing import Any
 
 from coolrl_lost_cities.games.classic.deep_cfr.benchmark import (
     benchmark_traversal,
     benchmark_traversal_modes,
 )
-from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig, config_from_dict
+from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig, load_config
 from coolrl_lost_cities.games.classic.deep_cfr.evaluate import (
     evaluate_strategy_network,
     load_strategy_policy_from_checkpoint,
@@ -27,27 +26,48 @@ from coolrl_lost_cities.games.classic.game import classic_config
 def _load_config(path: str | None) -> DeepCFRConfig:
     if path is None:
         return DeepCFRConfig()
-    return config_from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
+    return load_config(path)
+
+
+def _deep_update(base: dict[str, Any], patch: dict[str, Any]) -> None:
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _deep_update(base[key], value)
+        else:
+            base[key] = value
+
+
+def _with_overrides(config: DeepCFRConfig, overrides: dict[str, Any]) -> DeepCFRConfig:
+    data = config.model_dump(mode="python")
+    _deep_update(data, overrides)
+    return DeepCFRConfig.model_validate(data)
 
 
 def train_command(args: argparse.Namespace) -> None:
     config = _load_config(args.config)
-    overrides = {}
-    for key in (
-        "iterations",
-        "traversals_per_iteration",
-        "checkpoint_dir",
-        "eval_every",
-        "eval_games",
-        "seed",
-    ):
-        value = getattr(args, key)
-        if value is not None:
-            overrides[key] = value
+    overrides: dict[str, Any] = {}
+    if args.iterations is not None:
+        overrides.setdefault("run", {})["iterations"] = args.iterations
+    if args.seed is not None:
+        overrides.setdefault("run", {})["seed"] = args.seed
+    if args.traversals_per_iteration is not None:
+        overrides.setdefault("traversal", {})["traversals_per_iteration"] = (
+            args.traversals_per_iteration
+        )
+    if args.checkpoint_dir is not None:
+        overrides.setdefault("checkpoint", {})["directory"] = args.checkpoint_dir
+    if args.eval_every is not None:
+        overrides.setdefault("evaluation", {})["eval_every"] = args.eval_every
+    if args.eval_games is not None:
+        overrides.setdefault("evaluation", {})["games"] = args.eval_games
     if args.no_save:
-        overrides["save_every_iteration"] = False
-    config = replace(config, **overrides)
-    trainer = DeepCFRTrainer(config, classic_config(seed=config.seed), device=args.device)
+        overrides.setdefault("checkpoint", {})["save_every_iteration"] = False
+    config = _with_overrides(config, overrides)
+    trainer = DeepCFRTrainer(
+        config,
+        classic_config(seed=config.run.seed),
+        device=args.device or config.run.device,
+    )
     if args.resume:
         trainer.load_checkpoint(args.resume)
     metrics = trainer.train()
@@ -70,11 +90,15 @@ def eval_command(args: argparse.Namespace) -> None:
 
 
 def benchmark_command(args: argparse.Namespace) -> None:
-    config = DeepCFRConfig(
-        traversals_per_iteration=args.traversals,
-        max_traversal_depth=args.depth,
-        seed=args.seed,
-        save_every_iteration=False,
+    config = DeepCFRConfig.model_validate(
+        {
+            "run": {"seed": args.seed},
+            "traversal": {
+                "traversals_per_iteration": args.traversals,
+                "max_depth": args.depth,
+            },
+            "checkpoint": {"save_every_iteration": False},
+        }
     )
     if args.compare:
         print(json.dumps(benchmark_traversal_modes(config), indent=2, sort_keys=True))
@@ -135,7 +159,7 @@ def main(argv: list[str] | None = None) -> None:
     train.add_argument("--traversals-per-iteration", type=int)
     train.add_argument("--checkpoint-dir")
     train.add_argument("--resume")
-    train.add_argument("--device", default="cpu")
+    train.add_argument("--device")
     train.add_argument("--eval-every", type=int)
     train.add_argument("--eval-games", type=int)
     train.add_argument("--seed", type=int)

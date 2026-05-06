@@ -68,31 +68,33 @@ class DeepCFRTrainer:
         device: str = "cpu",
     ) -> None:
         self.config = config or DeepCFRConfig()
-        self.game_config = game_config or LostCitiesConfig(seed=self.config.seed)
+        self.game_config = game_config or LostCitiesConfig(seed=self.config.run.seed)
         self.device = torch.device(device)
 
-        probe = GameState.new_game(self.game_config, seed=self.config.seed)
+        probe = GameState.new_game(self.game_config, seed=self.config.run.seed)
         self.input_dim = input_dim(probe)
         self.action_size = 2 * probe.config.hand_size + 1 + probe.config.n_colors
 
-        torch.manual_seed(self.config.seed)
+        torch.manual_seed(self.config.run.seed)
         self.advantage_networks = [
-            DeepCFRMLP(self.input_dim, self.action_size, self.config.hidden_size).to(self.device)
+            DeepCFRMLP(self.input_dim, self.action_size, self.config.network.hidden_size).to(
+                self.device
+            )
             for _ in range(2)
         ]
         self.strategy_network = DeepCFRMLP(
-            self.input_dim, self.action_size, self.config.hidden_size
+            self.input_dim, self.action_size, self.config.network.hidden_size
         ).to(self.device)
         self.advantage_optimizers = [
-            torch.optim.Adam(network.parameters(), lr=self.config.learning_rate)
+            torch.optim.Adam(network.parameters(), lr=self.config.optimization.learning_rate)
             for network in self.advantage_networks
         ]
         self.strategy_optimizer = torch.optim.Adam(
-            self.strategy_network.parameters(), lr=self.config.learning_rate
+            self.strategy_network.parameters(), lr=self.config.optimization.learning_rate
         )
-        self.advantage_memory = ReservoirMemory(self.config.advantage_memory_capacity)
-        self.strategy_memory = ReservoirMemory(self.config.strategy_memory_capacity)
-        self.rng = np.random.default_rng(self.config.seed + 101)
+        self.advantage_memory = ReservoirMemory(self.config.memory.advantage_capacity)
+        self.strategy_memory = ReservoirMemory(self.config.memory.strategy_capacity)
+        self.rng = np.random.default_rng(self.config.run.seed + 101)
         self.iteration = 0
         self.run_dir = self.config.checkpoint_path
         self.metrics_path = self.run_dir / "metrics.jsonl"
@@ -138,7 +140,7 @@ class DeepCFRTrainer:
 
     def run_iteration(self, iteration: int) -> IterationMetrics:
         self.iteration = iteration
-        if self.config.resolved_num_workers() > 1:
+        if self.config.traversal.resolved_num_workers() > 1:
             total_stats = self._run_traversals_parallel(iteration)
         else:
             total_stats = self._run_traversals_single_process(iteration)
@@ -168,34 +170,34 @@ class DeepCFRTrainer:
             self.strategy_memory,
             device=self.device,
             action_size=self.action_size,
-            epsilon=self.config.regret_matching_epsilon,
-            strategy_sample_interval=self.config.strategy_sample_interval,
-            store_strategy_on_traverser_nodes=self.config.store_strategy_on_traverser_nodes,
-            store_strategy_on_opponent_nodes=self.config.store_strategy_on_opponent_nodes,
-            max_depth=self.config.max_traversal_depth,
-            max_nodes=self.config.max_nodes_per_traversal,
-            outcome_sampling_epsilon=self.config.outcome_sampling_epsilon,
-            outcome_sampling_value_clip=self.config.outcome_sampling_value_clip,
-            outcome_unsampled_regret=self.config.outcome_unsampled_regret,
-            cutoff_value_mode=self.config.cutoff_value_mode,
-            cutoff_rollouts=self.config.cutoff_rollouts,
-            cutoff_rollout_policy=self.config.cutoff_rollout_policy,
-            cutoff_rollout_max_steps=self.config.cutoff_rollout_max_steps,
-            opponent_policy=self.config.opponent_policy,
+            epsilon=self.config.traversal.regret_matching_epsilon,
+            strategy_sample_interval=self.config.traversal.strategy_sample_interval,
+            store_strategy_on_traverser_nodes=self.config.traversal.store_strategy_on_traverser_nodes,
+            store_strategy_on_opponent_nodes=self.config.traversal.store_strategy_on_opponent_nodes,
+            max_depth=self.config.traversal.max_depth,
+            max_nodes=self.config.traversal.max_nodes,
+            outcome_sampling_epsilon=self.config.traversal.outcome_sampling_epsilon,
+            outcome_sampling_value_clip=self.config.traversal.outcome_sampling_value_clip,
+            outcome_unsampled_regret=self.config.traversal.outcome_unsampled_regret,
+            cutoff_value_mode=self.config.traversal.cutoff_value_mode,
+            cutoff_rollouts=self.config.traversal.cutoff_rollouts,
+            cutoff_rollout_policy=self.config.traversal.cutoff_rollout_policy,
+            cutoff_rollout_max_steps=self.config.traversal.cutoff_rollout_max_steps,
+            opponent_policy=self.config.traversal.opponent_policy,
             league_advantage_networks=self._materialize_league_networks(),
-            self_play_anchor_probability=self.config.self_play_anchor_probability,
-            self_play_current_weight=self.config.self_play_current_weight,
-            self_play_recent_weight=self.config.self_play_recent_weight,
-            self_play_older_weight=self.config.self_play_older_weight,
-            self_play_anchor_weight=self.config.self_play_anchor_weight,
-            self_play_recent_window=self.config.self_play_recent_window,
+            self_play_anchor_probability=self.config.self_play.anchor_probability,
+            self_play_current_weight=self.config.self_play.current_weight,
+            self_play_recent_weight=self.config.self_play.recent_weight,
+            self_play_older_weight=self.config.self_play.older_weight,
+            self_play_anchor_weight=self.config.self_play.anchor_weight,
+            self_play_recent_window=self.config.self_play.recent_window,
             rng=self.rng,
         )
         for network in self.advantage_networks:
             network.eval()
-        for traversal_index in range(self.config.traversals_per_iteration):
+        for traversal_index in range(self.config.traversal.traversals_per_iteration):
             for player in range(2):
-                seed = self.config.seed + iteration * 10_000 + traversal_index * 10 + player
+                seed = self.config.run.seed + iteration * 10_000 + traversal_index * 10 + player
                 state = GameState.new_game(self.game_config, seed=seed)
                 _, stats = traverser.traverse(state, player, iteration)
                 total_stats.accumulate(stats)
@@ -206,7 +208,7 @@ class DeepCFRTrainer:
         total_stats = TraversalStats()
         if not batches:
             return total_stats
-        max_workers = self.config.resolved_num_workers(len(batches))
+        max_workers = self.config.traversal.resolved_num_workers(len(batches))
         with ProcessPoolExecutor(
             max_workers=max_workers,
             mp_context=mp.get_context("spawn"),
@@ -225,12 +227,12 @@ class DeepCFRTrainer:
             {name: value.detach().cpu() for name, value in network.state_dict().items()}
             for network in self.advantage_networks
         ]
-        chunk_size = max(1, self.config.traversal_worker_chunk_size)
+        chunk_size = max(1, self.config.traversal.worker_chunk_size)
         batch_index = 0
         for player in range(2):
             seeds = [
-                self.config.seed + iteration * 10_000 + index * 10 + player
-                for index in range(self.config.traversals_per_iteration)
+                self.config.run.seed + iteration * 10_000 + index * 10 + player
+                for index in range(self.config.traversal.traversals_per_iteration)
             ]
             for start in range(0, len(seeds), chunk_size):
                 chunk = seeds[start : start + chunk_size]
@@ -245,7 +247,7 @@ class DeepCFRTrainer:
                         action_size=self.action_size,
                         advantage_networks=network_payloads,
                         league_advantage_networks=self._league_payloads(),
-                        worker_seed=self.config.seed + iteration * 1_000_003 + batch_index,
+                        worker_seed=self.config.run.seed + iteration * 1_000_003 + batch_index,
                     )
                 )
                 batch_index += 1
@@ -258,14 +260,14 @@ class DeepCFRTrainer:
         ]
 
     def _maybe_record_self_play_snapshot(self, iteration: int) -> None:
-        if self.config.opponent_policy != "self_play_league":
+        if self.config.traversal.opponent_policy != "self_play_league":
             return
-        if self.config.self_play_max_snapshots <= 0:
+        if self.config.self_play.max_snapshots <= 0:
             return
-        if iteration % max(1, self.config.self_play_snapshot_every) != 0:
+        if iteration % max(1, self.config.self_play.snapshot_every) != 0:
             return
         self.self_play_league_snapshots.append(self._frozen_advantage_state_dicts())
-        overflow = len(self.self_play_league_snapshots) - self.config.self_play_max_snapshots
+        overflow = len(self.self_play_league_snapshots) - self.config.self_play.max_snapshots
         if overflow > 0:
             del self.self_play_league_snapshots[:overflow]
 
@@ -273,7 +275,7 @@ class DeepCFRTrainer:
         league: list[list[nn.Module]] = []
         for snapshot in self.self_play_league_snapshots:
             networks = [
-                DeepCFRMLP(self.input_dim, self.action_size, self.config.hidden_size).to(
+                DeepCFRMLP(self.input_dim, self.action_size, self.config.network.hidden_size).to(
                     self.device
                 )
                 for _ in range(2)
@@ -291,7 +293,7 @@ class DeepCFRTrainer:
         self._start_run_logging()
         metrics: list[IterationMetrics] = []
         start = self.iteration + 1
-        stop = self.iteration + self.config.iterations
+        stop = self.iteration + self.config.run.iterations
         for iteration in range(start, stop + 1):
             started = time.perf_counter()
             item = self.run_iteration(iteration)
@@ -299,7 +301,7 @@ class DeepCFRTrainer:
             metrics.append(item)
             self._append_metrics(item, elapsed)
             self._maybe_record_self_play_snapshot(iteration)
-            if self.config.save_every_iteration:
+            if self.config.checkpoint.save_every_iteration:
                 checkpoint_dir = self.run_dir
                 self.save_checkpoint(checkpoint_dir / f"iteration_{iteration:05d}.pt", item)
                 self.save_checkpoint(checkpoint_dir / "latest.pt", item)
@@ -316,7 +318,9 @@ class DeepCFRTrainer:
         if self.iteration == 0 and self.metrics_path.exists():
             self.metrics_path.unlink()
         with self.log_path.open("a", encoding="utf-8") as handle:
-            handle.write(f"Deep CFR run start iteration={self.iteration} seed={self.config.seed}\n")
+            handle.write(
+                f"Deep CFR run start iteration={self.iteration} seed={self.config.run.seed}\n"
+            )
 
     def _append_metrics(self, metrics: IterationMetrics, iteration_seconds: float) -> None:
         data = metrics.to_dict()
@@ -332,18 +336,21 @@ class DeepCFRTrainer:
             )
 
     def _evaluate(self, iteration: int) -> dict[str, float | int]:
-        if self.config.eval_every <= 0 or iteration % self.config.eval_every != 0:
+        if (
+            self.config.evaluation.eval_every <= 0
+            or iteration % self.config.evaluation.eval_every != 0
+        ):
             return {}
         results: dict[str, float | int] = {}
-        for opponent in self.config.eval_opponents:
+        for opponent in self.config.evaluation.opponents:
             result = evaluate_strategy_network(
                 self.strategy_network,
                 self.game_config,
-                games=self.config.eval_games,
-                seed=self.config.seed + iteration * 1000,
+                games=self.config.evaluation.games,
+                seed=self.config.run.seed + iteration * 1000,
                 opponent=opponent,
                 device=self.device,
-                max_steps=self.config.eval_max_steps,
+                max_steps=self.config.evaluation.max_steps,
             )
             for key, value in result.items():
                 results[f"eval_{opponent}_{key}"] = value
@@ -365,7 +372,7 @@ class DeepCFRTrainer:
         return self._train_strategy(self.strategy_network, self.strategy_optimizer, samples)
 
     def _batch(self, samples: list[TrainingSample], step: int) -> list[TrainingSample]:
-        batch_size = min(self.config.batch_size, len(samples))
+        batch_size = min(self.config.optimization.batch_size, len(samples))
         offset = (step * batch_size) % len(samples)
         batch = samples[offset : offset + batch_size]
         if len(batch) < batch_size:
@@ -401,9 +408,11 @@ class DeepCFRTrainer:
     ) -> float:
         last_loss = 0.0
         network.train()
-        for _step in range(max(self.config.advantage_train_steps, 0)):
+        for _step in range(max(self.config.optimization.advantage_train_steps, 0)):
             x, y, legal = self._batch_tensors(
-                self.advantage_memory.sample(self.config.batch_size, self.rng, player=player)
+                self.advantage_memory.sample(
+                    self.config.optimization.batch_size, self.rng, player=player
+                )
             )
             pred = network(x)
             diff = (pred - y).masked_fill(~legal, 0.0)
@@ -422,9 +431,9 @@ class DeepCFRTrainer:
     ) -> float:
         last_loss = 0.0
         network.train()
-        for _step in range(max(self.config.strategy_train_steps, 0)):
+        for _step in range(max(self.config.optimization.strategy_train_steps, 0)):
             x, y, legal = self._batch_tensors(
-                self.strategy_memory.sample(self.config.batch_size, self.rng)
+                self.strategy_memory.sample(self.config.optimization.batch_size, self.rng)
             )
             logits = network(x).masked_fill(~legal, torch.finfo(torch.float32).min)
             log_probs = nn.functional.log_softmax(logits, dim=-1).masked_fill(~legal, 0.0)

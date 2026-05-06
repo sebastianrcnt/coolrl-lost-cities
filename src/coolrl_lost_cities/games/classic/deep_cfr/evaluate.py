@@ -97,7 +97,7 @@ def load_strategy_policy_from_checkpoint(
     network = DeepCFRMLP(
         int(payload["input_dim"]),
         int(payload["action_size"]),
-        cfg.hidden_size,
+        cfg.network.hidden_size,
     ).to(device)
     network.load_state_dict(payload["strategy_network"])
     network.eval()

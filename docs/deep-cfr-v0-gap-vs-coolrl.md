@@ -97,8 +97,8 @@ extras.
 
 Still smaller than legacy:
 
-1. Config is a single `DeepCFRConfig` dataclass rather than a deeply nested
-   YAML-first config tree.
+1. Config is YAML-first and nested through Pydantic, but only one smoke preset
+   exists under `configs/deep_cfr/`.
 2. Multiprocessing exists, but it is intentionally simple:
    - no progress callback per worker batch
    - no hotspot timing profile

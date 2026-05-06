@@ -40,7 +40,8 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
     cfg = config_from_dict(batch.config)
     device = torch.device("cpu")
     networks = [
-        DeepCFRMLP(batch.input_dim, batch.action_size, cfg.hidden_size).to(device) for _ in range(2)
+        DeepCFRMLP(batch.input_dim, batch.action_size, cfg.network.hidden_size).to(device)
+        for _ in range(2)
     ]
     for network, state_dict in zip(networks, batch.advantage_networks, strict=True):
         network.load_state_dict(state_dict)
@@ -48,7 +49,7 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
     league_networks: list[list[torch.nn.Module]] = []
     for snapshot in batch.league_advantage_networks:
         snapshot_networks = [
-            DeepCFRMLP(batch.input_dim, batch.action_size, cfg.hidden_size).to(device)
+            DeepCFRMLP(batch.input_dim, batch.action_size, cfg.network.hidden_size).to(device)
             for _ in range(2)
         ]
         for network, state_dict in zip(snapshot_networks, snapshot, strict=True):
@@ -63,27 +64,27 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
         strategy_memory,
         device=device,
         action_size=batch.action_size,
-        epsilon=cfg.regret_matching_epsilon,
-        strategy_sample_interval=cfg.strategy_sample_interval,
-        store_strategy_on_traverser_nodes=cfg.store_strategy_on_traverser_nodes,
-        store_strategy_on_opponent_nodes=cfg.store_strategy_on_opponent_nodes,
-        max_depth=cfg.max_traversal_depth,
-        max_nodes=cfg.max_nodes_per_traversal,
-        outcome_sampling_epsilon=cfg.outcome_sampling_epsilon,
-        outcome_sampling_value_clip=cfg.outcome_sampling_value_clip,
-        outcome_unsampled_regret=cfg.outcome_unsampled_regret,
-        cutoff_value_mode=cfg.cutoff_value_mode,
-        cutoff_rollouts=cfg.cutoff_rollouts,
-        cutoff_rollout_policy=cfg.cutoff_rollout_policy,
-        cutoff_rollout_max_steps=cfg.cutoff_rollout_max_steps,
-        opponent_policy=cfg.opponent_policy,
+        epsilon=cfg.traversal.regret_matching_epsilon,
+        strategy_sample_interval=cfg.traversal.strategy_sample_interval,
+        store_strategy_on_traverser_nodes=cfg.traversal.store_strategy_on_traverser_nodes,
+        store_strategy_on_opponent_nodes=cfg.traversal.store_strategy_on_opponent_nodes,
+        max_depth=cfg.traversal.max_depth,
+        max_nodes=cfg.traversal.max_nodes,
+        outcome_sampling_epsilon=cfg.traversal.outcome_sampling_epsilon,
+        outcome_sampling_value_clip=cfg.traversal.outcome_sampling_value_clip,
+        outcome_unsampled_regret=cfg.traversal.outcome_unsampled_regret,
+        cutoff_value_mode=cfg.traversal.cutoff_value_mode,
+        cutoff_rollouts=cfg.traversal.cutoff_rollouts,
+        cutoff_rollout_policy=cfg.traversal.cutoff_rollout_policy,
+        cutoff_rollout_max_steps=cfg.traversal.cutoff_rollout_max_steps,
+        opponent_policy=cfg.traversal.opponent_policy,
         league_advantage_networks=league_networks,
-        self_play_anchor_probability=cfg.self_play_anchor_probability,
-        self_play_current_weight=cfg.self_play_current_weight,
-        self_play_recent_weight=cfg.self_play_recent_weight,
-        self_play_older_weight=cfg.self_play_older_weight,
-        self_play_anchor_weight=cfg.self_play_anchor_weight,
-        self_play_recent_window=cfg.self_play_recent_window,
+        self_play_anchor_probability=cfg.self_play.anchor_probability,
+        self_play_current_weight=cfg.self_play.current_weight,
+        self_play_recent_weight=cfg.self_play.recent_weight,
+        self_play_older_weight=cfg.self_play.older_weight,
+        self_play_anchor_weight=cfg.self_play.anchor_weight,
+        self_play_recent_window=cfg.self_play.recent_window,
         rng=np.random.default_rng(batch.worker_seed),
     )
     game_config = LostCitiesConfig(**batch.game_config)
