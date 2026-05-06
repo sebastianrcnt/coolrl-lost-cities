@@ -4,7 +4,7 @@ import copy
 import json
 import multiprocessing as mp
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, as_completed, wait
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -415,32 +415,47 @@ class DeepCFRTrainer:
             max_workers=max_workers,
             mp_context=mp.get_context("spawn"),
         ) as executor:
-            futures = [executor.submit(run_traversal_worker_batch, batch) for batch in batches]
-            total_batches = len(futures)
-            for completed_batches, future in enumerate(as_completed(futures), start=1):
-                result = future.result()
-                total_stats.accumulate(result.stats)
-                memory_add_started = time.perf_counter()
-                self._add_advantage_samples(result.advantage_samples)
-                self.strategy_memory.add_many(result.strategy_samples, self.rng)
-                self._runtime_metrics["memory_add_seconds"] = (
-                    float(self._runtime_metrics.get("memory_add_seconds", 0.0))
-                    + time.perf_counter()
-                    - memory_add_started
-                )
-                progress_nodes += result.stats.nodes
-                progress_traversals += result.traversals
-                if next_progress_at is not None and progress_traversals >= next_progress_at:
-                    elapsed = time.perf_counter() - progress_started
-                    self.tracker.log_event(
-                        f"Traversal multiprocessing progress iteration={iteration} "
-                        f"completed_batches={completed_batches}/{total_batches} "
-                        f"completed_traversals={progress_traversals} elapsed_seconds={elapsed:.2f} "
-                        f"total_nodes={progress_nodes} "
-                        f"nodes_per_second={progress_nodes / max(elapsed, 1.0e-12):.1f}"
+            total_batches = len(batches)
+            in_flight_limit = min(total_batches, max(1, max_workers * 2))
+            batch_iter = iter(batches)
+            futures = {
+                executor.submit(run_traversal_worker_batch, batch)
+                for _, batch in zip(range(in_flight_limit), batch_iter, strict=False)
+            }
+            completed_batches = 0
+            while futures:
+                done, futures = wait(futures, return_when=FIRST_COMPLETED)
+                for future in done:
+                    result = future.result()
+                    completed_batches += 1
+                    total_stats.accumulate(result.stats)
+                    memory_add_started = time.perf_counter()
+                    self._add_advantage_samples(result.advantage_samples)
+                    self.strategy_memory.add_many(result.strategy_samples, self.rng)
+                    self._runtime_metrics["memory_add_seconds"] = (
+                        float(self._runtime_metrics.get("memory_add_seconds", 0.0))
+                        + time.perf_counter()
+                        - memory_add_started
                     )
-                    while next_progress_at is not None and next_progress_at <= progress_traversals:
-                        next_progress_at += progress_every
+                    progress_nodes += result.stats.nodes
+                    progress_traversals += result.traversals
+                    if next_progress_at is not None and progress_traversals >= next_progress_at:
+                        elapsed = time.perf_counter() - progress_started
+                        self.tracker.log_event(
+                            f"Traversal multiprocessing progress iteration={iteration} "
+                            f"completed_batches={completed_batches}/{total_batches} "
+                            f"completed_traversals={progress_traversals} "
+                            f"elapsed_seconds={elapsed:.2f} "
+                            f"total_nodes={progress_nodes} "
+                            f"nodes_per_second={progress_nodes / max(elapsed, 1.0e-12):.1f}"
+                        )
+                        while (
+                            next_progress_at is not None and next_progress_at <= progress_traversals
+                        ):
+                            next_progress_at += progress_every
+                    next_batch = next(batch_iter, None)
+                    if next_batch is not None:
+                        futures.add(executor.submit(run_traversal_worker_batch, next_batch))
         return total_stats
 
     def _worker_batches(self, iteration: int) -> list[TraversalWorkerBatch]:
