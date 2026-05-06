@@ -534,6 +534,8 @@ class DeepCFRTrainer:
             return max(self.iteration, int(self.config.run.max_iterations))
         if self.config.run.max_hours is not None:
             return 2**31 - 1
+        if self.config.run.iterations is None:
+            return 2**31 - 1
         return self.iteration + self.config.run.iterations
 
     def _time_limit_reached(self, run_started: float) -> bool:

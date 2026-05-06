@@ -18,7 +18,7 @@ class StrictModel(BaseModel):
 
 class RunConfig(StrictModel):
     experiment_name: str = "deep_cfr"
-    iterations: int = 1
+    iterations: int | None = 1
     max_iterations: int | None = None
     max_hours: float | None = None
     seed: int = 1
