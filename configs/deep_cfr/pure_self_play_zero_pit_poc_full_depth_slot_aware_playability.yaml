@@ -82,7 +82,7 @@ evaluation:
     - noisy_safe
 
 checkpoint:
-  directory: checkpoints/lost_cities_deep_cfr_pure_self_play_zero_pit_poc_full_depth_slot_aware_playability
+  directory: runs/deep_cfr/pure_self_play_zero_pit_poc_full_depth_slot_aware_playability
   save_every_iteration: false
   save_iteration_interval: 10
   save_latest_only: false
