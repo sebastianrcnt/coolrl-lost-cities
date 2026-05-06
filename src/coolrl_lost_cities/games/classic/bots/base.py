@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from ..game import GameState
-from ..interfaces import BotInput, Snapshot
+from ..policy import PolicyInput
+from ..snapshots import Snapshot
 
 try:
     import numpy as np
@@ -9,7 +10,7 @@ except ImportError as exc:  # pragma: no cover
     raise RuntimeError("numpy is required for Lost Cities bots") from exc
 
 
-def legal_from_obs(obs_or_state: BotInput) -> np.ndarray:
+def legal_from_obs(obs_or_state: PolicyInput) -> np.ndarray:
     if isinstance(obs_or_state, GameState) or hasattr(obs_or_state, "legal_mask"):
         return np.asarray(obs_or_state.legal_mask(), dtype=bool)
     if isinstance(obs_or_state, Snapshot):

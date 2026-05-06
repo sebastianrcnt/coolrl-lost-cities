@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .bots import (
-    LostCitiesBot,
+    LostCitiesPolicy,
     available_bot_names,
     build_bot,
 )
@@ -11,8 +11,8 @@ from .evaluation import (
     MatchEvalRecord,
     MatchResult,
     TimingResult,
-    evaluate_bot,
-    make_bot_factory,
+    evaluate_policy,
+    make_policy_factory,
     play_game_for_evaluation,
     play_match,
 )
@@ -22,13 +22,13 @@ from .game import (
     LostCitiesConfig,
     classic_config,
 )
-from .interfaces import Snapshot
+from .snapshots import Snapshot
 
 __all__ = [
     "GameState",
     "GameResult",
     "IllegalMoveError",
-    "LostCitiesBot",
+    "LostCitiesPolicy",
     "LostCitiesConfig",
     "LostCitiesEnv",
     "MatchEvalRecord",
@@ -38,8 +38,8 @@ __all__ = [
     "available_bot_names",
     "build_bot",
     "classic_config",
-    "evaluate_bot",
-    "make_bot_factory",
+    "evaluate_policy",
+    "make_policy_factory",
     "play_game_for_evaluation",
     "play_match",
 ]

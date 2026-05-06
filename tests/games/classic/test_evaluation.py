@@ -1,7 +1,7 @@
 from coolrl_lost_cities.games.classic import (
     LostCitiesConfig,
     build_bot,
-    make_bot_factory,
+    make_policy_factory,
     play_game_for_evaluation,
     play_match,
 )
@@ -29,8 +29,8 @@ def test_play_match_alternates_seats_and_reports_rates() -> None:
     config = LostCitiesConfig(n_colors=3, n_ranks=5, n_handshakes=1, hand_size=5)
 
     result = play_match(
-        make_bot_factory("random"),
-        make_bot_factory("passive-discard"),
+        make_policy_factory("random"),
+        make_policy_factory("passive-discard"),
         config,
         games=4,
         seed=10,

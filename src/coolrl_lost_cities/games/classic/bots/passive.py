@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from ..game import GameState
-from ..interfaces import BotInput, Snapshot
+from ..policy import PolicyInput
+from ..snapshots import Snapshot
 from .base import first_legal, legal_from_obs
 
 
 class PassiveDiscardBot:
     """Baseline that avoids opening expeditions whenever discarding is legal."""
 
-    def act(self, obs_or_state: BotInput) -> int:
+    def act(self, obs_or_state: PolicyInput) -> int:
         if isinstance(obs_or_state, GameState) or hasattr(obs_or_state, "legal_mask"):
             return self._act_phase_local(
                 obs_or_state.phase,

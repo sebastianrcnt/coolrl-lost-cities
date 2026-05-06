@@ -24,7 +24,7 @@ src/coolrl_lost_cities/
       snapshots.py
       evaluation.py
       env.py
-      interfaces.py
+      policy.py
       bots/
       pygame_pvp.py
       fixtures/

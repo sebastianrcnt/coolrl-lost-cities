@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from .bots import DEFAULT_BOT, LostCitiesBot, available_bot_names, build_bot
+from .bots import DEFAULT_BOT, LostCitiesPolicy, available_bot_names, build_bot
 from .game import Card, GameState, LostCitiesConfig, classic_config
 from .resources import theme_path
 from .snapshots import Snapshot, snapshot_from_state, snapshot_summary
@@ -239,7 +239,7 @@ class LostCitiesGuiApp:
     def _computer_bot_display_name(self) -> str:
         return self.computer_bot_label
 
-    def _build_computer_bot(self) -> tuple[LostCitiesBot, str]:
+    def _build_computer_bot(self) -> tuple[LostCitiesPolicy, str]:
         return build_bot(self.bot_name, seed=self._bot_seed()), self.bot_name
 
     def snapshot(self) -> Snapshot:

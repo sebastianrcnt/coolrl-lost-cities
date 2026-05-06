@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from ..interfaces import BotInput, LostCitiesBot
+from ..policy import LostCitiesPolicy, PolicyInput
 from .heuristic import SafeHeuristicBot
 from .passive import PassiveDiscardBot
 from .random import RandomBot
 from .registry import DEFAULT_BOT, available_bot_names, build_bot
 
 __all__ = [
-    "BotInput",
+    "PolicyInput",
     "DEFAULT_BOT",
-    "LostCitiesBot",
+    "LostCitiesPolicy",
     "PassiveDiscardBot",
     "RandomBot",
     "SafeHeuristicBot",

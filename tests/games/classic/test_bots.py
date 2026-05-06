@@ -1,7 +1,7 @@
 from coolrl_lost_cities.games.classic.game import Card, GameState, LostCitiesConfig
 
 from coolrl_lost_cities.games.classic.bots import (
-    LostCitiesBot,
+    LostCitiesPolicy,
     RandomBot,
     SafeHeuristicBot,
 )
@@ -17,9 +17,9 @@ def _expeditions(config: LostCitiesConfig) -> list[list[list[Card]]]:
     ]
 
 
-def test_builtin_bots_implement_lost_cities_bot() -> None:
-    assert isinstance(RandomBot(1), LostCitiesBot)
-    assert isinstance(SafeHeuristicBot(), LostCitiesBot)
+def test_builtin_bots_implement_lost_cities_policy() -> None:
+    assert isinstance(RandomBot(1), LostCitiesPolicy)
+    assert isinstance(SafeHeuristicBot(), LostCitiesPolicy)
 
 
 def test_safe_heuristic_mirror_match_finishes() -> None:

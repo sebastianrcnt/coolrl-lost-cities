@@ -11,9 +11,9 @@ import numpy as np
 
 from .bots import available_bot_names, build_bot
 from .game import GameState, LostCitiesConfig, classic_config
-from .interfaces import LostCitiesBot
+from .policy import LostCitiesPolicy
 
-BotFactory = Callable[[int | None], LostCitiesBot]
+PolicyFactory = Callable[[int | None], LostCitiesPolicy]
 MATCH_EVAL_RECORD_TYPE = "lost_cities.classic.eval.match.v1"
 
 
@@ -134,18 +134,18 @@ class MatchEvalRecord:
         }
 
 
-def make_bot_factory(name: str) -> BotFactory:
+def make_policy_factory(name: str) -> PolicyFactory:
     canonical = _canonical_bot_name(name)
 
-    def factory(seed: int | None = None) -> LostCitiesBot:
+    def factory(seed: int | None = None) -> LostCitiesPolicy:
         return build_bot(canonical, seed=seed)
 
     return factory
 
 
 def play_game_for_evaluation(
-    bot0: LostCitiesBot,
-    bot1: LostCitiesBot,
+    policy0: LostCitiesPolicy,
+    policy1: LostCitiesPolicy,
     config: LostCitiesConfig,
     *,
     seed: int | None = None,
@@ -154,12 +154,12 @@ def play_game_for_evaluation(
     if max_steps <= 0:
         raise ValueError(f"max_steps must be positive, got {max_steps}")
     state = GameState.new_game(config, seed=seed)
-    bots = [bot0, bot1]
+    policies = [policy0, policy1]
     steps = 0
     for _ in range(max_steps):
         if state.terminal:
             break
-        action = bots[state.current_player].act(state)
+        action = policies[state.current_player].act(state)
         state.apply_action(action)
         steps += 1
     timed_out = not state.terminal
@@ -180,8 +180,8 @@ def play_game_for_evaluation(
 
 
 def play_match(
-    bot0_factory: BotFactory,
-    bot1_factory: BotFactory,
+    policy0_factory: PolicyFactory,
+    policy1_factory: PolicyFactory,
     config: LostCitiesConfig,
     *,
     games: int,
@@ -203,11 +203,11 @@ def play_match(
         game_seed = seed + index
         swap = alternate_seats and index % 2 == 1
         if swap:
-            left = bot1_factory(game_seed * 2)
-            right = bot0_factory(game_seed * 2 + 1)
+            left = policy1_factory(game_seed * 2)
+            right = policy0_factory(game_seed * 2 + 1)
         else:
-            left = bot0_factory(game_seed * 2)
-            right = bot1_factory(game_seed * 2 + 1)
+            left = policy0_factory(game_seed * 2)
+            right = policy1_factory(game_seed * 2 + 1)
 
         _, result = play_game_for_evaluation(
             left,
@@ -255,9 +255,9 @@ def play_match(
     )
 
 
-def evaluate_bot(
-    bot_factory: BotFactory,
-    opponent_factory: BotFactory,
+def evaluate_policy(
+    policy_factory: PolicyFactory,
+    opponent_factory: PolicyFactory,
     config: LostCitiesConfig,
     *,
     games: int,
@@ -265,7 +265,7 @@ def evaluate_bot(
     max_steps: int = 10_000,
 ) -> MatchResult:
     return play_match(
-        bot_factory,
+        policy_factory,
         opponent_factory,
         config,
         games=games,
@@ -290,8 +290,8 @@ def main(argv: list[str] | None = None) -> None:
     config = classic_config()
     alternate_seats = not args.no_alternate_seats
     result = play_match(
-        make_bot_factory(args.bot0),
-        make_bot_factory(args.bot1),
+        make_policy_factory(args.bot0),
+        make_policy_factory(args.bot1),
         config,
         games=args.games,
         seed=args.seed,

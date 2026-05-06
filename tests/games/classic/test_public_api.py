@@ -37,4 +37,4 @@ def test_classic_package_exports_snapshot_alias() -> None:
 
 def test_classic_package_exports_bot_registry_helpers() -> None:
     assert "random" in classic.available_bot_names()
-    assert isinstance(classic.build_bot("random", seed=1), classic.LostCitiesBot)
+    assert isinstance(classic.build_bot("random", seed=1), classic.LostCitiesPolicy)
