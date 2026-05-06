@@ -45,17 +45,26 @@ def _with_overrides(config: DeepCFRConfig, overrides: dict[str, Any]) -> DeepCFR
     return DeepCFRConfig.model_validate(data)
 
 
-def train_command(args: argparse.Namespace) -> None:
-    config = _load_config(args.config)
+def _train_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
     overrides: dict[str, Any] = {}
+    run_overrides = overrides.setdefault("run", {})
     if args.iterations is not None:
-        overrides.setdefault("run", {})["iterations"] = args.iterations
+        run_overrides["iterations"] = args.iterations
+        if args.max_hours is None and args.max_iterations is None:
+            run_overrides["max_hours"] = None
+            run_overrides["max_iterations"] = None
+    if args.max_hours is not None:
+        run_overrides["max_hours"] = args.max_hours
+    if args.max_iterations is not None:
+        run_overrides["max_iterations"] = args.max_iterations
     if args.seed is not None:
-        overrides.setdefault("run", {})["seed"] = args.seed
+        run_overrides["seed"] = args.seed
     if args.traversals_per_iteration is not None:
-        overrides.setdefault("traversal", {})["traversals_per_iteration"] = (
-            args.traversals_per_iteration
-        )
+        traversal_overrides = overrides.setdefault("traversal", {})
+        traversal_overrides["traversals_per_iteration"] = args.traversals_per_iteration
+        traversal_overrides["traversals_per_player"] = None
+    if args.num_workers is not None:
+        overrides.setdefault("traversal", {})["num_workers"] = args.num_workers
     if args.checkpoint_dir is not None:
         overrides.setdefault("checkpoint", {})["directory"] = args.checkpoint_dir
     if args.eval_every is not None:
@@ -64,6 +73,12 @@ def train_command(args: argparse.Namespace) -> None:
         overrides.setdefault("evaluation", {})["games"] = args.eval_games
     if args.no_save:
         overrides.setdefault("checkpoint", {})["save_every_iteration"] = False
+    return overrides
+
+
+def train_command(args: argparse.Namespace) -> None:
+    config = _load_config(args.config)
+    overrides = _train_overrides_from_args(args)
     config = _with_overrides(config, overrides)
     trainer = DeepCFRTrainer(
         config,
@@ -165,7 +180,10 @@ def main(argv: list[str] | None = None) -> None:
     train = subparsers.add_parser("train")
     train.add_argument("--config")
     train.add_argument("--iterations", type=int)
+    train.add_argument("--max-hours", type=float)
+    train.add_argument("--max-iterations", type=int)
     train.add_argument("--traversals-per-iteration", type=int)
+    train.add_argument("--num-workers")
     train.add_argument("--checkpoint-dir")
     train.add_argument("--resume")
     train.add_argument("--device")

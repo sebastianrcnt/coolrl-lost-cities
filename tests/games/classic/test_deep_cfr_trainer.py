@@ -8,6 +8,10 @@ from coolrl_lost_cities.games.classic.deep_cfr.benchmark import (
     benchmark_traversal,
     benchmark_traversal_modes,
 )
+from coolrl_lost_cities.games.classic.deep_cfr.cli import (
+    _train_overrides_from_args,
+    _with_overrides,
+)
 from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig, load_config
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
@@ -56,6 +60,38 @@ def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
         config.checkpoint.directory
         == "runs/deep_cfr/pure_self_play_zero_pit_poc_full_depth_slot_aware_playability"
     )
+
+
+def test_deep_cfr_train_cli_count_overrides_disable_duration_limits() -> None:
+    args = type(
+        "Args",
+        (),
+        {
+            "iterations": 1,
+            "max_hours": None,
+            "max_iterations": None,
+            "seed": None,
+            "traversals_per_iteration": 1,
+            "num_workers": "0",
+            "checkpoint_dir": None,
+            "eval_every": None,
+            "eval_games": None,
+            "no_save": True,
+        },
+    )()
+    config = load_config(
+        "configs/deep_cfr/pure_self_play_zero_pit_poc_full_depth_slot_aware_playability.yaml"
+    )
+
+    overridden = _with_overrides(config, _train_overrides_from_args(args))
+
+    assert overridden.run.iterations == 1
+    assert overridden.run.max_hours is None
+    assert overridden.run.max_iterations is None
+    assert overridden.traversal.traversals_per_player is None
+    assert overridden.traversal.resolved_traversals_per_player() == 1
+    assert overridden.traversal.resolved_num_workers() == 0
+    assert overridden.checkpoint.save_every_iteration is False
 
 
 def test_deep_cfr_playability_encoding_extends_input_shape() -> None:
