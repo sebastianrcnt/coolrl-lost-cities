@@ -87,9 +87,7 @@ def train_command(args: argparse.Namespace) -> None:
     )
     if args.resume:
         trainer.load_checkpoint(args.resume)
-    metrics = trainer.train()
-    for item in metrics:
-        print(json.dumps(item.to_dict(), sort_keys=True))
+    trainer.train()
 
 
 def eval_command(args: argparse.Namespace) -> None:

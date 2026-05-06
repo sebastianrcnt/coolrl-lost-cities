@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
+from sys import stdout
 from typing import Any, Protocol
 
 
@@ -47,6 +48,17 @@ class CompositeRunTracker:
     def close(self) -> None:
         for tracker in self.trackers:
             tracker.close()
+
+
+class ConsoleRunTracker:
+    def log_event(self, message: str) -> None:
+        print(f"{log_timestamp()} {message}", file=stdout, flush=True)
+
+    def log_metrics(self, metrics: dict[str, Any], *, step: int) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
 
 
 class FileRunTracker:

@@ -20,7 +20,12 @@ from coolrl_lost_cities.games.classic.deep_cfr.encoding import input_dim
 from coolrl_lost_cities.games.classic.deep_cfr.evaluate import evaluate_strategy_network
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.networks import DeepCFRMLP
-from coolrl_lost_cities.games.classic.deep_cfr.tracking import FileRunTracker, RunTracker
+from coolrl_lost_cities.games.classic.deep_cfr.tracking import (
+    CompositeRunTracker,
+    ConsoleRunTracker,
+    FileRunTracker,
+    RunTracker,
+)
 from coolrl_lost_cities.games.classic.deep_cfr.traverser import DeepCFRTraverser, TraversalStats
 from coolrl_lost_cities.games.classic.deep_cfr.workers import (
     TraversalWorkerBatch,
@@ -150,10 +155,15 @@ class DeepCFRTrainer:
         self.metrics_path = self.run_dir / "metrics.jsonl"
         self.progress_path = self.run_dir / "runtime_progress.json"
         self.log_path = self.run_dir / "train.log"
-        self.tracker = tracker or FileRunTracker(
-            log_path=self.log_path,
-            metrics_path=self.metrics_path,
-            progress_path=self.progress_path,
+        self.tracker = tracker or CompositeRunTracker(
+            [
+                FileRunTracker(
+                    log_path=self.log_path,
+                    metrics_path=self.metrics_path,
+                    progress_path=self.progress_path,
+                ),
+                ConsoleRunTracker(),
+            ]
         )
         self.self_play_league_snapshots: list[list[dict]] = []
 
