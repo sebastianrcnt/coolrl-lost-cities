@@ -5,7 +5,7 @@ from typing import Literal, Protocol, TypeAlias, runtime_checkable
 
 from .game import Card, GameState, LostCitiesConfig, score_expedition
 
-BackendName = Literal["python", "rust"]
+BackendName = Literal["python"]
 
 
 @dataclass

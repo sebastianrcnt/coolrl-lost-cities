@@ -30,4 +30,4 @@ def test_gui_argparser_accepts_classic_options() -> None:
 
 def test_gui_argparser_rejects_removed_backend_option() -> None:
     with pytest.raises(SystemExit):
-        pygame_pvp.build_argparser().parse_args(["--backend", "rust"])
+        pygame_pvp.build_argparser().parse_args(["--backend", "native"])

@@ -6,10 +6,9 @@ The current implementation starts with the classic two-player card game:
 
 - classic 5-expedition rules by default
 - Python/Cython game engine
-- Rust core parity checks
 - env wrapper
 - random, passive-discard, and safe-heuristic bots
-- core rule, scoring, mask, env, canonical-state, bot, and Rust parity tests
+- core rule, scoring, mask, env, canonical-state, bot, and GUI smoke tests
 
 Training code, Deep CFR, learned-policy evaluation, GUI, and web client are
 intentionally outside the first port.
@@ -33,8 +32,7 @@ Run the classic pygame GUI:
 uv run lost-cities-classic-gui --mode pvc --bot safe-heuristic
 ```
 
-The GUI currently uses the Python backend only. The Rust core remains covered by
-parity tests and is not exposed as a GUI backend.
+The GUI uses the in-process Python backend.
 
 ## Basic Usage
 
@@ -57,13 +55,6 @@ from coolrl_lost_cities.games.classic import build_backend, classic_config
 
 backend = build_backend("python", classic_config(), seed=1)
 snapshot = backend.snapshot()
-```
-
-Rust sources live outside the Python package:
-
-```text
-rust/lost-cities-core/
-proto/lost_cities.proto
 ```
 
 See [classic port notes](docs/classic-port-notes.md) for the current direction.

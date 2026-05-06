@@ -3,7 +3,6 @@ from __future__ import annotations
 from ..game import LostCitiesConfig
 from ..interfaces import BackendName, LostCitiesBackend
 from .python import PythonLostCitiesBackend
-from .rust import RustLostCitiesBackend
 
 
 def build_backend(
@@ -13,6 +12,4 @@ def build_backend(
 ) -> LostCitiesBackend:
     if backend == "python":
         return PythonLostCitiesBackend(config, seed)
-    if backend == "rust":
-        return RustLostCitiesBackend(config, seed)
     raise ValueError(f"unknown backend: {backend}")

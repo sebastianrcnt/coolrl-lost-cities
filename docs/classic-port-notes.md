@@ -10,9 +10,8 @@ game, without the earlier training-oriented tiers.
 - Treat classic as the initial concrete game under `coolrl_lost_cities.games`.
 - Do not carry over `tier0` through `tier3`; those were useful for experiments,
   but they should not shape the first public game API.
-- Keep backend selection available. The Python/Cython and Rust implementations
-  should remain swappable behind a small backend boundary.
-- Keep the GUI and Rust implementation in scope for the port.
+- Use the in-process Python/Cython implementation for the current port.
+- Keep the GUI in scope for local play, but do not carry a separate native backend.
 - Keep RL and training code out of the first extraction.
 
 The expected package shape is roughly:
@@ -30,10 +29,6 @@ src/coolrl_lost_cities/
       fixtures/
       assets/
       docs/
-rust/
-  lost-cities-core/
-proto/
-  lost_cities.proto
 ```
 
 Tests should live outside the package, roughly under:
@@ -47,6 +42,7 @@ tests/games/classic/
 - Deep CFR
 - General training infrastructure
 - Evaluation loops for learned policies
+- Separate native backend support
 - Web client
 - Legacy experiment configs, checkpoints, logs, exports, and analysis artifacts
 
@@ -75,7 +71,7 @@ src/coolrl_lost_cities/
 ```
 
 The game package should expose rules, state transitions, legal actions, scoring,
-backend selection, and playable UI. Training code can adapt those pieces later.
+and playable UI. Training code can adapt those pieces later.
 
 ## Naming Notes
 
