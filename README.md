@@ -21,4 +21,27 @@ uv run pytest tests/games/classic
 uv run lost-cities-classic
 ```
 
+## Basic Usage
+
+```python
+from coolrl_lost_cities.games.classic import GameState, build_bot, classic_config
+
+state = GameState.new_game(classic_config(seed=1))
+bot = build_bot("random", seed=1)
+
+while not state.terminal:
+    state.apply_action(bot.act(state))
+
+print(state.total_score(0), state.total_score(1))
+```
+
+Backends use the same snapshot/apply/undo interface:
+
+```python
+from coolrl_lost_cities.games.classic import build_backend, classic_config
+
+backend = build_backend("python", classic_config(), seed=1)
+snapshot = backend.snapshot()
+```
+
 See [classic port notes](docs/classic-port-notes.md) for the current direction.

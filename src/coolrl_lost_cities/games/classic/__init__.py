@@ -1,13 +1,37 @@
 from __future__ import annotations
 
-from .game import Card, GameState, IllegalMoveError, LostCitiesConfig, classic_config
+from .backends import build_backend
+from .bots import (
+    LostCitiesBot,
+    available_bot_names,
+    build_bot,
+    play_game,
+    run_series,
+)
+from .env import LostCitiesEnv
+from .game import (
+    GameState,
+    IllegalMoveError,
+    LostCitiesConfig,
+    classic_config,
+)
+from .interfaces import BackendName, LostCitiesBackend, Snapshot
 
 __all__ = [
-    "Card",
+    "BackendName",
     "GameState",
     "IllegalMoveError",
+    "LostCitiesBackend",
+    "LostCitiesBot",
     "LostCitiesConfig",
+    "LostCitiesEnv",
+    "Snapshot",
+    "available_bot_names",
+    "build_backend",
+    "build_bot",
     "classic_config",
+    "play_game",
+    "run_series",
 ]
 
 

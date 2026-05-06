@@ -6,7 +6,7 @@ from .python import PythonLostCitiesBackend
 from .rust import RustLostCitiesBackend
 
 
-def build_lost_cities_backend(
+def build_backend(
     backend: BackendName,
     config: LostCitiesConfig,
     seed: int | None,

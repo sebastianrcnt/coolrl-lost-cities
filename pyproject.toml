@@ -1,7 +1,7 @@
 [project]
 name = "coolrl-lost-cities"
 version = "0.1.0"
-description = "Add your description here"
+description = "Focused Lost Cities classic game extraction"
 readme = "README.md"
 authors = [
     { name = "정시원", email = "sebastianrcnt@gmail.com" }
