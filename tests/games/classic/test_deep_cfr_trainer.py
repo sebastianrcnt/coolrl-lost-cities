@@ -4,6 +4,7 @@ import re
 
 import numpy as np
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import encode_info_state, input_dim
+from coolrl_lost_cities.games.classic.deep_cfr.traversal import CythonDeepCFRTraverser
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
 from coolrl_lost_cities.games.classic.deep_cfr.benchmark import (
@@ -20,7 +21,6 @@ from coolrl_lost_cities.games.classic.deep_cfr.cli import (
 from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig, load_config
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
-from coolrl_lost_cities.games.classic.deep_cfr.traverser import DeepCFRTraverser
 
 
 def _deep_cfr_config(data: dict) -> DeepCFRConfig:
@@ -225,7 +225,7 @@ def test_deep_cfr_trainer_smoke_run() -> None:
     assert metrics[0].strategy_loss >= 0.0
 
 
-def test_deep_cfr_recursive_traverser_restores_state_and_collects_samples() -> None:
+def test_deep_cfr_cython_traverser_restores_state_and_collects_samples() -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
@@ -244,18 +244,17 @@ def test_deep_cfr_recursive_traverser_restores_state_and_collects_samples() -> N
     )
     state = GameState.new_game(LostCitiesConfig(seed=29), seed=29)
     before = state.to_snapshot()
-    traverser = DeepCFRTraverser(
+    traverser = CythonDeepCFRTraverser(
         trainer.advantage_networks,
-        trainer.advantage_memory,
-        trainer.strategy_memory,
         device=trainer.device,
         action_size=trainer.action_size,
         max_depth=2,
         max_nodes=32,
-        rng=np.random.default_rng(29),
+        seed=29,
     )
 
     value, stats = traverser.traverse(state, traverser=0, iteration=1)
+    advantage_samples, strategy_samples = traverser.drain_samples()
 
     assert isinstance(value, float)
     assert state.to_snapshot() == before
@@ -263,14 +262,14 @@ def test_deep_cfr_recursive_traverser_restores_state_and_collects_samples() -> N
     assert stats.depth_cutoffs + stats.terminals + stats.node_limit_cutoffs > 0
     assert stats.strategy_samples > 0
     assert stats.advantage_samples > 0
-    assert len(trainer.strategy_memory) == stats.strategy_samples
-    assert len(trainer.advantage_memory) == stats.advantage_samples
-    sample = trainer.advantage_memory.all()[0]
+    assert len(strategy_samples) == stats.strategy_samples
+    assert len(advantage_samples) == stats.advantage_samples
+    sample = advantage_samples[0]
     assert sample.legal_mask.dtype == bool
     assert sample.target.shape == sample.legal_mask.shape
 
 
-def test_deep_cfr_traverser_supports_outcome_sampling_and_rollout_cutoffs() -> None:
+def test_deep_cfr_cython_traverser_supports_outcome_sampling_and_rollout_cutoffs() -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
@@ -296,10 +295,8 @@ def test_deep_cfr_traverser_supports_outcome_sampling_and_rollout_cutoffs() -> N
     )
     state = GameState.new_game(LostCitiesConfig(seed=31), seed=31)
     before = state.to_snapshot()
-    traverser = DeepCFRTraverser(
+    traverser = CythonDeepCFRTraverser(
         trainer.advantage_networks,
-        trainer.advantage_memory,
-        trainer.strategy_memory,
         device=trainer.device,
         action_size=trainer.action_size,
         max_depth=1,
@@ -311,16 +308,17 @@ def test_deep_cfr_traverser_supports_outcome_sampling_and_rollout_cutoffs() -> N
         cutoff_rollouts=2,
         cutoff_rollout_policy="random",
         cutoff_rollout_max_steps=16,
-        rng=np.random.default_rng(31),
+        seed=31,
     )
 
     _, stats = traverser.traverse(state, traverser=0, iteration=1)
+    advantage_samples, _ = traverser.drain_samples()
 
     assert state.to_snapshot() == before
     assert stats.depth_cutoffs > 0
     assert stats.cutoff_rollouts == stats.depth_cutoffs * 2
     assert stats.cutoff_rollout_steps > 0
-    sample = trainer.advantage_memory.all()[0]
+    sample = advantage_samples[0]
     unsampled_legal = sample.legal_mask.copy()
     unsampled_legal[np.nonzero(sample.target)[0]] = False
     assert np.all(sample.target[unsampled_legal] == 0.0)

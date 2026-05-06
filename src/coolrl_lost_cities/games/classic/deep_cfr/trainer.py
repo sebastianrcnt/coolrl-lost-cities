@@ -26,7 +26,8 @@ from coolrl_lost_cities.games.classic.deep_cfr.tracking import (
     FileRunTracker,
     RunTracker,
 )
-from coolrl_lost_cities.games.classic.deep_cfr.traverser import DeepCFRTraverser, TraversalStats
+from coolrl_lost_cities.games.classic.deep_cfr.traversal import run_cython_traversal_batch
+from coolrl_lost_cities.games.classic.deep_cfr.traversal_stats import TraversalStats
 from coolrl_lost_cities.games.classic.deep_cfr.workers import (
     TraversalWorkerBatch,
     run_traversal_worker_batch,
@@ -243,57 +244,67 @@ class DeepCFRTrainer:
 
     def _run_traversals_single_process(self, iteration: int) -> TraversalStats:
         total_stats = TraversalStats()
-        traverser = DeepCFRTraverser(
-            self.advantage_networks,
-            self.advantage_memory,
-            self.strategy_memory,
-            device=self.device,
-            action_size=self.action_size,
-            epsilon=self.config.traversal.regret_matching_epsilon,
-            strategy_sample_interval=self.config.traversal.strategy_sample_interval,
-            store_strategy_on_traverser_nodes=self.config.traversal.store_strategy_on_traverser_nodes,
-            store_strategy_on_opponent_nodes=self.config.traversal.store_strategy_on_opponent_nodes,
-            max_depth=self.config.traversal.max_depth,
-            max_nodes=self.config.traversal.resolved_max_nodes(),
-            outcome_sampling_epsilon=self.config.traversal.outcome_sampling_epsilon,
-            outcome_sampling_value_clip=self.config.traversal.outcome_sampling_value_clip,
-            outcome_unsampled_regret=self.config.traversal.outcome_unsampled_regret,
-            cutoff_value_mode=self.config.traversal.cutoff_value_mode,
-            cutoff_rollouts=self.config.traversal.cutoff_rollouts,
-            cutoff_rollout_policy=self.config.traversal.cutoff_rollout_policy,
-            cutoff_rollout_max_steps=self.config.traversal.cutoff_rollout_max_steps,
-            opponent_policy=self.config.traversal.opponent_policy,
-            league_advantage_networks=self._materialize_league_networks(),
-            self_play_anchor_probability=self.config.self_play.anchor_probability,
-            self_play_current_weight=self.config.self_play.current_weight,
-            self_play_recent_weight=self.config.self_play.recent_weight,
-            self_play_older_weight=self.config.self_play.older_weight,
-            self_play_anchor_weight=self.config.self_play.anchor_weight,
-            self_play_recent_window=self.config.self_play.recent_window,
-            endpoint_depth_bucket_width=self.config.traversal.endpoint_depth_bucket_width,
-            endpoint_depth_bucket_max=self.config.traversal.endpoint_depth_bucket_max,
-            encoding=self.config.encoding,
-            rng=self.rng,
-        )
         for network in self.advantage_networks:
             network.eval()
+        league_networks = self._materialize_league_networks()
         progress_every = int(self.config.traversal.progress_every_traversals)
         completed = 0
         progress_started = time.perf_counter()
-        for traversal_index in range(self.config.traversal.resolved_traversals_per_player()):
-            for player in range(2):
-                seed = self.config.run.seed + iteration * 10_000 + traversal_index * 10 + player
-                state = GameState.new_game(self.game_config, seed=seed)
-                _, stats = traverser.traverse(state, player, iteration)
-                total_stats.accumulate(stats)
-                completed += 1
-                if progress_every > 0 and completed % progress_every == 0:
-                    elapsed = time.perf_counter() - progress_started
-                    self.tracker.log_event(
-                        f"Traversal progress iteration={iteration} completed={completed} "
-                        f"elapsed_seconds={elapsed:.2f} total_nodes={total_stats.nodes} "
-                        f"nodes_per_second={total_stats.nodes / max(elapsed, 1.0e-12):.1f}"
-                    )
+        traversals_per_player = self.config.traversal.resolved_traversals_per_player()
+        for player in range(2):
+            seeds = [
+                self.config.run.seed + iteration * 10_000 + traversal_index * 10 + player
+                for traversal_index in range(traversals_per_player)
+            ]
+            stats, advantage_samples, strategy_samples = run_cython_traversal_batch(
+                self.advantage_networks,
+                self.game_config,
+                seeds,
+                player,
+                iteration,
+                device=self.device,
+                action_size=self.action_size,
+                encoding=self.config.encoding,
+                epsilon=self.config.traversal.regret_matching_epsilon,
+                strategy_sample_interval=self.config.traversal.strategy_sample_interval,
+                store_strategy_on_traverser_nodes=(
+                    self.config.traversal.store_strategy_on_traverser_nodes
+                ),
+                store_strategy_on_opponent_nodes=(
+                    self.config.traversal.store_strategy_on_opponent_nodes
+                ),
+                max_depth=self.config.traversal.max_depth,
+                max_nodes=self.config.traversal.resolved_max_nodes(),
+                outcome_sampling_epsilon=self.config.traversal.outcome_sampling_epsilon,
+                outcome_sampling_value_clip=self.config.traversal.outcome_sampling_value_clip,
+                outcome_unsampled_regret=self.config.traversal.outcome_unsampled_regret,
+                cutoff_value_mode=self.config.traversal.cutoff_value_mode,
+                cutoff_rollouts=self.config.traversal.cutoff_rollouts,
+                cutoff_rollout_policy=self.config.traversal.cutoff_rollout_policy,
+                cutoff_rollout_max_steps=self.config.traversal.cutoff_rollout_max_steps,
+                opponent_policy=self.config.traversal.opponent_policy,
+                league_advantage_networks=league_networks,
+                self_play_anchor_probability=self.config.self_play.anchor_probability,
+                self_play_current_weight=self.config.self_play.current_weight,
+                self_play_recent_weight=self.config.self_play.recent_weight,
+                self_play_older_weight=self.config.self_play.older_weight,
+                self_play_anchor_weight=self.config.self_play.anchor_weight,
+                self_play_recent_window=self.config.self_play.recent_window,
+                endpoint_depth_bucket_width=self.config.traversal.endpoint_depth_bucket_width,
+                endpoint_depth_bucket_max=self.config.traversal.endpoint_depth_bucket_max,
+                seed=self.config.run.seed + iteration * 1_000_003 + player,
+            )
+            total_stats.accumulate(stats)
+            self.advantage_memory.add_many(advantage_samples, self.rng)
+            self.strategy_memory.add_many(strategy_samples, self.rng)
+            completed += len(seeds)
+            if progress_every > 0 and completed >= progress_every:
+                elapsed = time.perf_counter() - progress_started
+                self.tracker.log_event(
+                    f"Traversal progress iteration={iteration} completed={completed} "
+                    f"elapsed_seconds={elapsed:.2f} total_nodes={total_stats.nodes} "
+                    f"nodes_per_second={total_stats.nodes / max(elapsed, 1.0e-12):.1f}"
+                )
         return total_stats
 
     def _run_traversals_parallel(self, iteration: int) -> TraversalStats:
@@ -328,8 +339,8 @@ class DeepCFRTrainer:
             for completed_batches, future in enumerate(as_completed(futures), start=1):
                 result = future.result()
                 total_stats.accumulate(result.stats)
-                self.advantage_memory.extend(result.advantage_samples, self.rng)
-                self.strategy_memory.extend(result.strategy_samples, self.rng)
+                self.advantage_memory.add_many(result.advantage_samples, self.rng)
+                self.strategy_memory.add_many(result.strategy_samples, self.rng)
                 progress_nodes += result.stats.nodes
                 progress_traversals += result.traversals
                 if next_progress_at is not None and progress_traversals >= next_progress_at:

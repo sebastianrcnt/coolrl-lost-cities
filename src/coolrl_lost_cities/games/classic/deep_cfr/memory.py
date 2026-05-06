@@ -41,6 +41,13 @@ class ReservoirMemory:
             self._samples[index] = sample
 
     def extend(self, samples: list[TrainingSample], rng: np.random.Generator | None = None) -> None:
+        self.add_many(samples, rng)
+
+    def add_many(
+        self,
+        samples: list[TrainingSample],
+        rng: np.random.Generator | None = None,
+    ) -> None:
         for sample in samples:
             self.add(sample, rng)
 

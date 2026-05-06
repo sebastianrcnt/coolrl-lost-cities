@@ -4,14 +4,14 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
 import torch
 
 from coolrl_lost_cities.games.classic.deep_cfr.config import config_from_dict
-from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
+from coolrl_lost_cities.games.classic.deep_cfr.memory import TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.networks import DeepCFRMLP
-from coolrl_lost_cities.games.classic.deep_cfr.traverser import DeepCFRTraverser, TraversalStats
-from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
+from coolrl_lost_cities.games.classic.deep_cfr.traversal import run_cython_traversal_batch
+from coolrl_lost_cities.games.classic.deep_cfr.traversal_stats import TraversalStats
+from coolrl_lost_cities.games.classic.game import LostCitiesConfig
 
 _TORCH_THREADS_CONFIGURED = False
 
@@ -76,14 +76,16 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
             network.load_state_dict(state_dict)
             network.eval()
         league_networks.append(snapshot_networks)
-    advantage_memory = ReservoirMemory()
-    strategy_memory = ReservoirMemory()
-    traverser = DeepCFRTraverser(
+    game_config = LostCitiesConfig(**batch.game_config)
+    total_stats, advantage_samples, strategy_samples = run_cython_traversal_batch(
         networks,
-        advantage_memory,
-        strategy_memory,
+        game_config,
+        batch.seeds,
+        batch.player,
+        batch.iteration,
         device=device,
         action_size=batch.action_size,
+        encoding=cfg.encoding,
         epsilon=cfg.traversal.regret_matching_epsilon,
         strategy_sample_interval=cfg.traversal.strategy_sample_interval,
         store_strategy_on_traverser_nodes=cfg.traversal.store_strategy_on_traverser_nodes,
@@ -107,19 +109,12 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
         self_play_recent_window=cfg.self_play.recent_window,
         endpoint_depth_bucket_width=cfg.traversal.endpoint_depth_bucket_width,
         endpoint_depth_bucket_max=cfg.traversal.endpoint_depth_bucket_max,
-        encoding=cfg.encoding,
-        rng=np.random.default_rng(batch.worker_seed),
+        seed=batch.worker_seed,
     )
-    game_config = LostCitiesConfig(**batch.game_config)
-    total_stats = TraversalStats()
-    for seed in batch.seeds:
-        state = GameState.new_game(game_config, seed=seed)
-        _, stats = traverser.traverse(state, batch.player, batch.iteration)
-        total_stats.accumulate(stats)
     return TraversalWorkerResult(
         player=batch.player,
         stats=total_stats,
-        advantage_samples=advantage_memory.all(),
-        strategy_samples=strategy_memory.all(),
+        advantage_samples=advantage_samples,
+        strategy_samples=strategy_samples,
         traversals=len(batch.seeds),
     )

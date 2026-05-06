@@ -30,14 +30,12 @@ Implemented:
 
 Important implementation note:
 
-- The active training path still uses the Python recursive implementation in
-  `deep_cfr/traverser.py`.
-- `deep_cfr/traversal.pyx` exists, but it currently provides Cython traversal
-  primitives for random rollouts and root action value smoke runs. It is not yet
-  the full Deep CFR traversal backend used by the trainer.
-- The rules engine (`game.pyx`), encoding (`encoding.pyx`), and regret-matching
-  math (`cfr_math.pyx`) are Cythonized, but the Deep CFR tree-walking hot loop is
-  still Python.
+- The active training path now calls `deep_cfr/traversal.pyx`.
+- The old Python recursive `deep_cfr/traverser.py` path has been removed from
+  mainline code.
+- The rules engine (`game.pyx`), encoding (`encoding.pyx`), regret-matching math
+  (`cfr_math.pyx`), and Deep CFR tree-walking loop now have Cython
+  implementations.
 
 ### Training And Memory
 
@@ -130,19 +128,16 @@ Current state:
 1. `GameState` mutation, legal-action generation, apply/undo, and cached scoring
    are implemented in Cython.
 2. Information-state encoding and regret matching have Cython modules.
-3. Full Deep CFR traversal is still Python recursive.
-4. The trainer calls `DeepCFRTraverser` from `deep_cfr/traverser.py`, not a full
-   Cython Deep CFR traversal backend.
-5. A recursion-limit guard is present so full-depth runs with node budgets can
-   execute, but this is an execution safety guard rather than a performance
-   solution.
+3. Full Deep CFR traversal now runs through `traversal.pyx`.
+4. PyTorch policy inference and reservoir memory sample materialization still
+   cross the Python boundary.
+5. Traversal is still recursive inside Cython. The Python recursion-limit guard
+   is no longer the main execution path, but an explicit iterative scheduler is
+   still a future optimization.
 
 Recommended performance roadmap:
 
-1. Add `traversal.backend: python | cython` to config.
-2. Keep `traverser.py` as the reference/debug Python traversal.
-3. Implement a Cython Deep CFR traversal entrypoint in `traversal.pyx`.
-4. Move the tree-walking hot path to Cython:
+1. Continue moving the traversal hot path away from Python object boundaries:
    - C-level legal action enumeration
    - C-level push/pop undo
    - terminal, depth cutoff, and node-budget cutoff
@@ -152,26 +147,24 @@ Recommended performance roadmap:
    - instantaneous regret calculation
    - strategy sample collection
    - traversal stats collection
-5. Initially allow Cython traversal to call Python/PyTorch policy callbacks and
-   Python reservoir memories.
-6. Then reduce Python boundary costs with batched memory writes.
-7. After that, evaluate batched network inference for policy calls.
-8. Consider an explicit Cython iterative stack only after the Cython recursive
-   backend is correct and benchmarked.
+2. Reduce Python boundary costs with batched memory writes.
+3. Add batched network inference for policy calls.
+4. Replace the recursive Cython DFS with an explicit Cython traversal scheduler.
+5. Run multiple traversal contexts concurrently so policy-needed states can be
+   encoded and evaluated in batches.
 
 Python iterative traversal is not the preferred performance path. It would
 remove Python recursion-limit risk, but it would keep most Python object and
 callback overhead in the hot loop. For performance, the next serious step is a
-Cython Deep CFR traversal backend.
+Cython batched iterative traversal scheduler.
 
 ## Suggested Next Steps
 
-1. Add a Cython Deep CFR traversal backend behind a config switch.
-2. Add Python-vs-Cython traversal parity tests for state restoration and sample
-   shape/count invariants.
-3. Add benchmark output that directly compares Python and Cython traversal
-   throughput.
-4. Add batched memory writes after the Cython backend is correct.
+1. Add batched memory writes from the Cython traversal engine.
+2. Add benchmark output for recursive Cython traversal vs batched iterative
+   traversal once the scheduler exists.
+3. Add batched policy inference.
+4. Add an explicit Cython iterative traversal scheduler.
 5. Add a status/plot command that reads `metrics.jsonl`.
 6. Add worker progress logging and hotspot timing profile.
 7. Add W&B checkpoint artifacts after checkpoint quality is stable.
