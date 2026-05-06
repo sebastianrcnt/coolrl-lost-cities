@@ -92,6 +92,7 @@ def test_encode_info_state_is_deterministic_and_matches_legal_mask_tail() -> Non
 
     assert encoded.dtype == np.float32
     assert encoded.shape == (input_dim(state),)
+    assert input_dim(state) > 5 + state.config.hand_size * 3 + len(legal_mask)
     np.testing.assert_array_equal(encoded, encoded_again)
     np.testing.assert_array_equal(encoded[-len(legal_mask) :], legal_mask)
 
