@@ -40,7 +40,7 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
     cfg = config_from_dict(batch.config)
     device = torch.device("cpu")
     networks = [
-        DeepCFRMLP(batch.input_dim, batch.action_size, cfg.network.hidden_size).to(device)
+        DeepCFRMLP.from_config(batch.input_dim, batch.action_size, cfg.network).to(device)
         for _ in range(2)
     ]
     for network, state_dict in zip(networks, batch.advantage_networks, strict=True):
@@ -49,7 +49,7 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
     league_networks: list[list[torch.nn.Module]] = []
     for snapshot in batch.league_advantage_networks:
         snapshot_networks = [
-            DeepCFRMLP(batch.input_dim, batch.action_size, cfg.network.hidden_size).to(device)
+            DeepCFRMLP.from_config(batch.input_dim, batch.action_size, cfg.network).to(device)
             for _ in range(2)
         ]
         for network, state_dict in zip(snapshot_networks, snapshot, strict=True):
@@ -69,7 +69,7 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
         store_strategy_on_traverser_nodes=cfg.traversal.store_strategy_on_traverser_nodes,
         store_strategy_on_opponent_nodes=cfg.traversal.store_strategy_on_opponent_nodes,
         max_depth=cfg.traversal.max_depth,
-        max_nodes=cfg.traversal.max_nodes,
+        max_nodes=cfg.traversal.resolved_max_nodes(),
         outcome_sampling_epsilon=cfg.traversal.outcome_sampling_epsilon,
         outcome_sampling_value_clip=cfg.traversal.outcome_sampling_value_clip,
         outcome_unsampled_regret=cfg.traversal.outcome_unsampled_regret,

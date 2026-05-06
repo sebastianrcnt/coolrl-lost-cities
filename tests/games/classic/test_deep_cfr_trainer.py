@@ -26,6 +26,33 @@ def test_deep_cfr_loads_smoke_yaml_config() -> None:
     assert config.checkpoint.directory == "runs/deep_cfr/smoke"
 
 
+def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
+    config = load_config(
+        "configs/deep_cfr/pure_self_play_zero_pit_poc_full_depth_slot_aware_playability.yaml"
+    )
+
+    assert config.run.experiment_name.endswith("slot_aware_playability")
+    assert config.run.seed == 79
+    assert config.run.max_iterations is None
+    assert config.run.max_hours == 4
+    assert config.encoding.derived_playability is True
+    assert config.encoding.slot_aware_playability is True
+    assert config.network.hidden_size == 256
+    assert config.network.num_layers == 3
+    assert config.traversal.resolved_traversals_per_player() == 70
+    assert config.traversal.max_depth is None
+    assert config.traversal.resolved_max_nodes() == 1000
+    assert config.traversal.resolved_worker_chunk_size() == 8
+    assert config.optimization.resolved_advantage_batch_size() == 1024
+    assert config.optimization.resolved_strategy_batch_size() == 1024
+    assert config.optimization.resolved_advantage_train_steps() == 256
+    assert config.optimization.resolved_strategy_train_steps() == 256
+    assert config.optimization.weight_decay == 0.0001
+    assert config.optimization.grad_clip == 1.0
+    assert config.evaluation.on_max_steps == "score_diff"
+    assert config.checkpoint.save_iteration_interval == 10
+
+
 def test_deep_cfr_trainer_smoke_run() -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(

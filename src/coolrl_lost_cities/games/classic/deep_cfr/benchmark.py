@@ -4,7 +4,6 @@ import time
 
 from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
-from coolrl_lost_cities.games.classic.game import classic_config
 
 
 def benchmark_traversal(
@@ -24,7 +23,7 @@ def benchmark_traversal(
     data["checkpoint"]["save_every_iteration"] = False
     data["evaluation"]["eval_every"] = 0
     cfg = DeepCFRConfig.model_validate(data)
-    trainer = DeepCFRTrainer(cfg, classic_config(seed=cfg.run.seed))
+    trainer = DeepCFRTrainer(cfg, cfg.rules.to_lost_cities_config(seed=cfg.run.seed))
     started = time.perf_counter()
     metrics = trainer.run_iteration(1)
     elapsed = time.perf_counter() - started

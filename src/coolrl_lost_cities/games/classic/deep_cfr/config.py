@@ -9,25 +9,86 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from coolrl_lost_cities.games.classic.game import LostCitiesConfig
+
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
 class RunConfig(StrictModel):
+    experiment_name: str = "deep_cfr"
     iterations: int = 1
+    max_iterations: int | None = None
+    max_hours: float | None = None
     seed: int = 1
     device: str = "cpu"
+    use_amp: bool = False
+
+    @field_validator("device")
+    @classmethod
+    def _normalize_device(cls, value: str) -> str:
+        token = value.strip().lower()
+        if token == "cuda":
+            return "cuda"
+        if token == "cpu":
+            return "cpu"
+        if token == "auto":
+            return "auto"
+        return token
+
+
+class RulesConfig(StrictModel):
+    n_colors: int = 5
+    n_ranks: int = 9
+    min_rank: int = 2
+    n_handshakes: int = 3
+    hand_size: int = 8
+    expedition_penalty: int = -20
+    bonus_threshold: int = 8
+    bonus_amount: int = 20
+
+    def to_lost_cities_config(self, seed: int | None = None) -> LostCitiesConfig:
+        config = LostCitiesConfig(
+            n_colors=self.n_colors,
+            n_ranks=self.n_ranks,
+            min_rank=self.min_rank,
+            n_handshakes=self.n_handshakes,
+            hand_size=self.hand_size,
+            expedition_penalty=self.expedition_penalty,
+            bonus_threshold=self.bonus_threshold,
+            bonus_amount=self.bonus_amount,
+            seed=seed,
+        )
+        config.validate()
+        return config
+
+
+class EncodingConfig(StrictModel):
+    derived_playability: bool = False
+    slot_aware_playability: bool = False
 
 
 class NetworkConfig(StrictModel):
     hidden_size: int = 64
+    num_layers: int = 2
+    activation: str = "relu"
+
+    @field_validator("activation")
+    @classmethod
+    def _validate_activation(cls, value: str) -> str:
+        token = value.strip().lower()
+        if token not in {"relu", "gelu"}:
+            raise ValueError("must be 'relu' or 'gelu'")
+        return token
 
 
 class TraversalConfig(StrictModel):
     traversals_per_iteration: int = 2
+    traversals_per_player: int | None = None
     max_depth: int | None = 8
     max_nodes: int | None = 10_000
+    max_nodes_per_traversal: int | None = None
     regret_matching_epsilon: float = 1.0e-8
     outcome_sampling_epsilon: float = 0.0
     outcome_sampling_value_clip: float | None = None
@@ -42,6 +103,9 @@ class TraversalConfig(StrictModel):
     store_strategy_on_opponent_nodes: bool = True
     num_workers: int | str = 0
     worker_chunk_size: int = 4
+    traversal_worker_chunk_size: int | None = None
+    endpoint_depth_bucket_width: int = 100
+    endpoint_depth_bucket_max: int = 1000
 
     @field_validator("outcome_unsampled_regret")
     @classmethod
@@ -80,6 +144,21 @@ class TraversalConfig(StrictModel):
             return max(0, int(token))
         return max(0, int(self.num_workers))
 
+    def resolved_traversals_per_player(self) -> int:
+        if self.traversals_per_player is not None:
+            return max(0, int(self.traversals_per_player))
+        return max(0, int(self.traversals_per_iteration))
+
+    def resolved_max_nodes(self) -> int | None:
+        if self.max_nodes_per_traversal is not None:
+            return self.max_nodes_per_traversal
+        return self.max_nodes
+
+    def resolved_worker_chunk_size(self) -> int:
+        if self.traversal_worker_chunk_size is not None:
+            return max(1, int(self.traversal_worker_chunk_size))
+        return max(1, int(self.worker_chunk_size))
+
 
 class SelfPlayLeagueConfig(StrictModel):
     snapshot_every: int = 1
@@ -96,7 +175,33 @@ class OptimizationConfig(StrictModel):
     advantage_train_steps: int = 1
     strategy_train_steps: int = 1
     batch_size: int = 32
+    advantage_batch_size: int | None = None
+    strategy_batch_size: int | None = None
+    advantage_updates_per_iteration: int | None = None
+    strategy_updates_per_iteration: int | None = None
     learning_rate: float = 1.0e-3
+    weight_decay: float = 0.0
+    grad_clip: float = 0.0
+
+    def resolved_advantage_batch_size(self) -> int:
+        if self.advantage_batch_size is not None:
+            return max(1, int(self.advantage_batch_size))
+        return max(1, int(self.batch_size))
+
+    def resolved_strategy_batch_size(self) -> int:
+        if self.strategy_batch_size is not None:
+            return max(1, int(self.strategy_batch_size))
+        return max(1, int(self.batch_size))
+
+    def resolved_advantage_train_steps(self) -> int:
+        if self.advantage_updates_per_iteration is not None:
+            return max(0, int(self.advantage_updates_per_iteration))
+        return max(0, int(self.advantage_train_steps))
+
+    def resolved_strategy_train_steps(self) -> int:
+        if self.strategy_updates_per_iteration is not None:
+            return max(0, int(self.strategy_updates_per_iteration))
+        return max(0, int(self.strategy_train_steps))
 
 
 class MemoryConfig(StrictModel):
@@ -107,6 +212,9 @@ class MemoryConfig(StrictModel):
 class CheckpointConfig(StrictModel):
     directory: str = "runs/deep_cfr/default"
     save_every_iteration: bool = True
+    save_iteration_interval: int = 0
+    save_latest_only: bool = False
+    progress_interval_seconds: float = 20.0
 
     @property
     def path(self) -> Path:
@@ -118,10 +226,21 @@ class EvaluationConfig(StrictModel):
     games: int = 10
     opponents: tuple[str, ...] = ("random",)
     max_steps: int = 10_000
+    on_max_steps: str = "score_diff"
+
+    @field_validator("on_max_steps")
+    @classmethod
+    def _validate_on_max_steps(cls, value: str) -> str:
+        token = value.strip().lower()
+        if token not in {"score_diff", "loss", "draw"}:
+            raise ValueError("must be 'score_diff', 'loss', or 'draw'")
+        return token
 
 
 class DeepCFRConfig(StrictModel):
     run: RunConfig = Field(default_factory=RunConfig)
+    rules: RulesConfig = Field(default_factory=RulesConfig)
+    encoding: EncodingConfig = Field(default_factory=EncodingConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)
     traversal: TraversalConfig = Field(default_factory=TraversalConfig)
     self_play: SelfPlayLeagueConfig = Field(default_factory=SelfPlayLeagueConfig)

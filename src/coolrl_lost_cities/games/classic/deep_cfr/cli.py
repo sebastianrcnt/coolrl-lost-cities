@@ -65,7 +65,7 @@ def train_command(args: argparse.Namespace) -> None:
     config = _with_overrides(config, overrides)
     trainer = DeepCFRTrainer(
         config,
-        classic_config(seed=config.run.seed),
+        config.rules.to_lost_cities_config(seed=config.run.seed),
         device=args.device or config.run.device,
     )
     if args.resume:

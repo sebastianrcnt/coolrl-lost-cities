@@ -28,6 +28,13 @@ from coolrl_lost_cities.games.classic.deep_cfr.workers import (
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
 
+def _resolve_torch_device(device: str) -> torch.device:
+    token = device.strip().lower()
+    if token == "auto":
+        token = "cuda" if torch.cuda.is_available() else "cpu"
+    return torch.device(token)
+
+
 @dataclass(frozen=True)
 class IterationMetrics:
     iteration: int
@@ -68,8 +75,10 @@ class DeepCFRTrainer:
         device: str = "cpu",
     ) -> None:
         self.config = config or DeepCFRConfig()
-        self.game_config = game_config or LostCitiesConfig(seed=self.config.run.seed)
-        self.device = torch.device(device)
+        self.game_config = game_config or self.config.rules.to_lost_cities_config(
+            seed=self.config.run.seed
+        )
+        self.device = _resolve_torch_device(device)
 
         probe = GameState.new_game(self.game_config, seed=self.config.run.seed)
         self.input_dim = input_dim(probe)
@@ -77,20 +86,26 @@ class DeepCFRTrainer:
 
         torch.manual_seed(self.config.run.seed)
         self.advantage_networks = [
-            DeepCFRMLP(self.input_dim, self.action_size, self.config.network.hidden_size).to(
+            DeepCFRMLP.from_config(self.input_dim, self.action_size, self.config.network).to(
                 self.device
             )
             for _ in range(2)
         ]
-        self.strategy_network = DeepCFRMLP(
-            self.input_dim, self.action_size, self.config.network.hidden_size
+        self.strategy_network = DeepCFRMLP.from_config(
+            self.input_dim, self.action_size, self.config.network
         ).to(self.device)
         self.advantage_optimizers = [
-            torch.optim.Adam(network.parameters(), lr=self.config.optimization.learning_rate)
+            torch.optim.Adam(
+                network.parameters(),
+                lr=self.config.optimization.learning_rate,
+                weight_decay=self.config.optimization.weight_decay,
+            )
             for network in self.advantage_networks
         ]
         self.strategy_optimizer = torch.optim.Adam(
-            self.strategy_network.parameters(), lr=self.config.optimization.learning_rate
+            self.strategy_network.parameters(),
+            lr=self.config.optimization.learning_rate,
+            weight_decay=self.config.optimization.weight_decay,
         )
         self.advantage_memory = ReservoirMemory(self.config.memory.advantage_capacity)
         self.strategy_memory = ReservoirMemory(self.config.memory.strategy_capacity)
@@ -175,7 +190,7 @@ class DeepCFRTrainer:
             store_strategy_on_traverser_nodes=self.config.traversal.store_strategy_on_traverser_nodes,
             store_strategy_on_opponent_nodes=self.config.traversal.store_strategy_on_opponent_nodes,
             max_depth=self.config.traversal.max_depth,
-            max_nodes=self.config.traversal.max_nodes,
+            max_nodes=self.config.traversal.resolved_max_nodes(),
             outcome_sampling_epsilon=self.config.traversal.outcome_sampling_epsilon,
             outcome_sampling_value_clip=self.config.traversal.outcome_sampling_value_clip,
             outcome_unsampled_regret=self.config.traversal.outcome_unsampled_regret,
@@ -195,7 +210,7 @@ class DeepCFRTrainer:
         )
         for network in self.advantage_networks:
             network.eval()
-        for traversal_index in range(self.config.traversal.traversals_per_iteration):
+        for traversal_index in range(self.config.traversal.resolved_traversals_per_player()):
             for player in range(2):
                 seed = self.config.run.seed + iteration * 10_000 + traversal_index * 10 + player
                 state = GameState.new_game(self.game_config, seed=seed)
@@ -227,12 +242,12 @@ class DeepCFRTrainer:
             {name: value.detach().cpu() for name, value in network.state_dict().items()}
             for network in self.advantage_networks
         ]
-        chunk_size = max(1, self.config.traversal.worker_chunk_size)
+        chunk_size = self.config.traversal.resolved_worker_chunk_size()
         batch_index = 0
         for player in range(2):
             seeds = [
                 self.config.run.seed + iteration * 10_000 + index * 10 + player
-                for index in range(self.config.traversal.traversals_per_iteration)
+                for index in range(self.config.traversal.resolved_traversals_per_player())
             ]
             for start in range(0, len(seeds), chunk_size):
                 chunk = seeds[start : start + chunk_size]
@@ -275,7 +290,7 @@ class DeepCFRTrainer:
         league: list[list[nn.Module]] = []
         for snapshot in self.self_play_league_snapshots:
             networks = [
-                DeepCFRMLP(self.input_dim, self.action_size, self.config.network.hidden_size).to(
+                DeepCFRMLP.from_config(self.input_dim, self.action_size, self.config.network).to(
                     self.device
                 )
                 for _ in range(2)
@@ -293,19 +308,47 @@ class DeepCFRTrainer:
         self._start_run_logging()
         metrics: list[IterationMetrics] = []
         start = self.iteration + 1
-        stop = self.iteration + self.config.run.iterations
-        for iteration in range(start, stop + 1):
+        stop = self._stop_iteration()
+        run_started = time.perf_counter()
+        iteration = start
+        while iteration <= stop:
             started = time.perf_counter()
             item = self.run_iteration(iteration)
             elapsed = time.perf_counter() - started
             metrics.append(item)
             self._append_metrics(item, elapsed)
             self._maybe_record_self_play_snapshot(iteration)
-            if self.config.checkpoint.save_every_iteration:
-                checkpoint_dir = self.run_dir
-                self.save_checkpoint(checkpoint_dir / f"iteration_{iteration:05d}.pt", item)
-                self.save_checkpoint(checkpoint_dir / "latest.pt", item)
+            if self._should_save_iteration(iteration):
+                self._save_iteration_checkpoints(iteration, item)
+            if self._time_limit_reached(run_started):
+                break
+            iteration += 1
         return metrics
+
+    def _stop_iteration(self) -> int:
+        if self.config.run.max_iterations is not None:
+            return max(self.iteration, int(self.config.run.max_iterations))
+        if self.config.run.max_hours is not None:
+            return 2**31 - 1
+        return self.iteration + self.config.run.iterations
+
+    def _time_limit_reached(self, run_started: float) -> bool:
+        if self.config.run.max_hours is None:
+            return False
+        elapsed_hours = (time.perf_counter() - run_started) / 3600.0
+        return elapsed_hours >= self.config.run.max_hours
+
+    def _should_save_iteration(self, iteration: int) -> bool:
+        if self.config.checkpoint.save_every_iteration:
+            return True
+        interval = int(self.config.checkpoint.save_iteration_interval)
+        return interval > 0 and iteration % interval == 0
+
+    def _save_iteration_checkpoints(self, iteration: int, item: IterationMetrics) -> None:
+        checkpoint_dir = self.run_dir
+        if not self.config.checkpoint.save_latest_only:
+            self.save_checkpoint(checkpoint_dir / f"iteration_{iteration:05d}.pt", item)
+        self.save_checkpoint(checkpoint_dir / "latest.pt", item)
 
     def _start_run_logging(self) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)
@@ -371,14 +414,6 @@ class DeepCFRTrainer:
             return 0.0
         return self._train_strategy(self.strategy_network, self.strategy_optimizer, samples)
 
-    def _batch(self, samples: list[TrainingSample], step: int) -> list[TrainingSample]:
-        batch_size = min(self.config.optimization.batch_size, len(samples))
-        offset = (step * batch_size) % len(samples)
-        batch = samples[offset : offset + batch_size]
-        if len(batch) < batch_size:
-            batch = batch + samples[0 : batch_size - len(batch)]
-        return batch
-
     def _batch_tensors(
         self,
         batch: list[TrainingSample],
@@ -408,10 +443,12 @@ class DeepCFRTrainer:
     ) -> float:
         last_loss = 0.0
         network.train()
-        for _step in range(max(self.config.optimization.advantage_train_steps, 0)):
+        for _step in range(self.config.optimization.resolved_advantage_train_steps()):
             x, y, legal = self._batch_tensors(
                 self.advantage_memory.sample(
-                    self.config.optimization.batch_size, self.rng, player=player
+                    self.config.optimization.resolved_advantage_batch_size(),
+                    self.rng,
+                    player=player,
                 )
             )
             pred = network(x)
@@ -419,6 +456,10 @@ class DeepCFRTrainer:
             loss = diff.square().sum() / legal.sum().clamp_min(1)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
+            if self.config.optimization.grad_clip > 0.0:
+                torch.nn.utils.clip_grad_norm_(
+                    network.parameters(), self.config.optimization.grad_clip
+                )
             optimizer.step()
             last_loss = float(loss.detach().cpu())
         return last_loss
@@ -431,15 +472,21 @@ class DeepCFRTrainer:
     ) -> float:
         last_loss = 0.0
         network.train()
-        for _step in range(max(self.config.optimization.strategy_train_steps, 0)):
+        for _step in range(self.config.optimization.resolved_strategy_train_steps()):
             x, y, legal = self._batch_tensors(
-                self.strategy_memory.sample(self.config.optimization.batch_size, self.rng)
+                self.strategy_memory.sample(
+                    self.config.optimization.resolved_strategy_batch_size(), self.rng
+                )
             )
             logits = network(x).masked_fill(~legal, torch.finfo(torch.float32).min)
             log_probs = nn.functional.log_softmax(logits, dim=-1).masked_fill(~legal, 0.0)
             loss = -(y * log_probs).sum(dim=-1).mean()
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
+            if self.config.optimization.grad_clip > 0.0:
+                torch.nn.utils.clip_grad_norm_(
+                    network.parameters(), self.config.optimization.grad_clip
+                )
             optimizer.step()
             last_loss = float(loss.detach().cpu())
         return last_loss

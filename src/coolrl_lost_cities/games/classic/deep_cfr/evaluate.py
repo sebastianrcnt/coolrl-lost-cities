@@ -94,10 +94,10 @@ def load_strategy_policy_from_checkpoint(
     payload = torch.load(checkpoint_path, map_location="cpu")
     cfg = config_from_dict(payload["config"])
     game_config = LostCitiesConfig(**payload["game_config"])
-    network = DeepCFRMLP(
+    network = DeepCFRMLP.from_config(
         int(payload["input_dim"]),
         int(payload["action_size"]),
-        cfg.network.hidden_size,
+        cfg.network,
     ).to(device)
     network.load_state_dict(payload["strategy_network"])
     network.eval()
