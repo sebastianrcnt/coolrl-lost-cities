@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 from typing import Any
 
+from coolrl_lost_cities.games.classic.deep_cfr.analyze import analyze_run
 from coolrl_lost_cities.games.classic.deep_cfr.benchmark import (
     benchmark_traversal,
     benchmark_traversal_modes,
@@ -85,6 +87,7 @@ def eval_command(args: argparse.Namespace) -> None:
         opponent=args.opponent,
         device=args.device,
         max_steps=args.max_steps,
+        encoding=policy.encoding,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
 
@@ -149,6 +152,12 @@ def policy_gradient_command(args: argparse.Namespace) -> None:
     print(json.dumps(metrics.__dict__, sort_keys=True))
 
 
+def analyze_command(args: argparse.Namespace) -> None:
+    written = analyze_run(args.run, args.output_dir)
+    for path in written:
+        print(path)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Lost Cities classic Deep CFR tools.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -201,6 +210,11 @@ def main(argv: list[str] | None = None) -> None:
     pg.add_argument("--device", default="cpu")
     pg.add_argument("--output")
     pg.set_defaults(func=policy_gradient_command)
+
+    analyze = subparsers.add_parser("analyze")
+    analyze.add_argument("--run", required=True, type=Path)
+    analyze.add_argument("--output-dir", type=Path)
+    analyze.set_defaults(func=analyze_command)
 
     args = parser.parse_args(argv)
     args.func(args)
