@@ -6,6 +6,7 @@ import pytest
 from coolrl_lost_cities.games.classic.game import Card, GameState, LostCitiesConfig
 
 import coolrl_lost_cities.games.classic as classic
+from tests.games.classic.helpers import make_state
 
 FIXTURE_DIR = Path(classic.__file__).resolve().parent / "fixtures"
 
@@ -85,17 +86,21 @@ def test_snapshot_roundtrip_preserves_json_state() -> None:
 
 def test_validate_invariants_detects_card_loss() -> None:
     state = GameState.new_game(LostCitiesConfig(seed=7))
-    state.deck.pop()
+    snapshot = state.to_snapshot()
+    snapshot["deck"].pop()
+    broken = GameState.from_snapshot(snapshot, validate=False)
 
     with pytest.raises(ValueError, match="card conservation"):
-        state.validate_invariants()
+        broken.validate_invariants()
 
 
 def test_validate_invariants_detects_bad_expedition_order() -> None:
-    state = GameState.new_game(LostCitiesConfig(seed=8))
-    card = state.deck.pop()
-    state.expeditions[0][card.color].extend([Card(card.color, 2), Card(card.color, 1)])
-    state.deck.extend([Card(card.color, 2), Card(card.color, 1)])
+    config = LostCitiesConfig(seed=8)
+    state = make_state(
+        config,
+        deck=GameState.new_game(config).deck,
+        expeditions=[[[Card(0, 2), Card(0, 1)], [], [], [], []], [[], [], [], [], []]],
+    )
 
     with pytest.raises(ValueError, match="strictly increasing"):
         state.validate_invariants()

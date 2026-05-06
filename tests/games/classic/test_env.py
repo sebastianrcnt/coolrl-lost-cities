@@ -1,7 +1,8 @@
 import numpy as np
-from coolrl_lost_cities.games.classic.game import Card, GameState, LostCitiesConfig
+from coolrl_lost_cities.games.classic.game import Card, LostCitiesConfig
 
 from coolrl_lost_cities.games.classic.env import LostCitiesEnv
+from tests.games.classic.helpers import make_state
 
 
 def test_env_observation_uses_fixed_unified_mask() -> None:
@@ -24,11 +25,12 @@ def test_env_observation_uses_fixed_unified_mask() -> None:
 def test_env_step_accepts_legacy_draw_action_ids() -> None:
     config = LostCitiesConfig()
     env = LostCitiesEnv(config)
-    env.state = GameState.empty(config)
-    env.state.hands[0] = [Card(0, 1)]
-    env.state.hands[1] = [Card(1, 1)]
-    env.state.deck = [Card(2, 1), Card(2, 2)]
-    env.state.phase = "draw"
+    env.state = make_state(
+        config,
+        deck=[Card(2, 1), Card(2, 2)],
+        hands=[[Card(0, 1)], [Card(1, 1)]],
+        phase="draw",
+    )
 
     obs, reward, done, _ = env.step(0)
 
@@ -50,11 +52,13 @@ def test_terminal_reward_is_relative_to_actor() -> None:
         bonus_threshold=99,
     )
     env = LostCitiesEnv(config)
-    env.state = GameState.empty(config)
-    env.state.current_player = 1
-    env.state.phase = "draw"
-    env.state.deck = [Card(1, 1)]
-    env.state.expeditions[1][0] = [Card(0, 1)]
+    env.state = make_state(
+        config,
+        deck=[Card(1, 1)],
+        expeditions=[[[], []], [[Card(0, 1)], []]],
+        current_player=1,
+        phase="draw",
+    )
 
     _, reward, done, _ = env.step(config.card_action_size)
 

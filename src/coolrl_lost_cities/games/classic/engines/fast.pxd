@@ -30,13 +30,13 @@ cdef class FastGameState:
     cdef int cards_per_color
     cdef int stride
 
-    cdef int* deck
+    cdef int* deck_cards
     cdef int deck_len
-    cdef int* hands
+    cdef int* hand_cards
     cdef int hand_lens[2]
-    cdef int* expeditions
+    cdef int* expedition_cards
     cdef int* expedition_lens
-    cdef int* discards
+    cdef int* discard_cards
     cdef int* discard_lens
     cdef int* last_numeric_ranks
     cdef int* handshake_counts
@@ -61,6 +61,7 @@ cdef class FastGameState:
     cpdef list legal_draw_mask(self)
     cpdef list legal_mask(self)
     cpdef list unified_legal_mask(self)
+    cpdef object unified_legal_mask_np(self)
     cpdef list legal_actions(self)
     cpdef list unified_legal_actions(self)
     cpdef int from_unified_action(self, int action_id)
@@ -106,3 +107,4 @@ cdef class FastGameState:
     cdef int _card_color(self, int card)
     cdef int _card_rank(self, int card)
     cdef object _card_snapshot(self, int card)
+    cdef object _card_obj(self, int card)

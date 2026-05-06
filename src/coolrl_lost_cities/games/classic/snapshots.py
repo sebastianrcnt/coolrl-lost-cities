@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .game import Card, GameState, LostCitiesConfig, score_expedition
+from .engines import FastGameState as GameState
+from .game import Card, LostCitiesConfig, score_expedition
 
 
 @dataclass

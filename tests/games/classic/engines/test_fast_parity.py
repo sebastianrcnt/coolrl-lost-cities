@@ -13,7 +13,7 @@ def _card(color: int, rank: int) -> dict[str, int]:
     return {"color": color, "rank": rank}
 
 
-def _classic_snapshot(
+def _snapshot(
     *,
     deck: list[dict[str, int]] | None = None,
     hands: list[list[dict[str, int]]] | None = None,
@@ -59,25 +59,26 @@ def _classic_snapshot(
     }
 
 
-def test_fast_new_game_from_deck_matches_game_state_snapshot() -> None:
+def test_public_game_state_alias_matches_fast_new_game_from_deck_snapshot() -> None:
     config = LostCitiesConfig()
     deck = build_deck(config)
 
-    classic = GameState.new_game_from_deck(deck, config)
-    fast = FastGameState.new_game_from_deck(deck, config)
+    assert GameState is FastGameState
+    left = GameState.new_game_from_deck(deck, config)
+    right = FastGameState.new_game_from_deck(deck, config)
 
-    assert fast.to_snapshot() == classic.to_snapshot()
-    fast.validate_invariants()
+    assert right.to_snapshot() == left.to_snapshot()
+    right.validate_invariants()
 
 
 def test_fast_snapshot_roundtrip_preserves_snapshot() -> None:
     config = LostCitiesConfig(seed=11)
-    classic = GameState.new_game(config)
-    fast = FastGameState.from_snapshot(classic.to_snapshot())
+    left = GameState.new_game(config)
+    right = FastGameState.from_snapshot(left.to_snapshot())
 
-    assert fast.to_snapshot() == classic.to_snapshot()
-    restored = FastGameState.from_snapshot(fast.to_snapshot())
-    assert restored.to_snapshot() == fast.to_snapshot()
+    assert right.to_snapshot() == left.to_snapshot()
+    restored = FastGameState.from_snapshot(right.to_snapshot())
+    assert restored.to_snapshot() == right.to_snapshot()
 
 
 def test_fast_from_snapshot_rejects_oversized_regions_before_write() -> None:
@@ -125,39 +126,39 @@ def test_fast_validate_invariants_rejects_bad_expedition_order() -> None:
         FastGameState.from_snapshot(snapshot)
 
 
-def test_fast_pending_discard_matches_game_state() -> None:
-    snapshot = _classic_snapshot(
+def test_fast_pending_discard_sequence_is_deterministic() -> None:
+    snapshot = _snapshot(
         hands=[
             [_card(0, 1)],
             [_card(1, 1)],
         ],
         deck=[_card(2, 1), _card(3, 1)],
     )
-    classic = GameState.from_snapshot(snapshot)
-    fast = FastGameState.from_snapshot(snapshot)
+    left = GameState.from_snapshot(snapshot)
+    right = FastGameState.from_snapshot(snapshot)
 
-    classic.apply_action(1)
-    fast.apply_action(1)
-    assert fast.to_snapshot() == classic.to_snapshot()
-    assert fast.legal_draw_mask() == classic.legal_draw_mask()
-    assert fast.legal_draw_mask()[1] is False
+    left.apply_action(1)
+    right.apply_action(1)
+    assert right.to_snapshot() == left.to_snapshot()
+    assert right.legal_draw_mask() == left.legal_draw_mask()
+    assert right.legal_draw_mask()[1] is False
 
-    classic.apply_action(0)
-    fast.apply_action(0)
-    classic.apply_action(1)
-    fast.apply_action(1)
-    classic.apply_action(0)
-    fast.apply_action(0)
-    classic.apply_action(1)
-    fast.apply_action(1)
+    left.apply_action(0)
+    right.apply_action(0)
+    left.apply_action(1)
+    right.apply_action(1)
+    left.apply_action(0)
+    right.apply_action(0)
+    left.apply_action(1)
+    right.apply_action(1)
 
-    assert fast.to_snapshot() == classic.to_snapshot()
-    assert fast.legal_draw_mask() == classic.legal_draw_mask()
-    assert fast.legal_draw_mask()[1] is True
+    assert right.to_snapshot() == left.to_snapshot()
+    assert right.legal_draw_mask() == left.legal_draw_mask()
+    assert right.legal_draw_mask()[1] is True
 
 
-def test_fast_terminal_edges_match_game_state() -> None:
-    last_draw_snapshot = _classic_snapshot(
+def test_fast_terminal_edges_are_deterministic() -> None:
+    last_draw_snapshot = _snapshot(
         deck=[_card(1, 1)],
         hands=[
             [_card(0, 1)],
@@ -168,16 +169,16 @@ def test_fast_terminal_edges_match_game_state() -> None:
     last_draw_snapshot["deck"] = [last_draw_snapshot["deck"][-1]]
     for card in remaining_deck:
         last_draw_snapshot["discards"][card["color"]].append(card)
-    classic = GameState.from_snapshot(last_draw_snapshot)
-    fast = FastGameState.from_snapshot(last_draw_snapshot)
+    left = GameState.from_snapshot(last_draw_snapshot)
+    right = FastGameState.from_snapshot(last_draw_snapshot)
 
-    classic.apply_action(1)
-    fast.apply_action(1)
-    classic.apply_action(0)
-    fast.apply_action(0)
+    left.apply_action(1)
+    right.apply_action(1)
+    left.apply_action(0)
+    right.apply_action(0)
 
-    assert fast.to_snapshot() == classic.to_snapshot()
-    assert fast.terminal is True
+    assert right.to_snapshot() == left.to_snapshot()
+    assert right.terminal is True
 
     defensive_snapshot = {
         "config": LostCitiesConfig().to_snapshot(),
@@ -191,18 +192,18 @@ def test_fast_terminal_edges_match_game_state() -> None:
         "turn_count": 0,
         "terminal": False,
     }
-    classic = GameState.from_snapshot(defensive_snapshot, validate=False)
-    fast = FastGameState.from_snapshot(defensive_snapshot, validate=False)
+    left = GameState.from_snapshot(defensive_snapshot, validate=False)
+    right = FastGameState.from_snapshot(defensive_snapshot, validate=False)
 
-    classic.apply_action(1)
-    fast.apply_action(1)
+    left.apply_action(1)
+    right.apply_action(1)
 
-    assert fast.to_snapshot() == classic.to_snapshot()
-    assert fast.terminal is True
+    assert right.to_snapshot() == left.to_snapshot()
+    assert right.terminal is True
 
 
-def test_fast_last_numeric_legality_matches_game_state() -> None:
-    handshake_snapshot = _classic_snapshot(
+def test_fast_last_numeric_legality_edges() -> None:
+    handshake_snapshot = _snapshot(
         hands=[
             [_card(0, 1)],
             [],
@@ -212,12 +213,12 @@ def test_fast_last_numeric_legality_matches_game_state() -> None:
             [[], [], [], [], []],
         ],
     )
-    classic = GameState.from_snapshot(handshake_snapshot)
-    fast = FastGameState.from_snapshot(handshake_snapshot)
-    assert fast.legal_card_mask() == classic.legal_card_mask()
-    assert fast.legal_card_mask()[0] is True
+    left = GameState.from_snapshot(handshake_snapshot)
+    right = FastGameState.from_snapshot(handshake_snapshot)
+    assert right.legal_card_mask() == left.legal_card_mask()
+    assert right.legal_card_mask()[0] is True
 
-    numeric_snapshot = _classic_snapshot(
+    numeric_snapshot = _snapshot(
         hands=[
             [_card(0, 0), _card(0, 3), _card(0, 5)],
             [],
@@ -227,16 +228,16 @@ def test_fast_last_numeric_legality_matches_game_state() -> None:
             [[], [], [], [], []],
         ],
     )
-    classic = GameState.from_snapshot(numeric_snapshot)
-    fast = FastGameState.from_snapshot(numeric_snapshot)
-    assert fast.legal_card_mask() == classic.legal_card_mask()
-    assert fast.legal_card_mask()[0] is False
-    assert fast.legal_card_mask()[2] is False
-    assert fast.legal_card_mask()[4] is True
+    left = GameState.from_snapshot(numeric_snapshot)
+    right = FastGameState.from_snapshot(numeric_snapshot)
+    assert right.legal_card_mask() == left.legal_card_mask()
+    assert right.legal_card_mask()[0] is False
+    assert right.legal_card_mask()[2] is False
+    assert right.legal_card_mask()[4] is True
 
 
-def test_fast_score_cache_and_undo_match_game_state() -> None:
-    snapshot = _classic_snapshot(
+def test_fast_score_cache_and_undo_restore_snapshot() -> None:
+    snapshot = _snapshot(
         hands=[
             [_card(0, 7)],
             [],
@@ -261,26 +262,26 @@ def test_fast_score_cache_and_undo_match_game_state() -> None:
             [[], [], [], [], []],
         ],
     )
-    classic = GameState.from_snapshot(snapshot)
-    fast = FastGameState.from_snapshot(snapshot)
-    before = fast.to_snapshot()
+    left = GameState.from_snapshot(snapshot)
+    right = FastGameState.from_snapshot(snapshot)
+    before = right.to_snapshot()
 
-    assert fast.expedition_score(0, 0) == classic.expedition_score(0, 0)
-    assert fast.total_score(0) == classic.total_score(0)
+    assert right.expedition_score(0, 0) == left.expedition_score(0, 0)
+    assert right.total_score(0) == left.total_score(0)
 
-    undo = fast.apply_action_with_undo(0)
-    classic.apply_action(0)
-    assert fast.to_snapshot() == classic.to_snapshot()
-    assert fast.expedition_score(0, 0) == classic.expedition_score(0, 0)
-    assert fast.total_score(0) == classic.total_score(0)
+    undo = right.apply_action_with_undo(0)
+    left.apply_action(0)
+    assert right.to_snapshot() == left.to_snapshot()
+    assert right.expedition_score(0, 0) == left.expedition_score(0, 0)
+    assert right.total_score(0) == left.total_score(0)
 
-    fast.undo_action(undo)
-    assert fast.to_snapshot() == before
-    assert fast.total_score(0) == GameState.from_snapshot(before).total_score(0)
+    right.undo_action(undo)
+    assert right.to_snapshot() == before
+    assert right.total_score(0) == GameState.from_snapshot(before).total_score(0)
 
 
 def test_fast_discard_draw_push_pop_restores_snapshot() -> None:
-    snapshot = _classic_snapshot(
+    snapshot = _snapshot(
         hands=[[], [_card(1, 1)]],
         discards=[[_card(0, 1)], [], [], [], []],
         phase="draw",
@@ -294,62 +295,60 @@ def test_fast_discard_draw_push_pop_restores_snapshot() -> None:
     assert state.to_snapshot() == before
 
 
-def test_fast_random_action_sequence_matches_game_state() -> None:
+def test_fast_random_action_sequence_is_deterministic() -> None:
     config = LostCitiesConfig()
     for seed in range(48):
-        classic = GameState.new_game(config, seed=seed)
-        fast = FastGameState.new_game(config, seed=seed)
+        left = GameState.new_game(config, seed=seed)
+        right = FastGameState.new_game(config, seed=seed)
         rng = random.Random(seed ^ 0xF457)
         steps = 0
 
         while True:
-            assert fast.to_snapshot() == classic.to_snapshot()
-            assert fast.unified_legal_mask() == classic.unified_legal_mask()
-            assert fast.unified_legal_actions() == [
-                index for index, is_legal in enumerate(classic.unified_legal_mask()) if is_legal
+            assert right.to_snapshot() == left.to_snapshot()
+            assert right.unified_legal_mask() == left.unified_legal_mask()
+            assert right.unified_legal_actions() == [
+                index for index, is_legal in enumerate(left.unified_legal_mask()) if is_legal
             ]
-            assert fast.score_diff(0) == classic.score_diff(0)
-            if classic.terminal:
+            assert right.score_diff(0) == left.score_diff(0)
+            if left.terminal:
                 break
 
-            legal = [
-                index for index, is_legal in enumerate(classic.unified_legal_mask()) if is_legal
-            ]
+            legal = [index for index, is_legal in enumerate(left.unified_legal_mask()) if is_legal]
             action = rng.choice(legal)
-            classic.apply_unified_action(action)
-            fast.apply_unified_action(action)
+            left.apply_unified_action(action)
+            right.apply_unified_action(action)
             steps += 1
             assert steps < 1000
 
 
-def test_fast_random_bot_self_play_matches_game_state() -> None:
+def test_fast_random_bot_self_play_is_deterministic() -> None:
     config = LostCitiesConfig()
     for seed in range(32):
-        classic = GameState.new_game(config, seed=seed)
-        fast = FastGameState.new_game(config, seed=seed)
-        classic_bots = [RandomBot(seed=seed * 2), RandomBot(seed=seed * 2 + 1)]
-        fast_bots = [RandomBot(seed=seed * 2), RandomBot(seed=seed * 2 + 1)]
+        left = GameState.new_game(config, seed=seed)
+        right = FastGameState.new_game(config, seed=seed)
+        left_bots = [RandomBot(seed=seed * 2), RandomBot(seed=seed * 2 + 1)]
+        right_bots = [RandomBot(seed=seed * 2), RandomBot(seed=seed * 2 + 1)]
         steps = 0
 
         while True:
-            assert fast.to_snapshot() == classic.to_snapshot()
-            if classic.terminal:
+            assert right.to_snapshot() == left.to_snapshot()
+            if left.terminal:
                 break
 
-            player = classic.current_player
-            assert fast.current_player == player
-            classic_action = classic_bots[player].act(classic)
-            fast_action = fast_bots[player].act({"legal_mask": fast.legal_mask()})
-            assert fast_action == classic_action
+            player = left.current_player
+            assert right.current_player == player
+            left_action = left_bots[player].act(left)
+            right_action = right_bots[player].act({"legal_mask": right.legal_mask()})
+            assert right_action == left_action
 
-            classic.apply_action(classic_action)
-            fast.apply_action(fast_action)
+            left.apply_action(left_action)
+            right.apply_action(right_action)
             steps += 1
             assert steps < 1000
 
-        assert fast.total_score(0) == classic.total_score(0)
-        assert fast.total_score(1) == classic.total_score(1)
-        assert fast.score_diff(0) == classic.score_diff(0)
+        assert right.total_score(0) == left.total_score(0)
+        assert right.total_score(1) == left.total_score(1)
+        assert right.score_diff(0) == left.score_diff(0)
 
 
 def test_fast_apply_undo_restores_every_legal_action() -> None:

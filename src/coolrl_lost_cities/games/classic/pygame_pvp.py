@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .bots import DEFAULT_BOT, LostCitiesBot, available_bot_names, build_bot
-from .game import Card, GameState, LostCitiesConfig, classic_config
+from .engines import FastGameState as GameState
+from .game import Card, LostCitiesConfig, classic_config
 from .resources import theme_path
 from .snapshots import Snapshot, snapshot_from_state, snapshot_summary
 

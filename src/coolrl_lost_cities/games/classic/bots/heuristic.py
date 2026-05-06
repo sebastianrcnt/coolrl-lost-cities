@@ -4,7 +4,8 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 
-from ..game import Card, GameState, LostCitiesConfig
+from ..engines import FastGameState as GameState
+from ..game import Card, LostCitiesConfig
 from ..interfaces import BotInput, LostCitiesBot
 from .base import first_legal, legal_from_obs
 
@@ -151,7 +152,7 @@ class SafeHeuristicBot(LostCitiesBot):
         self.params = params or SafeHeuristicParams()
 
     def act(self, obs_or_state: BotInput) -> int:
-        if not isinstance(obs_or_state, GameState):
+        if not isinstance(obs_or_state, GameState) and not hasattr(obs_or_state, "legal_mask"):
             LOGGER.debug(
                 "SafeHeuristicBot fallback to first legal: input_type=%s",
                 type(obs_or_state).__name__,

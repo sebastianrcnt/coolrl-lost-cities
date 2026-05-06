@@ -7,6 +7,8 @@ from coolrl_lost_cities.games.classic.game import (
     build_deck,
 )
 
+from tests.games.classic.helpers import make_state
+
 
 def test_deck_generation_count() -> None:
     config = LostCitiesConfig(n_colors=3, n_ranks=5, n_handshakes=1, hand_size=5)
@@ -23,25 +25,27 @@ def test_initial_hands_remove_cards_from_deck() -> None:
 
 def test_play_must_be_ascending() -> None:
     config = LostCitiesConfig()
-    state = GameState.empty(config)
-    state.hands[0] = [Card(0, 2)]
-    state.expeditions[0][0] = [Card(0, 4)]
+    state = make_state(
+        config,
+        hands=[[Card(0, 2)], []],
+        expeditions=[[[Card(0, 4)], [], [], [], []], [[], [], [], [], []]],
+    )
     assert state.legal_card_mask()[0] is False
 
 
 def test_handshake_after_number_forbidden() -> None:
     config = LostCitiesConfig()
-    state = GameState.empty(config)
-    state.hands[0] = [Card(1, 0)]
-    state.expeditions[0][1] = [Card(1, 1)]
+    state = make_state(
+        config,
+        hands=[[Card(1, 0)], []],
+        expeditions=[[[], [Card(1, 1)], [], [], []], [[], [], [], [], []]],
+    )
     assert state.legal_card_mask()[0] is False
 
 
 def test_cannot_draw_just_discarded_color() -> None:
     config = LostCitiesConfig()
-    state = GameState.empty(config)
-    state.hands[0] = [Card(2, 2)]
-    state.deck = [Card(0, 1)]
+    state = make_state(config, deck=[Card(0, 1)], hands=[[Card(2, 2)], []])
     state.apply_action(1)
     mask = state.legal_draw_mask()
     assert mask[1 + 2] is False
@@ -49,9 +53,7 @@ def test_cannot_draw_just_discarded_color() -> None:
 
 def test_drawing_just_discarded_color_is_rejected() -> None:
     config = LostCitiesConfig()
-    state = GameState.empty(config)
-    state.hands[0] = [Card(2, 2)]
-    state.deck = [Card(0, 1)]
+    state = make_state(config, deck=[Card(0, 1)], hands=[[Card(2, 2)], []])
 
     state.apply_action(1)
 
@@ -61,10 +63,11 @@ def test_drawing_just_discarded_color_is_rejected() -> None:
 
 def test_discarded_color_can_be_drawn_after_turn_advances() -> None:
     config = LostCitiesConfig()
-    state = GameState.empty(config)
-    state.hands[0] = [Card(2, 2)]
-    state.hands[1] = [Card(0, 1)]
-    state.deck = [Card(1, 1), Card(1, 2)]
+    state = make_state(
+        config,
+        deck=[Card(1, 1), Card(1, 2)],
+        hands=[[Card(2, 2)], [Card(0, 1)]],
+    )
     state.apply_action(1)
     state.apply_action(0)
     assert state.current_player == 1
@@ -75,10 +78,11 @@ def test_discarded_color_can_be_drawn_after_turn_advances() -> None:
 
 def test_discarded_card_is_removed_when_drawn_later() -> None:
     config = LostCitiesConfig()
-    state = GameState.empty(config)
-    state.hands[0] = [Card(2, 2)]
-    state.hands[1] = [Card(0, 1)]
-    state.deck = [Card(1, 1), Card(1, 2)]
+    state = make_state(
+        config,
+        deck=[Card(1, 1), Card(1, 2)],
+        hands=[[Card(2, 2)], [Card(0, 1)]],
+    )
 
     state.apply_action(1)
     assert state.discards[2] == [Card(2, 2)]
@@ -95,9 +99,7 @@ def test_discarded_card_is_removed_when_drawn_later() -> None:
 
 def test_deck_exhaustion_ends_after_last_deck_draw() -> None:
     config = LostCitiesConfig()
-    state = GameState.empty(config)
-    state.hands[0] = [Card(0, 1)]
-    state.deck = [Card(1, 1)]
+    state = make_state(config, deck=[Card(1, 1)], hands=[[Card(0, 1)], []])
     state.apply_action(1)
     state.apply_action(0)
     assert state.terminal is True
@@ -106,10 +108,7 @@ def test_deck_exhaustion_ends_after_last_deck_draw() -> None:
 
 def test_card_phase_can_end_game_when_no_draw_sources_exist() -> None:
     config = LostCitiesConfig(n_colors=3, n_ranks=5, n_handshakes=1, hand_size=5)
-    state = GameState.empty(config)
-    state.hands[0] = [Card(0, 1)]
-    state.hands[1] = [Card(1, 1)]
-    state.deck = []
+    state = make_state(config, hands=[[Card(0, 1)], [Card(1, 1)]])
     state.apply_action(1)
     assert state.phase == "draw"
     assert state.terminal is True

@@ -7,7 +7,7 @@ import random
 from libc.string cimport memcpy
 from libc.stdlib cimport free, malloc, realloc
 
-from ..game import IllegalMoveError, LostCitiesConfig, config_from_mapping
+from ..game import Card, IllegalMoveError, LostCitiesConfig, config_from_mapping
 
 
 cdef inline int _phase_card():
@@ -20,11 +20,11 @@ cdef inline int _phase_draw():
 
 cdef class FastGameState:
     def __cinit__(self):
-        self.deck = NULL
-        self.hands = NULL
-        self.expeditions = NULL
+        self.deck_cards = NULL
+        self.hand_cards = NULL
+        self.expedition_cards = NULL
         self.expedition_lens = NULL
-        self.discards = NULL
+        self.discard_cards = NULL
         self.discard_lens = NULL
         self.last_numeric_ranks = NULL
         self.handshake_counts = NULL
@@ -38,16 +38,16 @@ cdef class FastGameState:
         self._configure(config)
 
     def __dealloc__(self):
-        if self.deck != NULL:
-            free(self.deck)
-        if self.hands != NULL:
-            free(self.hands)
-        if self.expeditions != NULL:
-            free(self.expeditions)
+        if self.deck_cards != NULL:
+            free(self.deck_cards)
+        if self.hand_cards != NULL:
+            free(self.hand_cards)
+        if self.expedition_cards != NULL:
+            free(self.expedition_cards)
         if self.expedition_lens != NULL:
             free(self.expedition_lens)
-        if self.discards != NULL:
-            free(self.discards)
+        if self.discard_cards != NULL:
+            free(self.discard_cards)
         if self.discard_lens != NULL:
             free(self.discard_lens)
         if self.last_numeric_ranks != NULL:
@@ -75,13 +75,13 @@ cdef class FastGameState:
         self.cards_per_color = self.n_ranks + self.n_handshakes
         self.stride = self.n_ranks + 1
 
-        self.deck = <int*>malloc(self.total_cards * sizeof(int))
-        self.hands = <int*>malloc(2 * self.hand_size * sizeof(int))
-        self.expeditions = <int*>malloc(
+        self.deck_cards = <int*>malloc(self.total_cards * sizeof(int))
+        self.hand_cards = <int*>malloc(2 * self.hand_size * sizeof(int))
+        self.expedition_cards = <int*>malloc(
             2 * self.n_colors * self.cards_per_color * sizeof(int)
         )
         self.expedition_lens = <int*>malloc(2 * self.n_colors * sizeof(int))
-        self.discards = <int*>malloc(self.n_colors * self.cards_per_color * sizeof(int))
+        self.discard_cards = <int*>malloc(self.n_colors * self.cards_per_color * sizeof(int))
         self.discard_lens = <int*>malloc(self.n_colors * sizeof(int))
         self.last_numeric_ranks = <int*>malloc(2 * self.n_colors * sizeof(int))
         self.handshake_counts = <int*>malloc(2 * self.n_colors * sizeof(int))
@@ -92,11 +92,11 @@ cdef class FastGameState:
             self.undo_stack_capacity * sizeof(UndoRecord)
         )
         if (
-            self.deck == NULL
-            or self.hands == NULL
-            or self.expeditions == NULL
+            self.deck_cards == NULL
+            or self.hand_cards == NULL
+            or self.expedition_cards == NULL
             or self.expedition_lens == NULL
-            or self.discards == NULL
+            or self.discard_cards == NULL
             or self.discard_lens == NULL
             or self.last_numeric_ranks == NULL
             or self.handshake_counts == NULL
@@ -159,11 +159,11 @@ cdef class FastGameState:
         cdef FastGameState state = cls(config)
         state.deck_len = len(encoded)
         for i, card in enumerate(encoded):
-            state.deck[i] = <int>card
+            state.deck_cards[i] = <int>card
         for _ in range(config.hand_size):
             for player in range(2):
                 state.deck_len -= 1
-                state.hands[state._hand_index(player, state.hand_lens[player])] = state.deck[
+                state.hand_cards[state._hand_index(player, state.hand_lens[player])] = state.deck_cards[
                     state.deck_len
                 ]
                 state.hand_lens[player] += 1
@@ -186,7 +186,7 @@ cdef class FastGameState:
             )
         state.deck_len = len(cards)
         for index, card in enumerate(cards):
-            state.deck[index] = <int>card
+            state.deck_cards[index] = <int>card
 
         for player in range(2):
             cards = [
@@ -199,7 +199,7 @@ cdef class FastGameState:
                 )
             state.hand_lens[player] = len(cards)
             for index, card in enumerate(cards):
-                state.hands[state._hand_index(player, index)] = <int>card
+                state.hand_cards[state._hand_index(player, index)] = <int>card
 
         for player in range(2):
             for color in range(state.n_colors):
@@ -214,7 +214,7 @@ cdef class FastGameState:
                     )
                 state.expedition_lens[state._expedition_len_index(player, color)] = len(cards)
                 for index, card in enumerate(cards):
-                    state.expeditions[state._expedition_index(player, color, index)] = <int>card
+                    state.expedition_cards[state._expedition_index(player, color, index)] = <int>card
 
         for color in range(state.n_colors):
             cards = [_encode_card_snapshot(card, config) for card in snapshot["discards"][color]]
@@ -225,7 +225,7 @@ cdef class FastGameState:
                 )
             state.discard_lens[color] = len(cards)
             for index, card in enumerate(cards):
-                state.discards[state._discard_index(color, index)] = <int>card
+                state.discard_cards[state._discard_index(color, index)] = <int>card
 
         state.current_player = int(snapshot.get("current_player", 0))
         state.phase = snapshot.get("phase", "card")
@@ -263,13 +263,58 @@ cdef class FastGameState:
     def action_size(self):
         return self.card_action_size + self.draw_action_size
 
+    @property
+    def deck(self):
+        return [self._card_obj(self.deck_cards[i]) for i in range(self.deck_len)]
+
+    @property
+    def hands(self):
+        return [
+            [
+                self._card_obj(self.hand_cards[self._hand_index(player, i)])
+                for i in range(self.hand_lens[player])
+            ]
+            for player in range(2)
+        ]
+
+    @property
+    def expeditions(self):
+        return [
+            [
+                [
+                    self._card_obj(
+                        self.expedition_cards[
+                            self._expedition_index(player, color, i)
+                        ]
+                    )
+                    for i in range(
+                        self.expedition_lens[
+                            self._expedition_len_index(player, color)
+                        ]
+                    )
+                ]
+                for color in range(self.n_colors)
+            ]
+            for player in range(2)
+        ]
+
+    @property
+    def discards(self):
+        return [
+            [
+                self._card_obj(self.discard_cards[self._discard_index(color, i)])
+                for i in range(self.discard_lens[color])
+            ]
+            for color in range(self.n_colors)
+        ]
+
     def to_snapshot(self):
         return {
             "config": self.config.to_snapshot(),
-            "deck": [self._card_snapshot(self.deck[i]) for i in range(self.deck_len)],
+            "deck": [self._card_snapshot(self.deck_cards[i]) for i in range(self.deck_len)],
             "hands": [
                 [
-                    self._card_snapshot(self.hands[self._hand_index(player, i)])
+                    self._card_snapshot(self.hand_cards[self._hand_index(player, i)])
                     for i in range(self.hand_lens[player])
                 ]
                 for player in range(2)
@@ -278,7 +323,7 @@ cdef class FastGameState:
                 [
                     [
                         self._card_snapshot(
-                            self.expeditions[self._expedition_index(player, color, i)]
+                            self.expedition_cards[self._expedition_index(player, color, i)]
                         )
                         for i in range(
                             self.expedition_lens[
@@ -292,7 +337,7 @@ cdef class FastGameState:
             ],
             "discards": [
                 [
-                    self._card_snapshot(self.discards[self._discard_index(color, i)])
+                    self._card_snapshot(self.discard_cards[self._discard_index(color, i)])
                     for i in range(self.discard_lens[color])
                 ]
                 for color in range(self.n_colors)
@@ -309,13 +354,13 @@ cdef class FastGameState:
     cpdef FastGameState clone(self):
         cdef FastGameState other = FastGameState(self.config)
         other.deck_len = self.deck_len
-        memcpy(other.deck, self.deck, self.deck_len * sizeof(int))
-        memcpy(other.hands, self.hands, 2 * self.hand_size * sizeof(int))
+        memcpy(other.deck_cards, self.deck_cards, self.deck_len * sizeof(int))
+        memcpy(other.hand_cards, self.hand_cards, 2 * self.hand_size * sizeof(int))
         other.hand_lens[0] = self.hand_lens[0]
         other.hand_lens[1] = self.hand_lens[1]
         memcpy(
-            other.expeditions,
-            self.expeditions,
+            other.expedition_cards,
+            self.expedition_cards,
             2 * self.n_colors * self.cards_per_color * sizeof(int),
         )
         memcpy(
@@ -324,8 +369,8 @@ cdef class FastGameState:
             2 * self.n_colors * sizeof(int),
         )
         memcpy(
-            other.discards,
-            self.discards,
+            other.discard_cards,
+            self.discard_cards,
             self.n_colors * self.cards_per_color * sizeof(int),
         )
         memcpy(other.discard_lens, self.discard_lens, self.n_colors * sizeof(int))
@@ -361,7 +406,7 @@ cdef class FastGameState:
         if self.terminal:
             return mask
         for slot in range(self.hand_lens[self.current_player]):
-            card = self.hands[self._hand_index(self.current_player, slot)]
+            card = self.hand_cards[self._hand_index(self.current_player, slot)]
             mask[2 * slot] = self._can_play_encoded_card_c(self.current_player, card)
             mask[2 * slot + 1] = True
         return mask
@@ -510,6 +555,48 @@ cdef class FastGameState:
     cpdef int last_numeric_rank(self, int player, int color):
         return self.last_numeric_ranks[self._expedition_len_index(player, color)]
 
+    def has_numeric(self, int player, int color):
+        return self.last_numeric_rank(player, color) > 0
+
+    def can_play_card(self, int player, object card):
+        return self.can_play_encoded_card(player, _encode_card_snapshot(card, self.config))
+
+    def hand_slots(self, player=None):
+        cdef int p = self.current_player if player is None else int(player)
+        cdef list hand = []
+        cdef int i
+        for i in range(self.hand_lens[p]):
+            hand.append(self._card_obj(self.hand_cards[self._hand_index(p, i)]))
+        while len(hand) < self.hand_size:
+            hand.append(None)
+        return hand
+
+    def sort_hands(self):
+        self.sort_hand(0)
+        self.sort_hand(1)
+
+    def sort_hand(self, player=None):
+        cdef int p = self.current_player if player is None else int(player)
+        cdef int i
+        cdef int j
+        cdef int key
+        cdef int current
+        for i in range(1, self.hand_lens[p]):
+            key = self.hand_cards[self._hand_index(p, i)]
+            j = i - 1
+            while j >= 0 and self.hand_cards[self._hand_index(p, j)] > key:
+                current = self.hand_cards[self._hand_index(p, j)]
+                self.hand_cards[self._hand_index(p, j + 1)] = current
+                j -= 1
+            self.hand_cards[self._hand_index(p, j + 1)] = key
+
+    cpdef object unified_legal_mask_np(self):
+        try:
+            import numpy as np
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError("numpy is required for unified_legal_mask_np") from exc
+        return np.asarray(self.unified_legal_mask(), dtype=bool)
+
     cpdef int expedition_score(self, int player, int color):
         return self.expedition_scores[self._expedition_len_index(player, color)]
 
@@ -552,7 +639,7 @@ cdef class FastGameState:
                 seen_numeric = False
                 last_rank = 0
                 for index in range(length):
-                    card = self.expeditions[self._expedition_index(player, color, index)]
+                    card = self.expedition_cards[self._expedition_index(player, color, index)]
                     if self._card_color(card) != color:
                         raise ValueError("expedition contains wrong color")
                     rank = self._card_rank(card)
@@ -595,7 +682,7 @@ cdef class FastGameState:
                 return True
             return self._can_play_encoded_card_c(
                 self.current_player,
-                self.hands[self._hand_index(self.current_player, slot)],
+                self.hand_cards[self._hand_index(self.current_player, slot)],
             )
         if action_id < 0 or action_id >= 1 + self.n_colors:
             return False
@@ -616,7 +703,7 @@ cdef class FastGameState:
             return 0
         if self.phase_id == _phase_card():
             for slot in range(self.hand_lens[self.current_player]):
-                card = self.hands[self._hand_index(self.current_player, slot)]
+                card = self.hand_cards[self._hand_index(self.current_player, slot)]
                 if self._can_play_encoded_card_c(self.current_player, card):
                     out_actions[count] = 2 * slot
                     count += 1
@@ -645,7 +732,7 @@ cdef class FastGameState:
             return 0
         if self.phase_id == _phase_card():
             for slot in range(self.hand_lens[self.current_player]):
-                card = self.hands[self._hand_index(self.current_player, slot)]
+                card = self.hand_cards[self._hand_index(self.current_player, slot)]
                 if self._can_play_encoded_card_c(self.current_player, card):
                     out_actions[count] = 2 * slot
                     count += 1
@@ -697,7 +784,7 @@ cdef class FastGameState:
         undo.total_score_before = self.total_scores[self.current_player]
         if self.phase_id == _phase_card():
             slot = action_id // 2
-            card = self.hands[self._hand_index(self.current_player, slot)]
+            card = self.hand_cards[self._hand_index(self.current_player, slot)]
             color = self._card_color(card)
             cache_index = self._expedition_len_index(self.current_player, color)
             undo.slot = slot
@@ -709,11 +796,11 @@ cdef class FastGameState:
             undo.numeric_sum_before = self.numeric_sums[cache_index]
             undo.expedition_score_before = self.expedition_scores[cache_index]
         elif action_id == 0:
-            undo.card = self.deck[self.deck_len - 1]
+            undo.card = self.deck_cards[self.deck_len - 1]
         else:
             color = action_id - 1
             undo.color = color
-            undo.card = self.discards[self._discard_index(color, self.discard_lens[color] - 1)]
+            undo.card = self.discard_cards[self._discard_index(color, self.discard_lens[color] - 1)]
 
     cdef void _apply_action_with_undo_c(self, int action_id, UndoRecord* undo) except *:
         self._fill_undo_c(action_id, undo)
@@ -802,7 +889,7 @@ cdef class FastGameState:
         cdef int slot = action_id // 2
         cdef bint play = action_id % 2 == 0
         cdef int player = self.current_player
-        cdef int card = self.hands[self._hand_index(player, slot)]
+        cdef int card = self.hand_cards[self._hand_index(player, slot)]
         cdef int color = self._card_color(card)
         cdef int rank = self._card_rank(card)
         cdef int i
@@ -810,12 +897,12 @@ cdef class FastGameState:
         cdef int old_score
         cdef int new_score
         for i in range(slot, self.hand_lens[player] - 1):
-            self.hands[self._hand_index(player, i)] = self.hands[self._hand_index(player, i + 1)]
+            self.hand_cards[self._hand_index(player, i)] = self.hand_cards[self._hand_index(player, i + 1)]
         self.hand_lens[player] -= 1
         if play:
             length_index = self._expedition_len_index(player, color)
             old_score = self.expedition_scores[length_index]
-            self.expeditions[self._expedition_index(player, color, self.expedition_lens[length_index])] = card
+            self.expedition_cards[self._expedition_index(player, color, self.expedition_lens[length_index])] = card
             self.expedition_lens[length_index] += 1
             if rank == 0:
                 self.handshake_counts[length_index] += 1
@@ -830,7 +917,7 @@ cdef class FastGameState:
             self.expedition_scores[length_index] = new_score
             self.total_scores[player] += new_score - old_score
         else:
-            self.discards[self._discard_index(color, self.discard_lens[color])] = card
+            self.discard_cards[self._discard_index(color, self.discard_lens[color])] = card
             self.discard_lens[color] += 1
             self.pending_discarded_color = color
         self.phase_id = _phase_draw()
@@ -845,12 +932,12 @@ cdef class FastGameState:
         cdef int color
         if action_id == 0:
             self.deck_len -= 1
-            card = self.deck[self.deck_len]
+            card = self.deck_cards[self.deck_len]
         else:
             color = action_id - 1
             self.discard_lens[color] -= 1
-            card = self.discards[self._discard_index(color, self.discard_lens[color])]
-        self.hands[self._hand_index(player, self.hand_lens[player])] = card
+            card = self.discard_cards[self._discard_index(color, self.discard_lens[color])]
+        self.hand_cards[self._hand_index(player, self.hand_lens[player])] = card
         self.hand_lens[player] += 1
         self.pending_discarded_color = -1
         self.turn_count += 1
@@ -882,7 +969,7 @@ cdef class FastGameState:
         if play:
             length_index = self._expedition_len_index(player, color)
             self.expedition_lens[length_index] -= 1
-            moved = self.expeditions[self._expedition_index(player, color, self.expedition_lens[length_index])]
+            moved = self.expedition_cards[self._expedition_index(player, color, self.expedition_lens[length_index])]
             self.last_numeric_ranks[length_index] = undo.last_numeric_before
             self.handshake_counts[length_index] = undo.handshake_count_before
             self.numeric_sums[length_index] = undo.numeric_sum_before
@@ -890,12 +977,12 @@ cdef class FastGameState:
             self.total_scores[player] = undo.total_score_before
         else:
             self.discard_lens[color] -= 1
-            moved = self.discards[self._discard_index(color, self.discard_lens[color])]
+            moved = self.discard_cards[self._discard_index(color, self.discard_lens[color])]
         if moved != card:
             raise ValueError("undo card mismatch")
         for i in range(self.hand_lens[player], slot, -1):
-            self.hands[self._hand_index(player, i)] = self.hands[self._hand_index(player, i - 1)]
-        self.hands[self._hand_index(player, slot)] = card
+            self.hand_cards[self._hand_index(player, i)] = self.hand_cards[self._hand_index(player, i - 1)]
+        self.hand_cards[self._hand_index(player, slot)] = card
         self.hand_lens[player] += 1
         self.current_player = player
         self.phase_id = _phase_card()
@@ -912,15 +999,15 @@ cdef class FastGameState:
         cdef int moved
         cdef int color
         self.hand_lens[player] -= 1
-        moved = self.hands[self._hand_index(player, self.hand_lens[player])]
+        moved = self.hand_cards[self._hand_index(player, self.hand_lens[player])]
         if moved != card:
             raise ValueError("undo draw mismatch")
         if action_id == 0:
-            self.deck[self.deck_len] = card
+            self.deck_cards[self.deck_len] = card
             self.deck_len += 1
         else:
             color = action_id - 1
-            self.discards[self._discard_index(color, self.discard_lens[color])] = card
+            self.discard_cards[self._discard_index(color, self.discard_lens[color])] = card
             self.discard_lens[color] += 1
         self.current_player = player
         self.phase_id = _phase_draw()
@@ -949,7 +1036,7 @@ cdef class FastGameState:
                 length = self.expedition_lens[cache_index]
                 for card_index in range(length):
                     rank = self._card_rank(
-                        self.expeditions[
+                        self.expedition_cards[
                             self._expedition_index(player, color, card_index)
                         ]
                     )
@@ -1015,6 +1102,9 @@ cdef class FastGameState:
 
     cdef object _card_snapshot(self, int card):
         return {"color": self._card_color(card), "rank": self._card_rank(card)}
+
+    cdef object _card_obj(self, int card):
+        return Card(self._card_color(card), self._card_rank(card))
 
 
 def _build_encoded_deck(config):

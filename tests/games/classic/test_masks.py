@@ -1,6 +1,7 @@
 from coolrl_lost_cities.games.classic.game import Card, GameState, LostCitiesConfig
 
 from coolrl_lost_cities.games.classic.bots import RandomBot
+from tests.games.classic.helpers import make_state
 
 
 def test_legal_mask_has_action_in_nonterminal_phases() -> None:
@@ -12,8 +13,7 @@ def test_legal_mask_has_action_in_nonterminal_phases() -> None:
 
 
 def test_empty_hand_slots_are_masked() -> None:
-    state = GameState.empty(LostCitiesConfig())
-    state.hands[0] = [Card(0, 1)]
+    state = make_state(hands=[[Card(0, 1)], []])
     mask = state.legal_card_mask()
     assert mask[0] is True
     assert mask[1] is True
@@ -21,9 +21,7 @@ def test_empty_hand_slots_are_masked() -> None:
 
 
 def test_empty_discard_pile_draw_is_illegal() -> None:
-    state = GameState.empty(LostCitiesConfig())
-    state.phase = "draw"
-    state.deck = [Card(0, 1)]
+    state = make_state(deck=[Card(0, 1)], phase="draw")
     mask = state.legal_draw_mask()
     assert mask[0] is True
     assert all(mask[1 + color] is False for color in range(state.config.n_colors))
