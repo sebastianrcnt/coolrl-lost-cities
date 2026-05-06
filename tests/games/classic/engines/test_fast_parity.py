@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 
+import pytest
 from coolrl_lost_cities.games.classic.game import Card, GameState, LostCitiesConfig
 
 from coolrl_lost_cities.games.classic.engines import FastGameState
@@ -44,6 +45,61 @@ def test_fast_snapshot_roundtrip_preserves_snapshot() -> None:
     assert fast.to_snapshot() == classic.to_snapshot()
     restored = FastGameState.from_snapshot(fast.to_snapshot())
     assert restored.to_snapshot() == fast.to_snapshot()
+
+
+def test_fast_from_snapshot_rejects_oversized_regions_before_write() -> None:
+    config = _small_config()
+    state = GameState.new_game(config, seed=3)
+
+    deck_snapshot = state.to_snapshot()
+    deck_snapshot["deck"] = deck_snapshot["deck"] + [
+        {"color": 0, "rank": 1},
+        {"color": 0, "rank": 2},
+        {"color": 1, "rank": 1},
+    ]
+    with pytest.raises(ValueError, match="deck snapshot exceeds capacity"):
+        FastGameState.from_snapshot(deck_snapshot)
+
+    hand_snapshot = state.to_snapshot()
+    hand_snapshot["hands"][0] = hand_snapshot["hands"][0] + [{"color": 0, "rank": 1}]
+    with pytest.raises(ValueError, match="hand 0 snapshot exceeds hand_size"):
+        FastGameState.from_snapshot(hand_snapshot)
+
+    expedition_snapshot = state.to_snapshot()
+    expedition_snapshot["expeditions"][0][0] = [
+        {"color": 0, "rank": 1},
+        {"color": 0, "rank": 2},
+        {"color": 0, "rank": 1},
+    ]
+    with pytest.raises(ValueError, match="expedition 0/0 snapshot exceeds capacity"):
+        FastGameState.from_snapshot(expedition_snapshot)
+
+    discard_snapshot = state.to_snapshot()
+    discard_snapshot["discards"][0] = [
+        {"color": 0, "rank": 1},
+        {"color": 0, "rank": 2},
+        {"color": 0, "rank": 1},
+    ]
+    with pytest.raises(ValueError, match="discard 0 snapshot exceeds capacity"):
+        FastGameState.from_snapshot(discard_snapshot)
+
+
+def test_fast_validate_invariants_rejects_bad_expedition_order() -> None:
+    config = _small_config()
+    snapshot = FastGameState.new_game(config, seed=4).to_snapshot()
+    snapshot["deck"].extend(
+        [
+            {"color": 0, "rank": 2},
+            {"color": 0, "rank": 1},
+        ]
+    )
+    snapshot["expeditions"][0][0] = [
+        {"color": 0, "rank": 2},
+        {"color": 0, "rank": 1},
+    ]
+
+    with pytest.raises(ValueError, match="expedition is not strictly increasing"):
+        FastGameState.from_snapshot(snapshot)
 
 
 def test_fast_random_action_sequence_matches_game_state() -> None:

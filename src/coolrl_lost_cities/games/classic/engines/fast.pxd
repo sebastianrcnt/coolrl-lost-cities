@@ -88,7 +88,7 @@ cdef class FastGameState:
     cdef void _undo_draw_action_c(self, UndoRecord* undo) except *
     cdef void _recompute_score_caches(self) noexcept
     cdef int _score_from_summary_c(self, int length, int handshakes, int numeric_sum) noexcept
-    cdef bint _has_any_legal_draw(self)
+    cdef bint _has_any_legal_draw(self) noexcept
     cdef int _hand_index(self, int player, int slot)
     cdef int _expedition_len_index(self, int player, int color)
     cdef int _expedition_index(self, int player, int color, int index)
