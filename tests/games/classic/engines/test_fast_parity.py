@@ -63,6 +63,9 @@ def test_fast_random_action_sequence_matches_game_state() -> None:
         while True:
             assert fast.to_snapshot() == classic.to_snapshot()
             assert fast.unified_legal_mask() == classic.unified_legal_mask()
+            assert fast.unified_legal_actions() == [
+                index for index, is_legal in enumerate(classic.unified_legal_mask()) if is_legal
+            ]
             assert fast.score_diff(0) == classic.score_diff(0)
             if classic.terminal:
                 break

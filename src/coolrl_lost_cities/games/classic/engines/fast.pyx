@@ -17,6 +17,24 @@ cdef inline int _phase_draw():
     return 1
 
 
+ctypedef struct UndoRecord:
+    int phase_id
+    int player
+    int action_id
+    int pending_before
+    bint terminal_before
+    int turn_count_before
+    int slot
+    int play
+    int card
+    int color
+    int last_numeric_before
+    int handshake_count_before
+    int numeric_sum_before
+    int expedition_score_before
+    int total_score_before
+
+
 cdef class FastGameState:
     cdef public object config
     cdef int n_colors
@@ -39,6 +57,11 @@ cdef class FastGameState:
     cdef int* expedition_lens
     cdef int* discards
     cdef int* discard_lens
+    cdef int* last_numeric_ranks
+    cdef int* handshake_counts
+    cdef int* numeric_sums
+    cdef int* expedition_scores
+    cdef int total_scores[2]
 
     cdef public int current_player
     cdef int phase_id
@@ -53,6 +76,10 @@ cdef class FastGameState:
         self.expedition_lens = NULL
         self.discards = NULL
         self.discard_lens = NULL
+        self.last_numeric_ranks = NULL
+        self.handshake_counts = NULL
+        self.numeric_sums = NULL
+        self.expedition_scores = NULL
 
     def __init__(self, config=None):
         config = config or LostCitiesConfig()
@@ -72,6 +99,14 @@ cdef class FastGameState:
             free(self.discards)
         if self.discard_lens != NULL:
             free(self.discard_lens)
+        if self.last_numeric_ranks != NULL:
+            free(self.last_numeric_ranks)
+        if self.handshake_counts != NULL:
+            free(self.handshake_counts)
+        if self.numeric_sums != NULL:
+            free(self.numeric_sums)
+        if self.expedition_scores != NULL:
+            free(self.expedition_scores)
 
     cdef void _configure(self, object config) except *:
         self.config = config
@@ -95,6 +130,10 @@ cdef class FastGameState:
         self.expedition_lens = <int*>malloc(2 * self.n_colors * sizeof(int))
         self.discards = <int*>malloc(self.n_colors * self.cards_per_color * sizeof(int))
         self.discard_lens = <int*>malloc(self.n_colors * sizeof(int))
+        self.last_numeric_ranks = <int*>malloc(2 * self.n_colors * sizeof(int))
+        self.handshake_counts = <int*>malloc(2 * self.n_colors * sizeof(int))
+        self.numeric_sums = <int*>malloc(2 * self.n_colors * sizeof(int))
+        self.expedition_scores = <int*>malloc(2 * self.n_colors * sizeof(int))
         if (
             self.deck == NULL
             or self.hands == NULL
@@ -102,6 +141,10 @@ cdef class FastGameState:
             or self.expedition_lens == NULL
             or self.discards == NULL
             or self.discard_lens == NULL
+            or self.last_numeric_ranks == NULL
+            or self.handshake_counts == NULL
+            or self.numeric_sums == NULL
+            or self.expedition_scores == NULL
         ):
             raise MemoryError()
         self._clear()
@@ -113,8 +156,14 @@ cdef class FastGameState:
         self.hand_lens[1] = 0
         for i in range(2 * self.n_colors):
             self.expedition_lens[i] = 0
+            self.last_numeric_ranks[i] = 0
+            self.handshake_counts[i] = 0
+            self.numeric_sums[i] = 0
+            self.expedition_scores[i] = 0
         for i in range(self.n_colors):
             self.discard_lens[i] = 0
+        self.total_scores[0] = 0
+        self.total_scores[1] = 0
         self.current_player = 0
         self.phase_id = _phase_card()
         self.pending_discarded_color = -1
@@ -202,6 +251,7 @@ cdef class FastGameState:
         state.pending_discarded_color = -1 if pending is None else int(pending)
         state.turn_count = int(snapshot.get("turn_count", 0))
         state.terminal = bool(snapshot.get("terminal", False))
+        state._recompute_score_caches()
         if validate:
             state.validate_invariants()
         return state
@@ -288,10 +338,16 @@ cdef class FastGameState:
             other.expeditions[i] = self.expeditions[i]
         for i in range(2 * self.n_colors):
             other.expedition_lens[i] = self.expedition_lens[i]
+            other.last_numeric_ranks[i] = self.last_numeric_ranks[i]
+            other.handshake_counts[i] = self.handshake_counts[i]
+            other.numeric_sums[i] = self.numeric_sums[i]
+            other.expedition_scores[i] = self.expedition_scores[i]
         for i in range(self.n_colors * self.cards_per_color):
             other.discards[i] = self.discards[i]
         for i in range(self.n_colors):
             other.discard_lens[i] = self.discard_lens[i]
+        other.total_scores[0] = self.total_scores[0]
+        other.total_scores[1] = self.total_scores[1]
         other.current_player = self.current_player
         other.phase_id = self.phase_id
         other.pending_discarded_color = self.pending_discarded_color
@@ -339,6 +395,30 @@ cdef class FastGameState:
         result.extend(self.legal_draw_mask())
         return result
 
+    cpdef list legal_actions(self):
+        cdef int* actions = <int*>malloc(self.action_size * sizeof(int))
+        if actions == NULL:
+            raise MemoryError()
+        cdef int count
+        cdef int i
+        try:
+            count = self._legal_actions_c(actions)
+            return [actions[i] for i in range(count)]
+        finally:
+            free(actions)
+
+    cpdef list unified_legal_actions(self):
+        cdef int* actions = <int*>malloc(self.action_size * sizeof(int))
+        if actions == NULL:
+            raise MemoryError()
+        cdef int count
+        cdef int i
+        try:
+            count = self._unified_legal_actions_c(actions)
+            return [actions[i] for i in range(count)]
+        finally:
+            free(actions)
+
     cpdef int from_unified_action(self, int action_id):
         cdef int card_action_size = 2 * self.hand_size
         cdef int action_size = card_action_size + 1 + self.n_colors
@@ -369,16 +449,12 @@ cdef class FastGameState:
     cpdef apply_action(self, int action_id):
         if self.terminal:
             raise IllegalMoveError("game is already terminal")
-        cdef list mask = self.legal_mask()
-        if action_id < 0 or action_id >= len(mask) or not mask[action_id]:
+        if not self._is_legal_action_c(action_id):
             raise IllegalMoveError(
                 f"illegal action {action_id} in phase {self.phase} "
                 f"for player {self.current_player}"
             )
-        if self.phase_id == _phase_card():
-            self._apply_card_action(action_id)
-        else:
-            self._apply_draw_action(action_id)
+        self._apply_action_unchecked_c(action_id)
 
     cpdef apply_unified_action(self, int action_id):
         self.apply_action(self.from_unified_action(action_id))
@@ -386,84 +462,42 @@ cdef class FastGameState:
     cpdef object apply_action_with_undo(self, int action_id):
         if self.terminal:
             raise IllegalMoveError("game is already terminal")
-        cdef list mask = self.legal_mask()
-        if action_id < 0 or action_id >= len(mask) or not mask[action_id]:
+        if not self._is_legal_action_c(action_id):
             raise IllegalMoveError(
                 f"illegal action {action_id} in phase {self.phase} "
                 f"for player {self.current_player}"
             )
-        cdef object undo
-        if self.phase_id == _phase_card():
-            undo = self._card_action_undo(action_id)
-            self._apply_card_action(action_id)
-        else:
-            undo = self._draw_action_undo(action_id)
-            self._apply_draw_action(action_id)
-        return undo
+        cdef UndoRecord undo
+        self._apply_action_with_undo_c(action_id, &undo)
+        return self._undo_to_tuple(&undo)
 
     cpdef object apply_unified_action_with_undo(self, int action_id):
         return self.apply_action_with_undo(self.from_unified_action(action_id))
 
     cpdef undo_action(self, object undo):
-        cdef str phase = undo[0]
-        if phase == "card":
-            self._undo_card_action(undo)
-            return
-        if phase == "draw":
-            self._undo_draw_action(undo)
-            return
-        raise ValueError(f"invalid undo phase: {phase!r}")
+        cdef UndoRecord record
+        self._tuple_to_undo(undo, &record)
+        self._undo_action_c(&record)
 
     cpdef bint can_play_encoded_card(self, int player, int card):
         cdef int color = self._card_color(card)
         cdef int rank = self._card_rank(card)
-        cdef int last_numeric
         if color < 0 or color >= self.n_colors:
             return False
         if rank < 0 or rank > self.n_ranks:
             return False
-        last_numeric = self.last_numeric_rank(player, color)
         if rank == 0:
-            return last_numeric == 0
-        return rank > last_numeric
+            return self.last_numeric_ranks[self._expedition_len_index(player, color)] == 0
+        return rank > self.last_numeric_ranks[self._expedition_len_index(player, color)]
 
     cpdef int last_numeric_rank(self, int player, int color):
-        cdef int length = self.expedition_lens[self._expedition_len_index(player, color)]
-        cdef int i
-        cdef int rank
-        cdef int best = 0
-        for i in range(length):
-            rank = self._card_rank(self.expeditions[self._expedition_index(player, color, i)])
-            if rank > best:
-                best = rank
-        return best
+        return self.last_numeric_ranks[self._expedition_len_index(player, color)]
 
     cpdef int expedition_score(self, int player, int color):
-        cdef int length = self.expedition_lens[self._expedition_len_index(player, color)]
-        cdef int handshakes = 0
-        cdef int numeric_sum = 0
-        cdef int i
-        cdef int rank
-        cdef int score
-        if length == 0:
-            return 0
-        for i in range(length):
-            rank = self._card_rank(self.expeditions[self._expedition_index(player, color, i)])
-            if rank == 0:
-                handshakes += 1
-            else:
-                numeric_sum += self.min_rank + rank - 1
-        score = (numeric_sum + self.expedition_penalty) * (handshakes + 1)
-        if length >= self.bonus_threshold:
-            score += self.bonus_amount
-        return score
+        return self.expedition_scores[self._expedition_len_index(player, color)]
 
     cpdef int total_score(self, int player):
-        cdef int total = 0
-        cdef int color
-        for color in range(self.n_colors):
-            total += self.expedition_score(player, color)
-        return total
+        return self.total_scores[player]
 
     cpdef int score_diff(self, int player=0):
         return self.total_score(player) - self.total_score(1 - player)
@@ -492,36 +526,192 @@ cdef class FastGameState:
         if not self.terminal and not any_legal:
             raise ValueError("non-terminal state must have at least one legal action")
 
-    cdef object _card_action_undo(self, int action_id):
-        cdef int slot = action_id // 2
-        cdef bint play = action_id % 2 == 0
-        cdef int card = self.hands[self._hand_index(self.current_player, slot)]
+    cdef bint _is_legal_action_c(self, int action_id) noexcept:
+        cdef int slot
+        cdef int color
+        if self.terminal:
+            return False
+        if self.phase_id == _phase_card():
+            if action_id < 0 or action_id >= 2 * self.hand_size:
+                return False
+            slot = action_id // 2
+            if slot >= self.hand_lens[self.current_player]:
+                return False
+            if action_id % 2 == 1:
+                return True
+            return self._can_play_encoded_card_c(
+                self.current_player,
+                self.hands[self._hand_index(self.current_player, slot)],
+            )
+        if action_id < 0 or action_id >= 1 + self.n_colors:
+            return False
+        if action_id == 0:
+            return self.deck_len > 0
+        color = action_id - 1
         return (
-            "card",
-            self.current_player,
-            action_id,
-            self.pending_discarded_color,
-            self.terminal,
-            slot,
-            play,
-            card,
+            self.discard_lens[color] > 0
+            and (self.pending_discarded_color < 0 or color != self.pending_discarded_color)
         )
 
-    cdef object _draw_action_undo(self, int action_id):
+    cdef int _legal_actions_c(self, int* out_actions) noexcept:
+        cdef int count = 0
+        cdef int slot
+        cdef int color
         cdef int card
-        if action_id == 0:
-            card = self.deck[self.deck_len - 1]
+        if self.terminal:
+            return 0
+        if self.phase_id == _phase_card():
+            for slot in range(self.hand_lens[self.current_player]):
+                card = self.hands[self._hand_index(self.current_player, slot)]
+                if self._can_play_encoded_card_c(self.current_player, card):
+                    out_actions[count] = 2 * slot
+                    count += 1
+                out_actions[count] = 2 * slot + 1
+                count += 1
+            return count
+        if self.deck_len > 0:
+            out_actions[count] = 0
+            count += 1
+        for color in range(self.n_colors):
+            if (
+                self.discard_lens[color] > 0
+                and (self.pending_discarded_color < 0 or color != self.pending_discarded_color)
+            ):
+                out_actions[count] = 1 + color
+                count += 1
+        return count
+
+    cdef int _unified_legal_actions_c(self, int* out_actions) noexcept:
+        cdef int count = 0
+        cdef int slot
+        cdef int color
+        cdef int card
+        cdef int card_action_size = 2 * self.hand_size
+        if self.terminal:
+            return 0
+        if self.phase_id == _phase_card():
+            for slot in range(self.hand_lens[self.current_player]):
+                card = self.hands[self._hand_index(self.current_player, slot)]
+                if self._can_play_encoded_card_c(self.current_player, card):
+                    out_actions[count] = 2 * slot
+                    count += 1
+                out_actions[count] = 2 * slot + 1
+                count += 1
+            return count
+        if self.deck_len > 0:
+            out_actions[count] = card_action_size
+            count += 1
+        for color in range(self.n_colors):
+            if (
+                self.discard_lens[color] > 0
+                and (self.pending_discarded_color < 0 or color != self.pending_discarded_color)
+            ):
+                out_actions[count] = card_action_size + 1 + color
+                count += 1
+        return count
+
+    cdef bint _can_play_encoded_card_c(self, int player, int card) noexcept:
+        cdef int color = self._card_color(card)
+        cdef int rank = self._card_rank(card)
+        if color < 0 or color >= self.n_colors:
+            return False
+        if rank < 0 or rank > self.n_ranks:
+            return False
+        if rank == 0:
+            return self.last_numeric_ranks[self._expedition_len_index(player, color)] == 0
+        return rank > self.last_numeric_ranks[self._expedition_len_index(player, color)]
+
+    cdef void _fill_undo_c(self, int action_id, UndoRecord* undo) noexcept:
+        cdef int slot
+        cdef int card
+        cdef int color
+        cdef int cache_index
+        undo.phase_id = self.phase_id
+        undo.player = self.current_player
+        undo.action_id = action_id
+        undo.pending_before = self.pending_discarded_color
+        undo.terminal_before = self.terminal
+        undo.turn_count_before = self.turn_count
+        undo.slot = -1
+        undo.play = 0
+        undo.card = -1
+        undo.color = -1
+        undo.last_numeric_before = 0
+        undo.handshake_count_before = 0
+        undo.numeric_sum_before = 0
+        undo.expedition_score_before = 0
+        undo.total_score_before = self.total_scores[self.current_player]
+        if self.phase_id == _phase_card():
+            slot = action_id // 2
+            card = self.hands[self._hand_index(self.current_player, slot)]
+            color = self._card_color(card)
+            cache_index = self._expedition_len_index(self.current_player, color)
+            undo.slot = slot
+            undo.play = action_id % 2 == 0
+            undo.card = card
+            undo.color = color
+            undo.last_numeric_before = self.last_numeric_ranks[cache_index]
+            undo.handshake_count_before = self.handshake_counts[cache_index]
+            undo.numeric_sum_before = self.numeric_sums[cache_index]
+            undo.expedition_score_before = self.expedition_scores[cache_index]
+        elif action_id == 0:
+            undo.card = self.deck[self.deck_len - 1]
         else:
-            card = self.discards[self._discard_index(action_id - 1, self.discard_lens[action_id - 1] - 1)]
+            color = action_id - 1
+            undo.color = color
+            undo.card = self.discards[self._discard_index(color, self.discard_lens[color] - 1)]
+
+    cdef void _apply_action_with_undo_c(self, int action_id, UndoRecord* undo) except *:
+        self._fill_undo_c(action_id, undo)
+        self._apply_action_unchecked_c(action_id)
+
+    cdef void _apply_action_unchecked_c(self, int action_id) except *:
+        if self.phase_id == _phase_card():
+            self._apply_card_action(action_id)
+        else:
+            self._apply_draw_action(action_id)
+
+    cdef object _undo_to_tuple(self, UndoRecord* undo):
         return (
-            "draw",
-            self.current_player,
-            action_id,
-            self.pending_discarded_color,
-            self.terminal,
-            self.turn_count,
-            card,
+            "card" if undo.phase_id == _phase_card() else "draw",
+            undo.player,
+            undo.action_id,
+            undo.pending_before,
+            undo.terminal_before,
+            undo.turn_count_before,
+            undo.slot,
+            undo.play,
+            undo.card,
+            undo.color,
+            undo.last_numeric_before,
+            undo.handshake_count_before,
+            undo.numeric_sum_before,
+            undo.expedition_score_before,
+            undo.total_score_before,
         )
+
+    cdef void _tuple_to_undo(self, object data, UndoRecord* undo) except *:
+        cdef str phase = data[0]
+        if phase == "card":
+            undo.phase_id = _phase_card()
+        elif phase == "draw":
+            undo.phase_id = _phase_draw()
+        else:
+            raise ValueError(f"invalid undo phase: {phase!r}")
+        undo.player = <int>data[1]
+        undo.action_id = <int>data[2]
+        undo.pending_before = <int>data[3]
+        undo.terminal_before = <bint>data[4]
+        undo.turn_count_before = <int>data[5]
+        undo.slot = <int>data[6]
+        undo.play = <int>data[7]
+        undo.card = <int>data[8]
+        undo.color = <int>data[9]
+        undo.last_numeric_before = <int>data[10]
+        undo.handshake_count_before = <int>data[11]
+        undo.numeric_sum_before = <int>data[12]
+        undo.expedition_score_before = <int>data[13]
+        undo.total_score_before = <int>data[14]
 
     cdef void _apply_card_action(self, int action_id) except *:
         cdef int slot = action_id // 2
@@ -529,15 +719,31 @@ cdef class FastGameState:
         cdef int player = self.current_player
         cdef int card = self.hands[self._hand_index(player, slot)]
         cdef int color = self._card_color(card)
+        cdef int rank = self._card_rank(card)
         cdef int i
         cdef int length_index
+        cdef int old_score
+        cdef int new_score
         for i in range(slot, self.hand_lens[player] - 1):
             self.hands[self._hand_index(player, i)] = self.hands[self._hand_index(player, i + 1)]
         self.hand_lens[player] -= 1
         if play:
             length_index = self._expedition_len_index(player, color)
+            old_score = self.expedition_scores[length_index]
             self.expeditions[self._expedition_index(player, color, self.expedition_lens[length_index])] = card
             self.expedition_lens[length_index] += 1
+            if rank == 0:
+                self.handshake_counts[length_index] += 1
+            else:
+                self.numeric_sums[length_index] += self.min_rank + rank - 1
+                self.last_numeric_ranks[length_index] = rank
+            new_score = self._score_from_summary_c(
+                self.expedition_lens[length_index],
+                self.handshake_counts[length_index],
+                self.numeric_sums[length_index],
+            )
+            self.expedition_scores[length_index] = new_score
+            self.total_scores[player] += new_score - old_score
         else:
             self.discards[self._discard_index(color, self.discard_lens[color])] = card
             self.discard_lens[color] += 1
@@ -567,13 +773,21 @@ cdef class FastGameState:
         self.current_player = 1 - self.current_player
         self.phase_id = _phase_card()
 
-    cdef void _undo_card_action(self, object undo) except *:
-        cdef int player = <int>undo[1]
-        cdef int pending_before = <int>undo[3]
-        cdef bint terminal_before = <bint>undo[4]
-        cdef int slot = <int>undo[5]
-        cdef bint play = <bint>undo[6]
-        cdef int card = <int>undo[7]
+    cdef void _undo_action_c(self, UndoRecord* undo) except *:
+        if undo.phase_id == _phase_card():
+            self._undo_card_action_c(undo)
+        elif undo.phase_id == _phase_draw():
+            self._undo_draw_action_c(undo)
+        else:
+            raise ValueError("invalid undo phase")
+
+    cdef void _undo_card_action_c(self, UndoRecord* undo) except *:
+        cdef int player = undo.player
+        cdef int pending_before = undo.pending_before
+        cdef bint terminal_before = undo.terminal_before
+        cdef int slot = undo.slot
+        cdef bint play = undo.play
+        cdef int card = undo.card
         cdef int color = self._card_color(card)
         cdef int moved
         cdef int i
@@ -582,6 +796,11 @@ cdef class FastGameState:
             length_index = self._expedition_len_index(player, color)
             self.expedition_lens[length_index] -= 1
             moved = self.expeditions[self._expedition_index(player, color, self.expedition_lens[length_index])]
+            self.last_numeric_ranks[length_index] = undo.last_numeric_before
+            self.handshake_counts[length_index] = undo.handshake_count_before
+            self.numeric_sums[length_index] = undo.numeric_sum_before
+            self.expedition_scores[length_index] = undo.expedition_score_before
+            self.total_scores[player] = undo.total_score_before
         else:
             self.discard_lens[color] -= 1
             moved = self.discards[self._discard_index(color, self.discard_lens[color])]
@@ -596,13 +815,13 @@ cdef class FastGameState:
         self.pending_discarded_color = pending_before
         self.terminal = terminal_before
 
-    cdef void _undo_draw_action(self, object undo) except *:
-        cdef int player = <int>undo[1]
-        cdef int action_id = <int>undo[2]
-        cdef int pending_before = <int>undo[3]
-        cdef bint terminal_before = <bint>undo[4]
-        cdef int turn_count_before = <int>undo[5]
-        cdef int card = <int>undo[6]
+    cdef void _undo_draw_action_c(self, UndoRecord* undo) except *:
+        cdef int player = undo.player
+        cdef int action_id = undo.action_id
+        cdef int pending_before = undo.pending_before
+        cdef bint terminal_before = undo.terminal_before
+        cdef int turn_count_before = undo.turn_count_before
+        cdef int card = undo.card
         cdef int moved
         cdef int color
         self.hand_lens[player] -= 1
@@ -621,6 +840,58 @@ cdef class FastGameState:
         self.pending_discarded_color = pending_before
         self.turn_count = turn_count_before
         self.terminal = terminal_before
+
+    cdef void _recompute_score_caches(self) noexcept:
+        cdef int i
+        cdef int player
+        cdef int color
+        cdef int cache_index
+        cdef int length
+        cdef int rank
+        cdef int card_index
+        for i in range(2 * self.n_colors):
+            self.last_numeric_ranks[i] = 0
+            self.handshake_counts[i] = 0
+            self.numeric_sums[i] = 0
+            self.expedition_scores[i] = 0
+        self.total_scores[0] = 0
+        self.total_scores[1] = 0
+        for player in range(2):
+            for color in range(self.n_colors):
+                cache_index = self._expedition_len_index(player, color)
+                length = self.expedition_lens[cache_index]
+                for card_index in range(length):
+                    rank = self._card_rank(
+                        self.expeditions[
+                            self._expedition_index(player, color, card_index)
+                        ]
+                    )
+                    if rank == 0:
+                        self.handshake_counts[cache_index] += 1
+                    else:
+                        self.numeric_sums[cache_index] += self.min_rank + rank - 1
+                        if rank > self.last_numeric_ranks[cache_index]:
+                            self.last_numeric_ranks[cache_index] = rank
+                self.expedition_scores[cache_index] = self._score_from_summary_c(
+                    length,
+                    self.handshake_counts[cache_index],
+                    self.numeric_sums[cache_index],
+                )
+                self.total_scores[player] += self.expedition_scores[cache_index]
+
+    cdef inline int _score_from_summary_c(
+        self,
+        int length,
+        int handshakes,
+        int numeric_sum,
+    ) noexcept:
+        cdef int score
+        if length == 0:
+            return 0
+        score = (numeric_sum + self.expedition_penalty) * (handshakes + 1)
+        if length >= self.bonus_threshold:
+            score += self.bonus_amount
+        return score
 
     cdef bint _has_any_legal_draw(self):
         cdef int color
