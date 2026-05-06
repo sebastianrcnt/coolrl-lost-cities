@@ -1,7 +1,8 @@
 # Deep CFR v0 Gap vs Legacy coolrl
 
-This document compares the current `coolrl-lost-cities` Deep CFR v0 smoke
-pipeline with the legacy Lost Cities Deep CFR implementation in `../coolrl`.
+This document compares the current `coolrl-lost-cities` Deep CFR v0
+implementation with the legacy Lost Cities Deep CFR implementation in
+`../coolrl`.
 
 The current implementation proves that Cython traversal primitives, PyTorch
 networks, memory collection, and a one-iteration smoke run can work together. It
@@ -15,58 +16,30 @@ Implemented:
    - `random_rollout_value`
    - `root_action_values`
    - direct `GameState` C API use for legal actions and push/pop restoration
-2. Minimal Cython information-state encoding.
-3. Small PyTorch MLP.
-4. Simple in-memory sample storage.
-5. Minimal trainer that:
-   - samples root action values with random rollouts
-   - builds advantage-like targets
-   - trains advantage networks and strategy network once
-6. Smoke tests for traversal restoration and trainer execution.
+2. Recursive Python Deep CFR traverser:
+   - `traverse(state, traverser, iteration, depth)` logic
+   - terminal values
+   - traverser vs opponent node behavior
+   - sampled action recursion
+   - sampled action value and node value calculation
+   - instantaneous regret collection at traverser nodes
+   - strategy-memory collection
+   - depth and node-budget cutoffs
+3. Advantage-network-driven traversal policies:
+   - information-state encoding
+   - advantage network forward pass
+   - regret matching over legal actions
+   - sampled action recursion
+4. Minimal Cython information-state encoding.
+5. Small PyTorch MLP.
+6. Simple in-memory sample storage with legal masks.
+7. Legal-mask-aware advantage loss and masked strategy loss.
+8. Smoke tests for traversal restoration and trainer execution.
 
-This is a scaffold, not a complete Deep CFR algorithm.
+This is now a real single-process Deep CFR v0, but it is still not equivalent to
+the legacy implementation.
 
 ## Major Algorithm Gaps
-
-### Recursive Deep CFR Traversal
-
-Legacy `coolrl` has recursive outcome-sampling traversal. Current v0 does not.
-
-Missing:
-
-1. Recursive `traverse(state, traverser, iteration, depth)` logic.
-2. Terminal value handling at every node.
-3. Traverser node vs opponent node behavior.
-4. Node value calculation from sampled actions.
-5. Instantaneous regret calculation at traverser nodes.
-6. Strategy-memory collection at traverser and/or opponent nodes.
-7. Depth cutoff and node-budget cutoff.
-
-This is the highest-priority gap.
-
-### Network-driven Policies During Traversal
-
-Current v0 does not use the advantage networks inside traversal. It estimates
-root action values with random rollouts.
-
-Legacy flow:
-
-```text
-encode information state
-advantage network forward pass
-regret matching over legal actions
-sample action from policy
-recurse
-store regrets / strategy
-```
-
-Current flow:
-
-```text
-enumerate root actions
-random rollout from each child
-train on resulting root targets
-```
 
 ### Outcome Sampling Controls
 
@@ -91,7 +64,8 @@ Legacy traversal supports:
 4. rollout max-step timeouts
 5. cutoff stats
 
-Current v0 only uses random rollouts at the root-action helper level.
+Current v0 uses score-diff cutoff values for depth and node-budget cutoffs, but
+does not support rollout-based cutoff values.
 
 ## Training and Memory Gaps
 
@@ -101,28 +75,11 @@ Legacy implementation has separate `AdvantageMemory` and `StrategyMemory` with:
 
 1. capacity limits
 2. reservoir sampling
-3. legal masks stored with each sample
-4. batch sampling
-5. sample merging from traversal workers
+3. batch sampling
+4. sample merging from traversal workers
 
-Current v0 stores simple `TrainingSample` objects in a list-like memory.
-
-### Legal-mask-aware Losses
-
-Legacy advantage loss only trains legal action outputs:
-
-```text
-masked MSE over legal actions
-```
-
-Legacy strategy loss uses masked policy learning:
-
-```text
-masked logits -> log_softmax -> cross entropy against stored policy
-```
-
-Current v0 uses simple supervised MSE for both advantage and strategy targets.
-This is enough for smoke testing, but not the intended training objective.
+Current v0 stores `TrainingSample` objects with legal masks, but still uses
+list-like storage rather than true reservoir sampling.
 
 ### Config System
 
@@ -270,15 +227,16 @@ Current v0 has no league or checkpoint-snapshot opponent sampling.
 
 Recommended implementation order:
 
-1. Implement real recursive Deep CFR traversal.
-2. Add legal-mask-aware advantage and strategy memories/losses.
-3. Expand encoding to include public board, discard, and score features.
-4. Add checkpoint save/load.
-5. Add strategy-net bot adapter and evaluation integration.
-6. Add CLI for train/eval/smoke.
-7. Add traversal stats and benchmark reporting.
-8. Add multiprocessing workers only after the single-process algorithm is
+1. Add outcome-sampling controls.
+2. Add rollout-based cutoff values.
+3. Replace list-like memory with reservoir memory.
+4. Expand encoding to include public board, discard, and score features.
+5. Add checkpoint save/load.
+6. Add strategy-net bot adapter and evaluation integration.
+7. Add CLI for train/eval/smoke.
+8. Add traversal stats and benchmark reporting.
+9. Add multiprocessing workers only after the single-process algorithm is
    correct.
 
-The first three items are algorithm-critical. The rest are operationally useful
-but should not block proving that the learning loop is correct.
+The first four items are algorithm-critical. The rest are operationally useful
+but should not block improving the learning loop.
