@@ -10,8 +10,7 @@ from typing import Any
 import numpy as np
 
 from .bots import available_bot_names, build_bot
-from .engines import FastGameState as GameState
-from .game import LostCitiesConfig, classic_config
+from .game import GameState, LostCitiesConfig, classic_config
 from .interfaces import LostCitiesBot
 
 BotFactory = Callable[[int | None], LostCitiesBot]

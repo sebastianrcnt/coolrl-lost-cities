@@ -4,8 +4,7 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 
-from ..engines import FastGameState as GameState
-from ..game import Card, LostCitiesConfig
+from ..game import Card, GameState, LostCitiesConfig
 from ..interfaces import BotInput, LostCitiesBot
 from .base import first_legal, legal_from_obs
 

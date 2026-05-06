@@ -43,8 +43,6 @@ include = ["coolrl_lost_cities*"]
     "assets/*.json",
     "fixtures/*.json",
     "docs/*.md",
-]
-"coolrl_lost_cities.games.classic.engines" = [
     "*.pxd",
     "*.pyx",
 ]

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from .engines import FastGameState as GameState
-from .game import IllegalMoveError, LostCitiesConfig
+from .game import GameState, IllegalMoveError, LostCitiesConfig
 
 try:
     import numpy as np

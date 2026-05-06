@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..engines import FastGameState as GameState
+from ..game import GameState
 from ..interfaces import BotInput, Snapshot
 
 try:

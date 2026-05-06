@@ -16,7 +16,7 @@ ctypedef struct UndoRecord:
     int total_score_before
 
 
-cdef class FastGameState:
+cdef class GameState:
     cdef public object config
     cdef int n_colors
     cdef int n_ranks
@@ -56,7 +56,7 @@ cdef class FastGameState:
     cdef void _configure(self, object config) except *
     cdef void _clear(self) noexcept
 
-    cpdef FastGameState clone(self)
+    cpdef GameState clone(self)
     cpdef list legal_card_mask(self)
     cpdef list legal_draw_mask(self)
     cpdef list legal_mask(self)

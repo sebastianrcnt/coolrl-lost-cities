@@ -5,7 +5,6 @@ from .bots import (
     available_bot_names,
     build_bot,
 )
-from .engines import FastGameState as GameState
 from .env import LostCitiesEnv
 from .evaluation import (
     GameResult,
@@ -18,6 +17,7 @@ from .evaluation import (
     play_match,
 )
 from .game import (
+    GameState,
     IllegalMoveError,
     LostCitiesConfig,
     classic_config,
