@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -162,6 +163,15 @@ class DeepCFRTraverser:
             if self.opponent_policy == "safe_heuristic" or self.self_play_anchor_probability > 0.0
             else None
         )
+        self._ensure_recursion_limit()
+
+    def _ensure_recursion_limit(self) -> None:
+        target_depth = self.max_depth if self.max_depth is not None else self.max_nodes
+        if target_depth is None:
+            target_depth = 10_000
+        desired_limit = min(max(int(target_depth) + 1_000, 2_000), 200_000)
+        if sys.getrecursionlimit() < desired_limit:
+            sys.setrecursionlimit(desired_limit)
 
     def traverse(
         self, state: GameState, traverser: int, iteration: int
