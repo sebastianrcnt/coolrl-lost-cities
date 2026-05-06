@@ -9,6 +9,7 @@ import numpy as np
 class TrainingSample:
     info_state: np.ndarray
     target: np.ndarray
+    legal_mask: np.ndarray
     iteration: int
     player: int
 
