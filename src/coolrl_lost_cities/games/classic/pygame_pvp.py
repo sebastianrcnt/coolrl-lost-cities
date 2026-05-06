@@ -12,12 +12,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from .backends.common import snapshot_summary
-from .backends.python import PythonLostCitiesBackend
 from .bots import DEFAULT_BOT, LostCitiesBot, available_bot_names, build_bot
 from .game import Card, GameState, LostCitiesConfig, classic_config
-from .interfaces import LostCitiesBackend, Snapshot
 from .resources import theme_path
+from .snapshots import Snapshot, snapshot_from_state, snapshot_summary
 
 LOGGER = logging.getLogger("coolrl_lost_cities.games.classic.pygame_pvp")
 ModeName = Literal["pvp", "pvc"]
@@ -106,17 +104,17 @@ def turn_identity_summary(identity: tuple[int, str, int] | None) -> str:
 
 
 def undo_until_player_card_phase(
-    backend: LostCitiesBackend,
+    app: LostCitiesGuiApp,
     *,
     player: int,
 ) -> int:
     undone = 0
-    while backend.can_undo():
-        changed = backend.undo()
+    while app.can_undo():
+        changed = app.undo_once()
         if not changed:
             break
         undone += 1
-        snapshot = backend.snapshot()
+        snapshot = app.snapshot()
         if snapshot.current_player == player and snapshot.phase == "card":
             break
     return undone
@@ -201,7 +199,8 @@ class LostCitiesGuiApp:
         self.next_computer_action_at_ms = 0
         self.config = classic_config()
         self.computer_bot, self.computer_bot_label = self._build_computer_bot()
-        self.backend: LostCitiesBackend = PythonLostCitiesBackend(self.config, self.seed)
+        self.state = GameState.new_game(self.config, seed=self.seed)
+        self.history: list[GameState] = []
         self.ui_elements: list[Any] = []
         self.hand_card_rects: dict[int, Any] = {}
         self.board_targets: list[ActionTarget] = []
@@ -242,6 +241,26 @@ class LostCitiesGuiApp:
 
     def _build_computer_bot(self) -> tuple[LostCitiesBot, str]:
         return build_bot(self.bot_name, seed=self._bot_seed()), self.bot_name
+
+    def snapshot(self) -> Snapshot:
+        return snapshot_from_state(self.state)
+
+    def can_undo(self) -> bool:
+        return bool(self.history)
+
+    def apply_state_action(self, action_id: int) -> None:
+        self.history.append(self.state.clone())
+        try:
+            self.state.apply_unified_action(action_id)
+        except Exception:
+            self.history.pop()
+            raise
+
+    def undo_once(self) -> bool:
+        if not self.history:
+            return False
+        self.state = self.history.pop()
+        return True
 
     def _configure_ui_theme(self) -> None:
         theme = json.loads(theme_path().read_text())
@@ -319,7 +338,7 @@ class LostCitiesGuiApp:
             self.handle_board_click(event.pos)
 
     def is_computer_turn(self, snapshot: Snapshot | None = None) -> bool:
-        snapshot = snapshot or self.backend.snapshot()
+        snapshot = snapshot or self.snapshot()
         return (
             self.mode == "pvc"
             and not snapshot.terminal
@@ -327,7 +346,7 @@ class LostCitiesGuiApp:
         )
 
     def maybe_apply_computer_action(self) -> None:
-        snapshot = self.backend.snapshot()
+        snapshot = self.snapshot()
         if not self.is_computer_turn(snapshot):
             self.next_computer_action_at_ms = 0
             return
@@ -362,7 +381,7 @@ class LostCitiesGuiApp:
         return snapshot
 
     def handle_board_click(self, pos: tuple[int, int]) -> None:
-        snapshot = self.backend.snapshot()
+        snapshot = self.snapshot()
         if self.is_computer_turn(snapshot):
             LOGGER.debug(
                 "보드 클릭 무시: 컴퓨터 턴 위치=%s 상태={%s}", pos, snapshot_summary(snapshot)
@@ -412,13 +431,14 @@ class LostCitiesGuiApp:
         self.export_text = None
         try:
             self.computer_bot, self.computer_bot_label = self._build_computer_bot()
-            self.backend = PythonLostCitiesBackend(self.config, self.seed)
+            self.state = GameState.new_game(self.config, seed=self.seed)
+            self.history = []
             self._reset_match_trace()
             self.error_text = None
             LOGGER.debug(
                 "게임 초기화 완료: 시드=%s 상태={%s}",
                 self.seed,
-                snapshot_summary(self.backend.snapshot()),
+                snapshot_summary(self.snapshot()),
             )
         except Exception as exc:
             self.error_text = str(exc)
@@ -427,10 +447,10 @@ class LostCitiesGuiApp:
 
     def apply_action(self, action_id: int, *, rebuild: bool = True) -> None:
         try:
-            before = self.backend.snapshot()
+            before = self.snapshot()
             LOGGER.debug("액션 적용 요청: 액션=%s 상태={%s}", action_id, snapshot_summary(before))
-            self.backend.apply(action_id)
-            after = self.backend.snapshot()
+            self.apply_state_action(action_id)
+            after = self.snapshot()
             self._append_match_trace_step(action_id=action_id, before=before, after=after)
             self.selected_card_slot = None
             self.hand_card_rects = {}
@@ -450,14 +470,14 @@ class LostCitiesGuiApp:
 
     def undo(self) -> None:
         try:
-            before = self.backend.snapshot()
+            before = self.snapshot()
             if self.mode == "pvc":
                 undo_count = undo_until_player_card_phase(
-                    self.backend,
+                    self,
                     player=1 - self.computer_player,
                 )
             else:
-                undo_count = 1 if self.backend.undo() else 0
+                undo_count = 1 if self.undo_once() else 0
             changed = undo_count > 0
             self.selected_card_slot = None
             self.hand_card_rects = {}
@@ -475,7 +495,7 @@ class LostCitiesGuiApp:
                 changed,
                 undo_count,
                 snapshot_summary(before),
-                snapshot_summary(self.backend.snapshot()),
+                snapshot_summary(self.snapshot()),
             )
         except Exception as exc:
             self.error_text = str(exc)
@@ -483,7 +503,7 @@ class LostCitiesGuiApp:
         self.rebuild_ui()
 
     def _reset_match_trace(self) -> None:
-        snapshot = self.backend.snapshot()
+        snapshot = self.snapshot()
         self.match_trace = [
             self._trace_record(
                 step_index=0,
@@ -530,7 +550,7 @@ class LostCitiesGuiApp:
         }
 
     def export_match_trace(self) -> None:
-        snapshot = self.backend.snapshot()
+        snapshot = self.snapshot()
         if not snapshot.terminal:
             self.error_text = "대국 종료 후 내보낼 수 있음"
             self.rebuild_ui()
@@ -549,7 +569,7 @@ class LostCitiesGuiApp:
             "variant": "classic",
             "mode": self.mode,
             "bot": self._computer_bot_display_name() if self.mode == "pvc" else None,
-            "backend": "python",
+            "engine": "cython",
             "seed": self.seed,
             "config": self.config.to_snapshot(),
             "step_count": len(self.match_trace),
@@ -624,14 +644,14 @@ class LostCitiesGuiApp:
             text="UNDO",
             manager=self.manager,
         )
-        if not self.backend.can_undo():
+        if not self.can_undo():
             self.undo_button.disable()
         self.export_button = pygame_gui.elements.UIButton(
             relative_rect=pygame.Rect(width - 128, 17, 110, 46),
             text="EXPORT",
             manager=self.manager,
         )
-        if not self.backend.snapshot().terminal:
+        if not self.snapshot().terminal:
             self.export_button.disable()
         self.ui_elements.extend(
             [
@@ -645,7 +665,7 @@ class LostCitiesGuiApp:
         )
 
     def draw(self) -> None:
-        snapshot = self.backend.snapshot()
+        snapshot = self.snapshot()
         self._sync_turn_identity(snapshot)
         self.hand_card_rects = {}
         self.board_targets = []
@@ -834,7 +854,7 @@ class LostCitiesGuiApp:
             )
 
     def _turn_flash_active(self, player: int) -> bool:
-        snapshot = self.backend.snapshot()
+        snapshot = self.snapshot()
         return (
             snapshot.current_player == player
             and snapshot.phase == "card"

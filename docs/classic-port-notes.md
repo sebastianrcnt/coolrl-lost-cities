@@ -21,9 +21,11 @@ src/coolrl_lost_cities/
   games/
     classic/
       game.pyx
+      reference.py
+      snapshots.py
+      evaluation.py
       env.py
       interfaces.py
-      backends/
       bots/
       pygame_pvp.py
       fixtures/

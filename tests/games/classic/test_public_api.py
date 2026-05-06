@@ -13,10 +13,26 @@ def test_classic_package_exports_common_game_api() -> None:
     assert state.config.deck_size == 60
 
 
-def test_classic_package_exports_backend_alias() -> None:
-    backend = classic.build_backend("python", classic.classic_config(), seed=1)
+def test_classic_package_exports_snapshot_alias() -> None:
+    state = classic.GameState.new_game(classic.classic_config(seed=1))
+    snapshot = classic.Snapshot(
+        config=state.config,
+        deck=list(state.deck),
+        hands=[list(hand) for hand in state.hands],
+        expeditions=[
+            [list(expedition) for expedition in player_expeditions]
+            for player_expeditions in state.expeditions
+        ],
+        discards=[list(discard) for discard in state.discards],
+        current_player=state.current_player,
+        phase=state.phase,
+        pending_discarded_color=state.pending_discarded_color,
+        turn_count=state.turn_count,
+        terminal=state.terminal,
+        legal_mask=state.unified_legal_mask(),
+    )
 
-    assert isinstance(backend.snapshot(), classic.Snapshot)
+    assert snapshot.score_diff(0) == state.score_diff(0)
 
 
 def test_classic_package_exports_bot_registry_helpers() -> None:

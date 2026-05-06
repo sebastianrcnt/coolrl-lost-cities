@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from .backends import build_backend
 from .bots import (
     LostCitiesBot,
     available_bot_names,
@@ -9,28 +8,42 @@ from .bots import (
     run_series,
 )
 from .env import LostCitiesEnv
+from .evaluation import (
+    GameResult,
+    MatchResult,
+    evaluate_bot,
+    make_bot_factory,
+    play_game_for_evaluation,
+    play_match,
+)
 from .game import (
     GameState,
     IllegalMoveError,
     LostCitiesConfig,
     classic_config,
 )
-from .interfaces import BackendName, LostCitiesBackend, Snapshot
+from .interfaces import Snapshot
+from .reference import ReferenceLostCitiesCard, ReferenceLostCitiesState
 
 __all__ = [
-    "BackendName",
     "GameState",
+    "GameResult",
     "IllegalMoveError",
-    "LostCitiesBackend",
     "LostCitiesBot",
     "LostCitiesConfig",
     "LostCitiesEnv",
+    "MatchResult",
+    "ReferenceLostCitiesCard",
+    "ReferenceLostCitiesState",
     "Snapshot",
     "available_bot_names",
-    "build_backend",
     "build_bot",
     "classic_config",
+    "evaluate_bot",
+    "make_bot_factory",
     "play_game",
+    "play_game_for_evaluation",
+    "play_match",
     "run_series",
 ]
 
