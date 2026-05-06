@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +35,22 @@ class IterationMetrics:
     traversal_node_limit_cutoffs: int
     traversal_max_depth_reached: int
     eval_metrics: dict[str, float | int]
+
+    def to_dict(self) -> dict[str, float | int]:
+        data = {
+            "iteration": self.iteration,
+            "advantage_samples": self.advantage_samples,
+            "strategy_samples": self.strategy_samples,
+            "advantage_loss": self.advantage_loss,
+            "strategy_loss": self.strategy_loss,
+            "traversal_nodes": self.traversal_nodes,
+            "traversal_terminals": self.traversal_terminals,
+            "traversal_depth_cutoffs": self.traversal_depth_cutoffs,
+            "traversal_node_limit_cutoffs": self.traversal_node_limit_cutoffs,
+            "traversal_max_depth_reached": self.traversal_max_depth_reached,
+        }
+        data.update(self.eval_metrics)
+        return data
 
 
 class DeepCFRTrainer:
@@ -70,6 +88,10 @@ class DeepCFRTrainer:
         self.strategy_memory = ReservoirMemory(self.config.strategy_memory_capacity)
         self.rng = np.random.default_rng(self.config.seed + 101)
         self.iteration = 0
+        self.run_dir = self.config.checkpoint_path
+        self.metrics_path = self.run_dir / "metrics.jsonl"
+        self.progress_path = self.run_dir / "runtime_progress.json"
+        self.log_path = self.run_dir / "train.log"
 
     def checkpoint_payload(self, metrics: IterationMetrics | None = None) -> dict:
         return {
@@ -84,7 +106,7 @@ class DeepCFRTrainer:
                 optimizer.state_dict() for optimizer in self.advantage_optimizers
             ],
             "strategy_optimizer": self.strategy_optimizer.state_dict(),
-            "metrics": None if metrics is None else metrics.__dict__,
+            "metrics": None if metrics is None else metrics.to_dict(),
         }
 
     def save_checkpoint(self, path: str | Path, metrics: IterationMetrics | None = None) -> Path:
@@ -156,17 +178,47 @@ class DeepCFRTrainer:
         )
 
     def train(self) -> list[IterationMetrics]:
+        self._start_run_logging()
         metrics: list[IterationMetrics] = []
         start = self.iteration + 1
         stop = self.iteration + self.config.iterations
         for iteration in range(start, stop + 1):
+            started = time.perf_counter()
             item = self.run_iteration(iteration)
+            elapsed = time.perf_counter() - started
             metrics.append(item)
+            self._append_metrics(item, elapsed)
             if self.config.save_every_iteration:
-                checkpoint_dir = self.config.checkpoint_path
+                checkpoint_dir = self.run_dir
                 self.save_checkpoint(checkpoint_dir / f"iteration_{iteration:05d}.pt", item)
                 self.save_checkpoint(checkpoint_dir / "latest.pt", item)
         return metrics
+
+    def _start_run_logging(self) -> None:
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        config_path = self.run_dir / "config.json"
+        if not config_path.exists():
+            config_path.write_text(
+                json.dumps(self.config.to_dict(), indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+        if self.iteration == 0 and self.metrics_path.exists():
+            self.metrics_path.unlink()
+        with self.log_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"Deep CFR run start iteration={self.iteration} seed={self.config.seed}\n")
+
+    def _append_metrics(self, metrics: IterationMetrics, iteration_seconds: float) -> None:
+        data = metrics.to_dict()
+        data["iteration_seconds"] = iteration_seconds
+        data["nodes_per_second"] = metrics.traversal_nodes / max(iteration_seconds, 1.0e-12)
+        with self.metrics_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, sort_keys=True) + "\n")
+        self.progress_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+        with self.log_path.open("a", encoding="utf-8") as handle:
+            handle.write(
+                f"iteration={metrics.iteration} nodes={metrics.traversal_nodes} adv_loss={metrics.advantage_loss:.6f} "
+                f"strategy_loss={metrics.strategy_loss:.6f} seconds={iteration_seconds:.3f}\n"
+            )
 
     def _evaluate(self, iteration: int) -> dict[str, float | int]:
         if self.config.eval_every <= 0 or iteration % self.config.eval_every != 0:

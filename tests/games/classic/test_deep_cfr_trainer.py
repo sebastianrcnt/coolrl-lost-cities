@@ -188,5 +188,9 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
     restored.load_checkpoint(latest)
 
     assert latest.exists()
+    assert (checkpoint_dir / "config.json").exists()
+    assert (checkpoint_dir / "metrics.jsonl").exists()
+    assert (checkpoint_dir / "runtime_progress.json").exists()
+    assert (checkpoint_dir / "train.log").exists()
     assert restored.iteration == 1
     assert "eval_random_games" in metrics[0].eval_metrics

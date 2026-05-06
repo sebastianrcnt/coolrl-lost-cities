@@ -42,7 +42,7 @@ def train_command(args: argparse.Namespace) -> None:
         trainer.load_checkpoint(args.resume)
     metrics = trainer.train()
     for item in metrics:
-        print(json.dumps(item.__dict__, sort_keys=True))
+        print(json.dumps(item.to_dict(), sort_keys=True))
 
 
 def eval_command(args: argparse.Namespace) -> None:
