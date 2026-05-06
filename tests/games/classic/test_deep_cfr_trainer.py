@@ -260,3 +260,34 @@ def test_deep_cfr_self_play_league_records_snapshots(tmp_path) -> None:
 
     assert len(metrics) == 2
     assert len(trainer.self_play_league_snapshots) == 1
+
+
+def test_deep_cfr_weighted_self_play_league_uses_snapshot_bucket(tmp_path) -> None:
+    trainer = DeepCFRTrainer(
+        DeepCFRConfig(
+            iterations=2,
+            traversals_per_iteration=1,
+            max_traversal_depth=2,
+            max_nodes_per_traversal=32,
+            batch_size=2,
+            hidden_size=16,
+            seed=59,
+            checkpoint_dir=str(tmp_path / "weighted-league"),
+            save_every_iteration=False,
+            opponent_policy="self_play_league",
+            self_play_snapshot_every=1,
+            self_play_max_snapshots=2,
+            self_play_current_weight=0.0,
+            self_play_recent_weight=1.0,
+            self_play_older_weight=0.0,
+            self_play_anchor_weight=0.0,
+            self_play_recent_window=1,
+        ),
+        LostCitiesConfig(seed=59),
+    )
+
+    metrics = trainer.train()
+
+    assert len(metrics) == 2
+    assert len(trainer.self_play_league_snapshots) == 2
+    assert metrics[1].traversal_nodes > 0

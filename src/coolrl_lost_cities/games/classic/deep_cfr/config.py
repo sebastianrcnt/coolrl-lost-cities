@@ -23,6 +23,11 @@ class DeepCFRConfig:
     self_play_snapshot_every: int = 1
     self_play_max_snapshots: int = 20
     self_play_anchor_probability: float = 0.0
+    self_play_current_weight: float = 0.5
+    self_play_recent_weight: float = 0.3
+    self_play_older_weight: float = 0.2
+    self_play_anchor_weight: float = 0.0
+    self_play_recent_window: int = 5
     strategy_sample_interval: int = 1
     store_strategy_on_traverser_nodes: bool = True
     store_strategy_on_opponent_nodes: bool = True

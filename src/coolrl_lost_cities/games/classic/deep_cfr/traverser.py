@@ -98,6 +98,11 @@ class DeepCFRTraverser:
         opponent_policy: str = "network",
         league_advantage_networks: list[list[torch.nn.Module]] | None = None,
         self_play_anchor_probability: float = 0.0,
+        self_play_current_weight: float = 0.5,
+        self_play_recent_weight: float = 0.3,
+        self_play_older_weight: float = 0.2,
+        self_play_anchor_weight: float = 0.0,
+        self_play_recent_window: int = 5,
         rng: np.random.Generator | None = None,
     ) -> None:
         self.advantage_networks = advantage_networks
@@ -135,6 +140,11 @@ class DeepCFRTraverser:
             )
         self.league_advantage_networks = league_advantage_networks or []
         self.self_play_anchor_probability = min(1.0, max(0.0, float(self_play_anchor_probability)))
+        self.self_play_current_weight = max(0.0, float(self_play_current_weight))
+        self.self_play_recent_weight = max(0.0, float(self_play_recent_weight))
+        self.self_play_older_weight = max(0.0, float(self_play_older_weight))
+        self.self_play_anchor_weight = max(0.0, float(self_play_anchor_weight))
+        self.self_play_recent_window = max(0, int(self_play_recent_window))
         self.rng = rng or np.random.default_rng()
         self._safe_heuristic_rollout_bot = (
             SafeHeuristicBot() if self.cutoff_rollout_policy == "safe_heuristic" else None
@@ -285,24 +295,62 @@ class DeepCFRTraverser:
             if self._safe_heuristic_opponent_bot is None:
                 self._safe_heuristic_opponent_bot = SafeHeuristicBot()
             return self._safe_heuristic_opponent_bot.act(state)
-        if (
-            self.self_play_anchor_probability > 0.0
-            and self.rng.random() < self.self_play_anchor_probability
-        ):
+        bucket = self._self_play_bucket()
+        if bucket == "current":
+            return None
+        if bucket == "anchor":
             if self._safe_heuristic_opponent_bot is None:
                 self._safe_heuristic_opponent_bot = SafeHeuristicBot()
             return self._safe_heuristic_opponent_bot.act(state)
-        if not self.league_advantage_networks:
+        networks = self._self_play_snapshot_networks(bucket)
+        if networks is None:
             return None
-        networks = self.league_advantage_networks[
-            int(self.rng.integers(0, len(self.league_advantage_networks)))
-        ]
         _, legal, policy = self._policy_from_networks(networks, state, player)
         legal_actions = np.flatnonzero(legal)
         if len(legal_actions) == 0:
             return None
         unified_action = self._sample_action(policy, legal_actions)
         return state.from_unified_action(unified_action)
+
+    def _self_play_bucket(self) -> str:
+        if (
+            self.self_play_anchor_probability > 0.0
+            and self.rng.random() < self.self_play_anchor_probability
+        ):
+            return "anchor"
+        recent_count = min(len(self.league_advantage_networks), self.self_play_recent_window)
+        older_count = max(0, len(self.league_advantage_networks) - recent_count)
+        labels = ["current", "recent", "older", "anchor"]
+        weights = np.asarray(
+            [
+                self.self_play_current_weight,
+                self.self_play_recent_weight if recent_count > 0 else 0.0,
+                self.self_play_older_weight if older_count > 0 else 0.0,
+                self.self_play_anchor_weight,
+            ],
+            dtype=np.float64,
+        )
+        total = float(weights.sum())
+        if total <= 0.0:
+            return "current"
+        weights /= total
+        return str(self.rng.choice(labels, p=weights))
+
+    def _self_play_snapshot_networks(self, bucket: str) -> list[torch.nn.Module] | None:
+        if not self.league_advantage_networks:
+            return None
+        recent_count = min(len(self.league_advantage_networks), self.self_play_recent_window)
+        if bucket == "recent" and recent_count > 0:
+            candidates = self.league_advantage_networks[-recent_count:]
+        elif bucket == "older":
+            candidates = self.league_advantage_networks[
+                : max(0, len(self.league_advantage_networks) - recent_count)
+            ]
+        else:
+            candidates = self.league_advantage_networks
+        if not candidates:
+            return None
+        return candidates[int(self.rng.integers(0, len(candidates)))]
 
     def _sample_action(self, policy: np.ndarray, legal_actions: np.ndarray) -> int:
         probs = policy[legal_actions].astype(np.float64)

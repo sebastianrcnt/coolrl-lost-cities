@@ -79,6 +79,11 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
         opponent_policy=cfg.opponent_policy,
         league_advantage_networks=league_networks,
         self_play_anchor_probability=cfg.self_play_anchor_probability,
+        self_play_current_weight=cfg.self_play_current_weight,
+        self_play_recent_weight=cfg.self_play_recent_weight,
+        self_play_older_weight=cfg.self_play_older_weight,
+        self_play_anchor_weight=cfg.self_play_anchor_weight,
+        self_play_recent_window=cfg.self_play_recent_window,
         rng=np.random.default_rng(batch.worker_seed),
     )
     game_config = LostCitiesConfig(**batch.game_config)

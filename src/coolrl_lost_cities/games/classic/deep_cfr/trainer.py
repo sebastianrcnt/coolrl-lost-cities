@@ -184,6 +184,11 @@ class DeepCFRTrainer:
             opponent_policy=self.config.opponent_policy,
             league_advantage_networks=self._materialize_league_networks(),
             self_play_anchor_probability=self.config.self_play_anchor_probability,
+            self_play_current_weight=self.config.self_play_current_weight,
+            self_play_recent_weight=self.config.self_play_recent_weight,
+            self_play_older_weight=self.config.self_play_older_weight,
+            self_play_anchor_weight=self.config.self_play_anchor_weight,
+            self_play_recent_window=self.config.self_play_recent_window,
             rng=self.rng,
         )
         for network in self.advantage_networks:
