@@ -95,6 +95,9 @@ class DeepCFRTraverser:
         cutoff_rollouts: int = 0,
         cutoff_rollout_policy: str = "random",
         cutoff_rollout_max_steps: int = 10_000,
+        opponent_policy: str = "network",
+        league_advantage_networks: list[list[torch.nn.Module]] | None = None,
+        self_play_anchor_probability: float = 0.0,
         rng: np.random.Generator | None = None,
     ) -> None:
         self.advantage_networks = advantage_networks
@@ -125,9 +128,21 @@ class DeepCFRTraverser:
         if self.cutoff_rollout_policy not in {"random", "safe_heuristic"}:
             raise ValueError("cutoff_rollout_policy must be 'random' or 'safe_heuristic'")
         self.cutoff_rollout_max_steps = max(1, int(cutoff_rollout_max_steps))
+        self.opponent_policy = opponent_policy
+        if self.opponent_policy not in {"network", "safe_heuristic", "self_play_league"}:
+            raise ValueError(
+                "opponent_policy must be 'network', 'safe_heuristic', or 'self_play_league'"
+            )
+        self.league_advantage_networks = league_advantage_networks or []
+        self.self_play_anchor_probability = min(1.0, max(0.0, float(self_play_anchor_probability)))
         self.rng = rng or np.random.default_rng()
         self._safe_heuristic_rollout_bot = (
             SafeHeuristicBot() if self.cutoff_rollout_policy == "safe_heuristic" else None
+        )
+        self._safe_heuristic_opponent_bot = (
+            SafeHeuristicBot()
+            if self.opponent_policy == "safe_heuristic" or self.self_play_anchor_probability > 0.0
+            else None
         )
 
     def traverse(
@@ -163,6 +178,24 @@ class DeepCFRTraverser:
             return self._cutoff_value(state, traverser, stats)
 
         player = state.current_player
+        fixed_action = self._fixed_opponent_action(state, player, traverser)
+        if fixed_action is not None:
+            unified_action = state.to_unified_action(fixed_action)
+            swapped_deck_index = self._sample_deck_draw_chance(state, unified_action)
+            state.push_action(fixed_action)
+            try:
+                return self._traverse(
+                    state,
+                    traverser,
+                    iteration,
+                    depth=depth + 1,
+                    stats=stats,
+                )
+            finally:
+                state.pop_action()
+                if swapped_deck_index is not None:
+                    state.swap_deck_cards(swapped_deck_index, len(state.deck) - 1)
+
         info_state, legal, policy = self._policy(state, player)
         self._record_strategy(info_state, legal, policy, player, traverser, iteration, depth, stats)
 
@@ -224,20 +257,52 @@ class DeepCFRTraverser:
         return node_value
 
     def _policy(self, state: GameState, player: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        return self._policy_from_networks(self.advantage_networks, state, player)
+
+    def _policy_from_networks(
+        self,
+        networks: list[torch.nn.Module],
+        state: GameState,
+        player: int,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         info_state = encode_info_state(state, player)
         legal = np.asarray(state.unified_legal_mask(), dtype=bool)
         with torch.inference_mode():
             x = torch.as_tensor(info_state, dtype=torch.float32, device=self.device).unsqueeze(0)
-            advantages = (
-                self.advantage_networks[player](x)
-                .squeeze(0)
-                .detach()
-                .cpu()
-                .numpy()
-                .astype(np.float32)
-            )
+            advantages = networks[player](x).squeeze(0).detach().cpu().numpy().astype(np.float32)
         policy = regret_matching(advantages, legal, self.epsilon).astype(np.float32)
         return info_state, legal, policy
+
+    def _fixed_opponent_action(
+        self,
+        state: GameState,
+        player: int,
+        traverser: int,
+    ) -> int | None:
+        if player == traverser or self.opponent_policy == "network":
+            return None
+        if self.opponent_policy == "safe_heuristic":
+            if self._safe_heuristic_opponent_bot is None:
+                self._safe_heuristic_opponent_bot = SafeHeuristicBot()
+            return self._safe_heuristic_opponent_bot.act(state)
+        if (
+            self.self_play_anchor_probability > 0.0
+            and self.rng.random() < self.self_play_anchor_probability
+        ):
+            if self._safe_heuristic_opponent_bot is None:
+                self._safe_heuristic_opponent_bot = SafeHeuristicBot()
+            return self._safe_heuristic_opponent_bot.act(state)
+        if not self.league_advantage_networks:
+            return None
+        networks = self.league_advantage_networks[
+            int(self.rng.integers(0, len(self.league_advantage_networks)))
+        ]
+        _, legal, policy = self._policy_from_networks(networks, state, player)
+        legal_actions = np.flatnonzero(legal)
+        if len(legal_actions) == 0:
+            return None
+        unified_action = self._sample_action(policy, legal_actions)
+        return state.from_unified_action(unified_action)
 
     def _sample_action(self, policy: np.ndarray, legal_actions: np.ndarray) -> int:
         probs = policy[legal_actions].astype(np.float64)

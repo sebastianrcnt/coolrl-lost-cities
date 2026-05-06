@@ -234,3 +234,29 @@ def test_deep_cfr_traversal_benchmark_smoke() -> None:
 
     assert result["traversal_nodes"] > 0
     assert result["nodes_per_second"] > 0.0
+
+
+def test_deep_cfr_self_play_league_records_snapshots(tmp_path) -> None:
+    trainer = DeepCFRTrainer(
+        DeepCFRConfig(
+            iterations=2,
+            traversals_per_iteration=1,
+            max_traversal_depth=2,
+            max_nodes_per_traversal=32,
+            batch_size=2,
+            hidden_size=16,
+            seed=53,
+            checkpoint_dir=str(tmp_path / "league"),
+            save_every_iteration=False,
+            opponent_policy="self_play_league",
+            self_play_snapshot_every=1,
+            self_play_max_snapshots=1,
+            self_play_anchor_probability=1.0,
+        ),
+        LostCitiesConfig(seed=53),
+    )
+
+    metrics = trainer.train()
+
+    assert len(metrics) == 2
+    assert len(trainer.self_play_league_snapshots) == 1

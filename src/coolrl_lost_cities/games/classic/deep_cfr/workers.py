@@ -23,6 +23,7 @@ class TraversalWorkerBatch:
     input_dim: int
     action_size: int
     advantage_networks: list[dict[str, Any]]
+    league_advantage_networks: list[list[dict[str, Any]]]
     worker_seed: int
 
 
@@ -44,6 +45,16 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
     for network, state_dict in zip(networks, batch.advantage_networks, strict=True):
         network.load_state_dict(state_dict)
         network.eval()
+    league_networks: list[list[torch.nn.Module]] = []
+    for snapshot in batch.league_advantage_networks:
+        snapshot_networks = [
+            DeepCFRMLP(batch.input_dim, batch.action_size, cfg.hidden_size).to(device)
+            for _ in range(2)
+        ]
+        for network, state_dict in zip(snapshot_networks, snapshot, strict=True):
+            network.load_state_dict(state_dict)
+            network.eval()
+        league_networks.append(snapshot_networks)
     advantage_memory = ReservoirMemory()
     strategy_memory = ReservoirMemory()
     traverser = DeepCFRTraverser(
@@ -65,6 +76,9 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
         cutoff_rollouts=cfg.cutoff_rollouts,
         cutoff_rollout_policy=cfg.cutoff_rollout_policy,
         cutoff_rollout_max_steps=cfg.cutoff_rollout_max_steps,
+        opponent_policy=cfg.opponent_policy,
+        league_advantage_networks=league_networks,
+        self_play_anchor_probability=cfg.self_play_anchor_probability,
         rng=np.random.default_rng(batch.worker_seed),
     )
     game_config = LostCitiesConfig(**batch.game_config)

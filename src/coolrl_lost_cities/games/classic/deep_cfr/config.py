@@ -19,6 +19,10 @@ class DeepCFRConfig:
     cutoff_rollouts: int = 0
     cutoff_rollout_policy: str = "random"
     cutoff_rollout_max_steps: int = 10_000
+    opponent_policy: str = "network"
+    self_play_snapshot_every: int = 1
+    self_play_max_snapshots: int = 20
+    self_play_anchor_probability: float = 0.0
     strategy_sample_interval: int = 1
     store_strategy_on_traverser_nodes: bool = True
     store_strategy_on_opponent_nodes: bool = True

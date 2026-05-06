@@ -98,6 +98,7 @@ class DeepCFRTrainer:
         self.metrics_path = self.run_dir / "metrics.jsonl"
         self.progress_path = self.run_dir / "runtime_progress.json"
         self.log_path = self.run_dir / "train.log"
+        self.self_play_league_snapshots: list[list[dict]] = []
 
     def checkpoint_payload(self, metrics: IterationMetrics | None = None) -> dict:
         return {
@@ -108,6 +109,7 @@ class DeepCFRTrainer:
             "action_size": self.action_size,
             "advantage_networks": [network.state_dict() for network in self.advantage_networks],
             "strategy_network": self.strategy_network.state_dict(),
+            "self_play_league_snapshots": self.self_play_league_snapshots,
             "advantage_optimizers": [
                 optimizer.state_dict() for optimizer in self.advantage_optimizers
             ],
@@ -132,6 +134,7 @@ class DeepCFRTrainer:
             optimizer.load_state_dict(state_dict)
         if "strategy_optimizer" in payload:
             self.strategy_optimizer.load_state_dict(payload["strategy_optimizer"])
+        self.self_play_league_snapshots = payload.get("self_play_league_snapshots", [])
 
     def run_iteration(self, iteration: int) -> IterationMetrics:
         self.iteration = iteration
@@ -178,6 +181,9 @@ class DeepCFRTrainer:
             cutoff_rollouts=self.config.cutoff_rollouts,
             cutoff_rollout_policy=self.config.cutoff_rollout_policy,
             cutoff_rollout_max_steps=self.config.cutoff_rollout_max_steps,
+            opponent_policy=self.config.opponent_policy,
+            league_advantage_networks=self._materialize_league_networks(),
+            self_play_anchor_probability=self.config.self_play_anchor_probability,
             rng=self.rng,
         )
         for network in self.advantage_networks:
@@ -233,11 +239,48 @@ class DeepCFRTrainer:
                         input_dim=self.input_dim,
                         action_size=self.action_size,
                         advantage_networks=network_payloads,
+                        league_advantage_networks=self._league_payloads(),
                         worker_seed=self.config.seed + iteration * 1_000_003 + batch_index,
                     )
                 )
                 batch_index += 1
         return batches
+
+    def _frozen_advantage_state_dicts(self) -> list[dict]:
+        return [
+            {name: value.detach().cpu().clone() for name, value in network.state_dict().items()}
+            for network in self.advantage_networks
+        ]
+
+    def _maybe_record_self_play_snapshot(self, iteration: int) -> None:
+        if self.config.opponent_policy != "self_play_league":
+            return
+        if self.config.self_play_max_snapshots <= 0:
+            return
+        if iteration % max(1, self.config.self_play_snapshot_every) != 0:
+            return
+        self.self_play_league_snapshots.append(self._frozen_advantage_state_dicts())
+        overflow = len(self.self_play_league_snapshots) - self.config.self_play_max_snapshots
+        if overflow > 0:
+            del self.self_play_league_snapshots[:overflow]
+
+    def _materialize_league_networks(self) -> list[list[nn.Module]]:
+        league: list[list[nn.Module]] = []
+        for snapshot in self.self_play_league_snapshots:
+            networks = [
+                DeepCFRMLP(self.input_dim, self.action_size, self.config.hidden_size).to(
+                    self.device
+                )
+                for _ in range(2)
+            ]
+            for network, state_dict in zip(networks, snapshot, strict=True):
+                network.load_state_dict(state_dict)
+                network.eval()
+            league.append(networks)
+        return league
+
+    def _league_payloads(self) -> list[list[dict]]:
+        return self.self_play_league_snapshots
 
     def train(self) -> list[IterationMetrics]:
         self._start_run_logging()
@@ -250,6 +293,7 @@ class DeepCFRTrainer:
             elapsed = time.perf_counter() - started
             metrics.append(item)
             self._append_metrics(item, elapsed)
+            self._maybe_record_self_play_snapshot(iteration)
             if self.config.save_every_iteration:
                 checkpoint_dir = self.run_dir
                 self.save_checkpoint(checkpoint_dir / f"iteration_{iteration:05d}.pt", item)
