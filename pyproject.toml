@@ -45,6 +45,7 @@ include = ["coolrl_lost_cities*"]
     "docs/*.md",
 ]
 "coolrl_lost_cities.games.classic.engines" = [
+    "*.pxd",
     "*.pyx",
 ]
 

@@ -17,58 +17,7 @@ cdef inline int _phase_draw():
     return 1
 
 
-ctypedef struct UndoRecord:
-    int phase_id
-    int player
-    int action_id
-    int pending_before
-    bint terminal_before
-    int turn_count_before
-    int slot
-    int play
-    int card
-    int color
-    int last_numeric_before
-    int handshake_count_before
-    int numeric_sum_before
-    int expedition_score_before
-    int total_score_before
-
-
 cdef class FastGameState:
-    cdef public object config
-    cdef int n_colors
-    cdef int n_ranks
-    cdef int min_rank
-    cdef int n_handshakes
-    cdef int hand_size
-    cdef int expedition_penalty
-    cdef int bonus_threshold
-    cdef int bonus_amount
-    cdef int total_cards
-    cdef int cards_per_color
-    cdef int stride
-
-    cdef int* deck
-    cdef int deck_len
-    cdef int* hands
-    cdef int hand_lens[2]
-    cdef int* expeditions
-    cdef int* expedition_lens
-    cdef int* discards
-    cdef int* discard_lens
-    cdef int* last_numeric_ranks
-    cdef int* handshake_counts
-    cdef int* numeric_sums
-    cdef int* expedition_scores
-    cdef int total_scores[2]
-
-    cdef public int current_player
-    cdef int phase_id
-    cdef public int pending_discarded_color
-    cdef public int turn_count
-    cdef public bint terminal
-
     def __cinit__(self):
         self.deck = NULL
         self.hands = NULL
