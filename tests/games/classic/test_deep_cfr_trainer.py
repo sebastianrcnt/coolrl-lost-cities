@@ -10,7 +10,10 @@ from coolrl_lost_cities.games.classic.deep_cfr.benchmark import (
     benchmark_traversal,
     benchmark_traversal_modes,
 )
+from coolrl_lost_cities.games.classic.deep_cfr.checkpoints import load_checkpoint
 from coolrl_lost_cities.games.classic.deep_cfr.cli import (
+    _RESUME_LATEST,
+    _resolve_resume_path,
     _train_overrides_from_args,
     _with_overrides,
 )
@@ -77,6 +80,7 @@ def test_deep_cfr_train_cli_count_overrides_disable_duration_limits() -> None:
             "eval_every": None,
             "eval_games": None,
             "no_save": True,
+            "exact_resume": False,
         },
     )()
     config = load_config("configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml")
@@ -90,6 +94,27 @@ def test_deep_cfr_train_cli_count_overrides_disable_duration_limits() -> None:
     assert overridden.traversal.resolved_traversals_per_player() == 1
     assert overridden.traversal.resolved_num_workers() == 0
     assert overridden.checkpoint.save_every_iteration is False
+
+
+def test_deep_cfr_resume_latest_resolution_uses_config_checkpoint_dir(tmp_path) -> None:
+    config = _deep_cfr_config({"checkpoint": {"directory": str(tmp_path)}})
+    latest = tmp_path / "latest.pt"
+    latest.write_bytes(b"checkpoint")
+
+    assert _resolve_resume_path(config, _RESUME_LATEST) == str(latest)
+    assert _resolve_resume_path(config, "custom.pt") == "custom.pt"
+    assert _resolve_resume_path(config, None) is None
+
+
+def test_deep_cfr_resume_latest_resolution_requires_latest(tmp_path) -> None:
+    config = _deep_cfr_config({"checkpoint": {"directory": str(tmp_path)}})
+
+    try:
+        _resolve_resume_path(config, _RESUME_LATEST)
+    except FileNotFoundError as exc:
+        assert "latest checkpoint does not exist" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected FileNotFoundError")
 
 
 def test_deep_cfr_playability_encoding_extends_input_shape() -> None:
@@ -332,6 +357,7 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
     restored.load_checkpoint(latest)
 
     assert latest.exists()
+    assert load_checkpoint(latest)["resume_semantics"] == "networks_optimizers_iteration_only"
     assert (checkpoint_dir / "config.json").exists()
     assert (checkpoint_dir / "metrics.jsonl").exists()
     assert (checkpoint_dir / "runtime_progress.json").exists()
@@ -339,6 +365,7 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
     train_log = (checkpoint_dir / "train.log").read_text(encoding="utf-8")
     assert re.search(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", train_log)
     assert "Iteration complete:" in train_log
+    assert "reservoir memories and RNG state are not restored" in train_log
     assert restored.iteration == 1
     assert "eval_random_games" in metrics[0].eval_metrics
     assert "eval_random_play_action_rate" in metrics[0].eval_metrics
@@ -350,6 +377,62 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
         "eval_random_first_open_recoverable_score_mean_for_positive_final"
         in metrics[0].eval_metrics
     )
+
+
+def test_deep_cfr_trainer_always_saves_latest_checkpoint(tmp_path) -> None:
+    checkpoint_dir = tmp_path / "latest-each-iteration"
+    trainer = DeepCFRTrainer(
+        _deep_cfr_config(
+            {
+                "run": {"iterations": 1, "seed": 42},
+                "network": {"hidden_size": 16},
+                "traversal": {"traversals_per_iteration": 1, "max_depth": 1},
+                "checkpoint": {
+                    "directory": str(checkpoint_dir),
+                    "save_every_iteration": False,
+                    "save_iteration_interval": 10,
+                },
+            }
+        ),
+        LostCitiesConfig(seed=42),
+    )
+
+    trainer.train()
+
+    assert (checkpoint_dir / "latest.pt").exists()
+    assert not (checkpoint_dir / "iteration_00001.pt").exists()
+
+
+def test_deep_cfr_exact_resume_is_explicitly_not_implemented(tmp_path) -> None:
+    checkpoint_dir = tmp_path / "exact"
+    trainer = DeepCFRTrainer(
+        _deep_cfr_config(
+            {
+                "run": {"iterations": 1, "seed": 44},
+                "network": {"hidden_size": 16},
+                "traversal": {"traversals_per_iteration": 1, "max_depth": 1},
+                "checkpoint": {"directory": str(checkpoint_dir), "save_every_iteration": True},
+            }
+        ),
+        LostCitiesConfig(seed=44),
+    )
+    trainer.train()
+    exact = DeepCFRTrainer(
+        _deep_cfr_config(
+            {
+                "network": {"hidden_size": 16},
+                "checkpoint": {"directory": str(checkpoint_dir), "exact_resume": True},
+            }
+        ),
+        LostCitiesConfig(seed=44),
+    )
+
+    try:
+        exact.load_checkpoint(checkpoint_dir / "latest.pt")
+    except NotImplementedError as exc:
+        assert "exact_resume" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected NotImplementedError")
 
 
 def test_deep_cfr_trainer_multiprocessing_smoke_run(tmp_path) -> None:

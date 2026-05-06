@@ -218,6 +218,7 @@ class CheckpointConfig(StrictModel):
     save_iteration_interval: int = 0
     save_latest_only: bool = False
     progress_interval_seconds: float = 20.0
+    exact_resume: bool = False
 
     @property
     def path(self) -> Path:

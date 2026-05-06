@@ -171,6 +171,7 @@ class DeepCFRTrainer:
         return {
             "config": self.config.to_dict(),
             "game_config": self.game_config.to_snapshot(),
+            "resume_semantics": "networks_optimizers_iteration_only",
             "iteration": self.iteration,
             "input_dim": self.input_dim,
             "action_size": self.action_size,
@@ -188,8 +189,17 @@ class DeepCFRTrainer:
         return save_checkpoint(path, self.checkpoint_payload(metrics))
 
     def load_checkpoint(self, path: str | Path) -> None:
+        if self.config.checkpoint.exact_resume:
+            # TODO: Implement exact resume by checkpointing reservoir memories, RNG state,
+            # and any worker/traversal sampling state needed for deterministic continuation.
+            raise NotImplementedError("checkpoint.exact_resume is not implemented yet")
         payload = load_checkpoint(path, device=self.device)
         self.iteration = int(payload.get("iteration", 0))
+        self.tracker.log_event(
+            f"Resuming from {path} with resume_semantics="
+            f"{payload.get('resume_semantics', 'networks_optimizers_iteration_only')}; "
+            "reservoir memories and RNG state are not restored"
+        )
         for network, state_dict in zip(
             self.advantage_networks, payload["advantage_networks"], strict=True
         ):
@@ -417,8 +427,7 @@ class DeepCFRTrainer:
             metrics.append(item)
             self._append_metrics(item, elapsed)
             self._maybe_record_self_play_snapshot(iteration)
-            if self._should_save_iteration(iteration):
-                self._save_iteration_checkpoints(iteration, item)
+            self._save_iteration_checkpoints(iteration, item)
             if self._time_limit_reached(run_started):
                 break
             iteration += 1
@@ -445,7 +454,7 @@ class DeepCFRTrainer:
 
     def _save_iteration_checkpoints(self, iteration: int, item: IterationMetrics) -> None:
         checkpoint_dir = self.run_dir
-        if not self.config.checkpoint.save_latest_only:
+        if self._should_save_iteration(iteration) and not self.config.checkpoint.save_latest_only:
             self.save_checkpoint(checkpoint_dir / f"iteration_{iteration:05d}.pt", item)
         self.save_checkpoint(checkpoint_dir / "latest.pt", item)
 

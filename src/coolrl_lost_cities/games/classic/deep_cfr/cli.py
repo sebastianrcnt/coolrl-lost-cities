@@ -24,6 +24,8 @@ from coolrl_lost_cities.games.classic.deep_cfr.policy_gradient import (
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
 from coolrl_lost_cities.games.classic.game import classic_config
 
+_RESUME_LATEST = "__latest__"
+
 
 def _load_config(path: str | None) -> DeepCFRConfig:
     if path is None:
@@ -43,6 +45,17 @@ def _with_overrides(config: DeepCFRConfig, overrides: dict[str, Any]) -> DeepCFR
     data = config.model_dump(mode="python")
     _deep_update(data, overrides)
     return DeepCFRConfig.model_validate(data)
+
+
+def _resolve_resume_path(config: DeepCFRConfig, resume: str | None) -> str | None:
+    if resume != _RESUME_LATEST:
+        return resume
+    latest_path = config.checkpoint_path / "latest.pt"
+    if not latest_path.exists():
+        raise FileNotFoundError(
+            f"--resume was used without a path, but latest checkpoint does not exist: {latest_path}"
+        )
+    return str(latest_path)
 
 
 def _train_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
@@ -73,6 +86,8 @@ def _train_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
         overrides.setdefault("evaluation", {})["games"] = args.eval_games
     if args.no_save:
         overrides.setdefault("checkpoint", {})["save_every_iteration"] = False
+    if args.exact_resume:
+        overrides.setdefault("checkpoint", {})["exact_resume"] = True
     return overrides
 
 
@@ -80,13 +95,14 @@ def train_command(args: argparse.Namespace) -> None:
     config = _load_config(args.config)
     overrides = _train_overrides_from_args(args)
     config = _with_overrides(config, overrides)
+    resume_path = _resolve_resume_path(config, args.resume)
     trainer = DeepCFRTrainer(
         config,
         config.rules.to_lost_cities_config(seed=config.run.seed),
         device=args.device or config.run.device,
     )
-    if args.resume:
-        trainer.load_checkpoint(args.resume)
+    if resume_path:
+        trainer.load_checkpoint(resume_path)
     trainer.train()
 
 
@@ -183,7 +199,8 @@ def main(argv: list[str] | None = None) -> None:
     train.add_argument("--traversals-per-iteration", type=int)
     train.add_argument("--num-workers")
     train.add_argument("--checkpoint-dir")
-    train.add_argument("--resume")
+    train.add_argument("--resume", nargs="?", const=_RESUME_LATEST, default=None)
+    train.add_argument("--exact-resume", action="store_true")
     train.add_argument("--device")
     train.add_argument("--eval-every", type=int)
     train.add_argument("--eval-games", type=int)
