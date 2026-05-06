@@ -23,7 +23,6 @@ from .game import (
     classic_config,
 )
 from .interfaces import Snapshot
-from .reference import ReferenceLostCitiesCard, ReferenceLostCitiesState
 
 __all__ = [
     "GameState",
@@ -33,8 +32,6 @@ __all__ = [
     "LostCitiesConfig",
     "LostCitiesEnv",
     "MatchResult",
-    "ReferenceLostCitiesCard",
-    "ReferenceLostCitiesState",
     "Snapshot",
     "available_bot_names",
     "build_bot",
