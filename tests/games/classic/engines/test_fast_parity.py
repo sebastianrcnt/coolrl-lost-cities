@@ -162,3 +162,36 @@ def test_fast_apply_undo_restores_every_legal_action() -> None:
             state.apply_unified_action(rng.choice(legal))
             steps += 1
             assert steps < 1000
+
+
+def test_fast_push_pop_action_restores_nested_sequence() -> None:
+    config = LostCitiesConfig(
+        n_colors=3,
+        n_ranks=5,
+        min_rank=2,
+        n_handshakes=1,
+        hand_size=5,
+    )
+    for seed in range(32):
+        state = FastGameState.new_game(config, seed=seed)
+        rng = random.Random(seed ^ 0x517ACC)
+        before = state.to_snapshot()
+        actions: list[int] = []
+
+        for depth in range(20):
+            if state.terminal:
+                break
+            legal = state.unified_legal_actions()
+            action = rng.choice(legal)
+            actions.append(action)
+            assert state.push_unified_action(action) == depth + 1
+            state.validate_invariants()
+
+        for action in reversed(actions):
+            assert state.pop_action() == state.from_unified_action(action)
+            state.validate_invariants()
+
+        assert state.to_snapshot() == before
+
+    with pytest.raises(ValueError, match="undo stack is empty"):
+        FastGameState.new_game(config, seed=1).pop_action()

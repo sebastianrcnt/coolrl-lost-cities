@@ -43,6 +43,9 @@ cdef class FastGameState:
     cdef int* numeric_sums
     cdef int* expedition_scores
     cdef int total_scores[2]
+    cdef UndoRecord* undo_stack
+    cdef int undo_stack_len
+    cdef int undo_stack_capacity
 
     cdef public int current_player
     cdef int phase_id
@@ -66,6 +69,9 @@ cdef class FastGameState:
     cpdef object apply_action_with_undo(self, int action_id)
     cpdef object apply_unified_action_with_undo(self, int action_id)
     cpdef undo_action(self, object undo)
+    cpdef int push_action(self, int action_id)
+    cpdef int push_unified_action(self, int action_id)
+    cpdef int pop_action(self)
     cpdef bint can_play_encoded_card(self, int player, int card)
     cpdef int last_numeric_rank(self, int player, int color)
     cpdef int expedition_score(self, int player, int color)
@@ -79,6 +85,9 @@ cdef class FastGameState:
     cdef void _fill_undo_c(self, int action_id, UndoRecord* undo) noexcept
     cdef void _apply_action_with_undo_c(self, int action_id, UndoRecord* undo) except *
     cdef void _apply_action_unchecked_c(self, int action_id) except *
+    cdef void _ensure_undo_capacity_c(self) except *
+    cdef int _push_action_c(self, int action_id) except *
+    cdef int _pop_action_c(self) except *
     cdef object _undo_to_tuple(self, UndoRecord* undo)
     cdef void _tuple_to_undo(self, object data, UndoRecord* undo) except *
     cdef void _apply_card_action(self, int action_id) except *

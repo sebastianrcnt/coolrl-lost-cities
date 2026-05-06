@@ -5,7 +5,7 @@ from collections import Counter
 import random
 
 from libc.string cimport memcpy
-from libc.stdlib cimport free, malloc
+from libc.stdlib cimport free, malloc, realloc
 
 from ..game import IllegalMoveError, LostCitiesConfig, config_from_mapping
 
@@ -30,6 +30,7 @@ cdef class FastGameState:
         self.handshake_counts = NULL
         self.numeric_sums = NULL
         self.expedition_scores = NULL
+        self.undo_stack = NULL
 
     def __init__(self, config=None):
         config = config or LostCitiesConfig()
@@ -57,6 +58,8 @@ cdef class FastGameState:
             free(self.numeric_sums)
         if self.expedition_scores != NULL:
             free(self.expedition_scores)
+        if self.undo_stack != NULL:
+            free(self.undo_stack)
 
     cdef void _configure(self, object config) except *:
         self.config = config
@@ -84,6 +87,10 @@ cdef class FastGameState:
         self.handshake_counts = <int*>malloc(2 * self.n_colors * sizeof(int))
         self.numeric_sums = <int*>malloc(2 * self.n_colors * sizeof(int))
         self.expedition_scores = <int*>malloc(2 * self.n_colors * sizeof(int))
+        self.undo_stack_capacity = 2 * self.total_cards + 16
+        self.undo_stack = <UndoRecord*>malloc(
+            self.undo_stack_capacity * sizeof(UndoRecord)
+        )
         if (
             self.deck == NULL
             or self.hands == NULL
@@ -95,6 +102,7 @@ cdef class FastGameState:
             or self.handshake_counts == NULL
             or self.numeric_sums == NULL
             or self.expedition_scores == NULL
+            or self.undo_stack == NULL
         ):
             raise MemoryError()
         self._clear()
@@ -114,6 +122,7 @@ cdef class FastGameState:
             self.discard_lens[i] = 0
         self.total_scores[0] = 0
         self.total_scores[1] = 0
+        self.undo_stack_len = 0
         self.current_player = 0
         self.phase_id = _phase_card()
         self.pending_discarded_color = -1
@@ -469,6 +478,24 @@ cdef class FastGameState:
         self._tuple_to_undo(undo, &record)
         self._undo_action_c(&record)
 
+    cpdef int push_action(self, int action_id):
+        if self.terminal:
+            raise IllegalMoveError("game is already terminal")
+        if not self._is_legal_action_c(action_id):
+            raise IllegalMoveError(
+                f"illegal action {action_id} in phase {self.phase} "
+                f"for player {self.current_player}"
+            )
+        return self._push_action_c(action_id)
+
+    cpdef int push_unified_action(self, int action_id):
+        return self.push_action(self.from_unified_action(action_id))
+
+    cpdef int pop_action(self):
+        if self.undo_stack_len <= 0:
+            raise ValueError("undo stack is empty")
+        return self._pop_action_c()
+
     cpdef bint can_play_encoded_card(self, int player, int card):
         cdef int color = self._card_color(card)
         cdef int rank = self._card_rank(card)
@@ -697,6 +724,37 @@ cdef class FastGameState:
             self._apply_card_action(action_id)
         else:
             self._apply_draw_action(action_id)
+
+    cdef void _ensure_undo_capacity_c(self) except *:
+        cdef int new_capacity
+        cdef UndoRecord* grown
+        if self.undo_stack_len < self.undo_stack_capacity:
+            return
+        new_capacity = self.undo_stack_capacity * 2
+        grown = <UndoRecord*>realloc(
+            self.undo_stack,
+            new_capacity * sizeof(UndoRecord),
+        )
+        if grown == NULL:
+            raise MemoryError()
+        self.undo_stack = grown
+        self.undo_stack_capacity = new_capacity
+
+    cdef int _push_action_c(self, int action_id) except *:
+        self._ensure_undo_capacity_c()
+        self._apply_action_with_undo_c(
+            action_id,
+            &self.undo_stack[self.undo_stack_len],
+        )
+        self.undo_stack_len += 1
+        return self.undo_stack_len
+
+    cdef int _pop_action_c(self) except *:
+        cdef int action_id
+        self.undo_stack_len -= 1
+        action_id = self.undo_stack[self.undo_stack_len].action_id
+        self._undo_action_c(&self.undo_stack[self.undo_stack_len])
+        return action_id
 
     cdef object _undo_to_tuple(self, UndoRecord* undo):
         return (
