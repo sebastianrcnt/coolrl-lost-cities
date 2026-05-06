@@ -21,6 +21,12 @@ uv run pytest tests/games/classic
 uv run lost-cities-classic
 ```
 
+For future GUI work, install the optional GUI dependencies:
+
+```bash
+uv sync --extra gui
+```
+
 ## Basic Usage
 
 ```python
