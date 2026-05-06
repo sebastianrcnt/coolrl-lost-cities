@@ -21,6 +21,7 @@ def test_deep_cfr_trainer_smoke_run() -> None:
             batch_size=2,
             hidden_size=16,
             seed=23,
+            save_every_iteration=False,
         ),
         LostCitiesConfig(seed=23),
     )
@@ -46,6 +47,7 @@ def test_deep_cfr_recursive_traverser_restores_state_and_collects_samples() -> N
             batch_size=2,
             hidden_size=16,
             seed=29,
+            save_every_iteration=False,
         ),
         LostCitiesConfig(seed=29),
     )
@@ -94,6 +96,7 @@ def test_deep_cfr_traverser_supports_outcome_sampling_and_rollout_cutoffs() -> N
             batch_size=2,
             hidden_size=16,
             seed=31,
+            save_every_iteration=False,
         ),
         LostCitiesConfig(seed=31),
     )
@@ -149,3 +152,41 @@ def test_reservoir_memory_caps_samples_and_filters_player_batches() -> None:
     player_one = memory.sample(8, rng, player=1)
     assert player_one
     assert all(sample.player == 1 for sample in player_one)
+
+
+def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None:
+    checkpoint_dir = tmp_path / "deep_cfr"
+    trainer = DeepCFRTrainer(
+        DeepCFRConfig(
+            iterations=1,
+            traversals_per_iteration=1,
+            max_traversal_depth=2,
+            max_nodes_per_traversal=32,
+            batch_size=2,
+            hidden_size=16,
+            seed=41,
+            checkpoint_dir=str(checkpoint_dir),
+            save_every_iteration=True,
+            eval_every=1,
+            eval_games=2,
+            eval_opponents=("random",),
+        ),
+        LostCitiesConfig(seed=41),
+    )
+
+    metrics = trainer.train()
+    latest = checkpoint_dir / "latest.pt"
+    restored = DeepCFRTrainer(
+        DeepCFRConfig(
+            hidden_size=16,
+            seed=41,
+            checkpoint_dir=str(checkpoint_dir),
+            save_every_iteration=False,
+        ),
+        LostCitiesConfig(seed=41),
+    )
+    restored.load_checkpoint(latest)
+
+    assert latest.exists()
+    assert restored.iteration == 1
+    assert "eval_random_games" in metrics[0].eval_metrics

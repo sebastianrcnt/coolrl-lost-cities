@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -28,3 +30,23 @@ class DeepCFRConfig:
     hidden_size: int = 64
     learning_rate: float = 1.0e-3
     seed: int = 1
+    checkpoint_dir: str = "runs/deep_cfr/default"
+    save_every_iteration: bool = True
+    eval_every: int = 0
+    eval_games: int = 10
+    eval_opponents: tuple[str, ...] = ("random",)
+    eval_max_steps: int = 10_000
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @property
+    def checkpoint_path(self) -> Path:
+        return Path(self.checkpoint_dir)
+
+
+def config_from_dict(data: dict[str, Any]) -> DeepCFRConfig:
+    values = dict(data)
+    if "eval_opponents" in values:
+        values["eval_opponents"] = tuple(values["eval_opponents"])
+    return DeepCFRConfig(**values)

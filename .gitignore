@@ -6,6 +6,7 @@ build/
 dist/
 wheels/
 *.egg-info
+runs/
 
 # Cython-generated sources
 src/coolrl_lost_cities/games/classic/game.c

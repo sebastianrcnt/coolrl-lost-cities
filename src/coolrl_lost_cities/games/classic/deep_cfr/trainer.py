@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import torch
 from torch import nn
 
+from coolrl_lost_cities.games.classic.deep_cfr.checkpoints import (
+    load_checkpoint,
+    save_checkpoint,
+)
 from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import input_dim
+from coolrl_lost_cities.games.classic.deep_cfr.evaluate import evaluate_strategy_network
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.networks import DeepCFRMLP
 from coolrl_lost_cities.games.classic.deep_cfr.traverser import DeepCFRTraverser, TraversalStats
@@ -26,6 +32,7 @@ class IterationMetrics:
     traversal_depth_cutoffs: int
     traversal_node_limit_cutoffs: int
     traversal_max_depth_reached: int
+    eval_metrics: dict[str, float | int]
 
 
 class DeepCFRTrainer:
@@ -62,8 +69,44 @@ class DeepCFRTrainer:
         self.advantage_memory = ReservoirMemory(self.config.advantage_memory_capacity)
         self.strategy_memory = ReservoirMemory(self.config.strategy_memory_capacity)
         self.rng = np.random.default_rng(self.config.seed + 101)
+        self.iteration = 0
+
+    def checkpoint_payload(self, metrics: IterationMetrics | None = None) -> dict:
+        return {
+            "config": self.config.to_dict(),
+            "game_config": self.game_config.to_snapshot(),
+            "iteration": self.iteration,
+            "input_dim": self.input_dim,
+            "action_size": self.action_size,
+            "advantage_networks": [network.state_dict() for network in self.advantage_networks],
+            "strategy_network": self.strategy_network.state_dict(),
+            "advantage_optimizers": [
+                optimizer.state_dict() for optimizer in self.advantage_optimizers
+            ],
+            "strategy_optimizer": self.strategy_optimizer.state_dict(),
+            "metrics": None if metrics is None else metrics.__dict__,
+        }
+
+    def save_checkpoint(self, path: str | Path, metrics: IterationMetrics | None = None) -> Path:
+        return save_checkpoint(path, self.checkpoint_payload(metrics))
+
+    def load_checkpoint(self, path: str | Path) -> None:
+        payload = load_checkpoint(path, device=self.device)
+        self.iteration = int(payload.get("iteration", 0))
+        for network, state_dict in zip(
+            self.advantage_networks, payload["advantage_networks"], strict=True
+        ):
+            network.load_state_dict(state_dict)
+        self.strategy_network.load_state_dict(payload["strategy_network"])
+        for optimizer, state_dict in zip(
+            self.advantage_optimizers, payload.get("advantage_optimizers", []), strict=False
+        ):
+            optimizer.load_state_dict(state_dict)
+        if "strategy_optimizer" in payload:
+            self.strategy_optimizer.load_state_dict(payload["strategy_optimizer"])
 
     def run_iteration(self, iteration: int) -> IterationMetrics:
+        self.iteration = iteration
         total_stats = TraversalStats()
         traverser = DeepCFRTraverser(
             self.advantage_networks,
@@ -97,6 +140,7 @@ class DeepCFRTrainer:
 
         advantage_loss = self._train_advantage_networks()
         strategy_loss = self._train_strategy_network()
+        eval_metrics = self._evaluate(iteration)
         return IterationMetrics(
             iteration=iteration,
             advantage_samples=len(self.advantage_memory),
@@ -108,10 +152,39 @@ class DeepCFRTrainer:
             traversal_depth_cutoffs=total_stats.depth_cutoffs,
             traversal_node_limit_cutoffs=total_stats.node_limit_cutoffs,
             traversal_max_depth_reached=total_stats.max_depth_reached,
+            eval_metrics=eval_metrics,
         )
 
     def train(self) -> list[IterationMetrics]:
-        return [self.run_iteration(iteration) for iteration in range(1, self.config.iterations + 1)]
+        metrics: list[IterationMetrics] = []
+        start = self.iteration + 1
+        stop = self.iteration + self.config.iterations
+        for iteration in range(start, stop + 1):
+            item = self.run_iteration(iteration)
+            metrics.append(item)
+            if self.config.save_every_iteration:
+                checkpoint_dir = self.config.checkpoint_path
+                self.save_checkpoint(checkpoint_dir / f"iteration_{iteration:05d}.pt", item)
+                self.save_checkpoint(checkpoint_dir / "latest.pt", item)
+        return metrics
+
+    def _evaluate(self, iteration: int) -> dict[str, float | int]:
+        if self.config.eval_every <= 0 or iteration % self.config.eval_every != 0:
+            return {}
+        results: dict[str, float | int] = {}
+        for opponent in self.config.eval_opponents:
+            result = evaluate_strategy_network(
+                self.strategy_network,
+                self.game_config,
+                games=self.config.eval_games,
+                seed=self.config.seed + iteration * 1000,
+                opponent=opponent,
+                device=self.device,
+                max_steps=self.config.eval_max_steps,
+            )
+            for key, value in result.items():
+                results[f"eval_{opponent}_{key}"] = value
+        return results
 
     def _train_advantage_networks(self) -> float:
         losses: list[float] = []
