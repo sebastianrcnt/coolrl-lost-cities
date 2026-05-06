@@ -80,6 +80,8 @@ def test_deep_cfr_train_cli_count_overrides_disable_duration_limits() -> None:
             "eval_every": None,
             "eval_games": None,
             "no_save": True,
+            "save_latest_only": False,
+            "save_iteration_interval": None,
             "exact_resume": False,
         },
     )()
@@ -94,6 +96,36 @@ def test_deep_cfr_train_cli_count_overrides_disable_duration_limits() -> None:
     assert overridden.traversal.resolved_traversals_per_player() == 1
     assert overridden.traversal.resolved_num_workers() == 0
     assert overridden.checkpoint.save_every_iteration is False
+    assert overridden.checkpoint.save_latest is False
+
+
+def test_deep_cfr_train_cli_checkpoint_save_overrides() -> None:
+    args = type(
+        "Args",
+        (),
+        {
+            "iterations": None,
+            "max_hours": None,
+            "max_iterations": None,
+            "seed": None,
+            "traversals_per_iteration": None,
+            "num_workers": None,
+            "checkpoint_dir": None,
+            "eval_every": None,
+            "eval_games": None,
+            "no_save": False,
+            "save_latest_only": True,
+            "save_iteration_interval": 1,
+            "exact_resume": False,
+        },
+    )()
+
+    overridden = _with_overrides(DeepCFRConfig(), _train_overrides_from_args(args))
+
+    assert overridden.checkpoint.save_latest is True
+    assert overridden.checkpoint.save_latest_only is True
+    assert overridden.checkpoint.save_every_iteration is False
+    assert overridden.checkpoint.save_iteration_interval == 1
 
 
 def test_deep_cfr_resume_latest_resolution_uses_config_checkpoint_dir(tmp_path) -> None:

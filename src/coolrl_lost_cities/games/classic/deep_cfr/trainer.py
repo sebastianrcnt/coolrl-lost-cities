@@ -456,7 +456,8 @@ class DeepCFRTrainer:
         checkpoint_dir = self.run_dir
         if self._should_save_iteration(iteration) and not self.config.checkpoint.save_latest_only:
             self.save_checkpoint(checkpoint_dir / f"iteration_{iteration:05d}.pt", item)
-        self.save_checkpoint(checkpoint_dir / "latest.pt", item)
+        if self.config.checkpoint.save_latest:
+            self.save_checkpoint(checkpoint_dir / "latest.pt", item)
 
     def _start_run_logging(self) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)

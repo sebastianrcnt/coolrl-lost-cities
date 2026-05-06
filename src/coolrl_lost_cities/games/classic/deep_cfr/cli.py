@@ -60,6 +60,8 @@ def _resolve_resume_path(config: DeepCFRConfig, resume: str | None) -> str | Non
 
 def _train_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
     overrides: dict[str, Any] = {}
+    if args.no_save and (args.save_latest_only or args.save_iteration_interval is not None):
+        raise ValueError("--no-save cannot be combined with checkpoint save overrides")
     run_overrides = overrides.setdefault("run", {})
     if args.iterations is not None:
         run_overrides["iterations"] = args.iterations
@@ -85,7 +87,19 @@ def _train_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
     if args.eval_games is not None:
         overrides.setdefault("evaluation", {})["games"] = args.eval_games
     if args.no_save:
-        overrides.setdefault("checkpoint", {})["save_every_iteration"] = False
+        checkpoint_overrides = overrides.setdefault("checkpoint", {})
+        checkpoint_overrides["save_latest"] = False
+        checkpoint_overrides["save_every_iteration"] = False
+        checkpoint_overrides["save_iteration_interval"] = 0
+    if args.save_latest_only:
+        checkpoint_overrides = overrides.setdefault("checkpoint", {})
+        checkpoint_overrides["save_latest"] = True
+        checkpoint_overrides["save_latest_only"] = True
+        checkpoint_overrides["save_every_iteration"] = False
+    if args.save_iteration_interval is not None:
+        overrides.setdefault("checkpoint", {})["save_iteration_interval"] = (
+            args.save_iteration_interval
+        )
     if args.exact_resume:
         overrides.setdefault("checkpoint", {})["exact_resume"] = True
     return overrides
@@ -206,6 +220,8 @@ def main(argv: list[str] | None = None) -> None:
     train.add_argument("--eval-games", type=int)
     train.add_argument("--seed", type=int)
     train.add_argument("--no-save", action="store_true")
+    train.add_argument("--save-latest-only", action="store_true")
+    train.add_argument("--save-iteration-interval", type=int)
     train.set_defaults(func=train_command)
 
     evaluate = subparsers.add_parser("eval")

@@ -214,6 +214,7 @@ class MemoryConfig(StrictModel):
 
 class CheckpointConfig(StrictModel):
     directory: str = "runs/deep_cfr/default"
+    save_latest: bool = True
     save_every_iteration: bool = True
     save_iteration_interval: int = 0
     save_latest_only: bool = False
