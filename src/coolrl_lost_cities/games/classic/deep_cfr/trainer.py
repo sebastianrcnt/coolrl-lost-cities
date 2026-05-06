@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import multiprocessing as mp
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +21,10 @@ from coolrl_lost_cities.games.classic.deep_cfr.evaluate import evaluate_strategy
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.networks import DeepCFRMLP
 from coolrl_lost_cities.games.classic.deep_cfr.traverser import DeepCFRTraverser, TraversalStats
+from coolrl_lost_cities.games.classic.deep_cfr.workers import (
+    TraversalWorkerBatch,
+    run_traversal_worker_batch,
+)
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
 
@@ -129,6 +135,29 @@ class DeepCFRTrainer:
 
     def run_iteration(self, iteration: int) -> IterationMetrics:
         self.iteration = iteration
+        if self.config.num_workers > 1:
+            total_stats = self._run_traversals_parallel(iteration)
+        else:
+            total_stats = self._run_traversals_single_process(iteration)
+
+        advantage_loss = self._train_advantage_networks()
+        strategy_loss = self._train_strategy_network()
+        eval_metrics = self._evaluate(iteration)
+        return IterationMetrics(
+            iteration=iteration,
+            advantage_samples=len(self.advantage_memory),
+            strategy_samples=len(self.strategy_memory),
+            advantage_loss=advantage_loss,
+            strategy_loss=strategy_loss,
+            traversal_nodes=total_stats.nodes,
+            traversal_terminals=total_stats.terminals,
+            traversal_depth_cutoffs=total_stats.depth_cutoffs,
+            traversal_node_limit_cutoffs=total_stats.node_limit_cutoffs,
+            traversal_max_depth_reached=total_stats.max_depth_reached,
+            eval_metrics=eval_metrics,
+        )
+
+    def _run_traversals_single_process(self, iteration: int) -> TraversalStats:
         total_stats = TraversalStats()
         traverser = DeepCFRTraverser(
             self.advantage_networks,
@@ -159,23 +188,56 @@ class DeepCFRTrainer:
                 state = GameState.new_game(self.game_config, seed=seed)
                 _, stats = traverser.traverse(state, player, iteration)
                 total_stats.accumulate(stats)
+        return total_stats
 
-        advantage_loss = self._train_advantage_networks()
-        strategy_loss = self._train_strategy_network()
-        eval_metrics = self._evaluate(iteration)
-        return IterationMetrics(
-            iteration=iteration,
-            advantage_samples=len(self.advantage_memory),
-            strategy_samples=len(self.strategy_memory),
-            advantage_loss=advantage_loss,
-            strategy_loss=strategy_loss,
-            traversal_nodes=total_stats.nodes,
-            traversal_terminals=total_stats.terminals,
-            traversal_depth_cutoffs=total_stats.depth_cutoffs,
-            traversal_node_limit_cutoffs=total_stats.node_limit_cutoffs,
-            traversal_max_depth_reached=total_stats.max_depth_reached,
-            eval_metrics=eval_metrics,
-        )
+    def _run_traversals_parallel(self, iteration: int) -> TraversalStats:
+        batches = self._worker_batches(iteration)
+        total_stats = TraversalStats()
+        if not batches:
+            return total_stats
+        max_workers = min(self.config.num_workers, len(batches))
+        with ProcessPoolExecutor(
+            max_workers=max_workers,
+            mp_context=mp.get_context("spawn"),
+        ) as executor:
+            futures = [executor.submit(run_traversal_worker_batch, batch) for batch in batches]
+            for future in as_completed(futures):
+                result = future.result()
+                total_stats.accumulate(result.stats)
+                self.advantage_memory.extend(result.advantage_samples, self.rng)
+                self.strategy_memory.extend(result.strategy_samples, self.rng)
+        return total_stats
+
+    def _worker_batches(self, iteration: int) -> list[TraversalWorkerBatch]:
+        batches: list[TraversalWorkerBatch] = []
+        network_payloads = [
+            {name: value.detach().cpu() for name, value in network.state_dict().items()}
+            for network in self.advantage_networks
+        ]
+        chunk_size = max(1, self.config.traversal_worker_chunk_size)
+        batch_index = 0
+        for player in range(2):
+            seeds = [
+                self.config.seed + iteration * 10_000 + index * 10 + player
+                for index in range(self.config.traversals_per_iteration)
+            ]
+            for start in range(0, len(seeds), chunk_size):
+                chunk = seeds[start : start + chunk_size]
+                batches.append(
+                    TraversalWorkerBatch(
+                        player=player,
+                        iteration=iteration,
+                        seeds=chunk,
+                        config=self.config.to_dict(),
+                        game_config=self.game_config.to_snapshot(),
+                        input_dim=self.input_dim,
+                        action_size=self.action_size,
+                        advantage_networks=network_payloads,
+                        worker_seed=self.config.seed + iteration * 1_000_003 + batch_index,
+                    )
+                )
+                batch_index += 1
+        return batches
 
     def train(self) -> list[IterationMetrics]:
         self._start_run_logging()

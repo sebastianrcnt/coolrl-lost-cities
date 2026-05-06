@@ -5,6 +5,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+from coolrl_lost_cities.games.classic.deep_cfr.benchmark import benchmark_traversal
 from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig, config_from_dict
 from coolrl_lost_cities.games.classic.deep_cfr.evaluate import (
     evaluate_strategy_network,
@@ -59,6 +60,19 @@ def eval_command(args: argparse.Namespace) -> None:
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
+def benchmark_command(args: argparse.Namespace) -> None:
+    result = benchmark_traversal(
+        DeepCFRConfig(
+            traversals_per_iteration=args.traversals,
+            max_traversal_depth=args.depth,
+            seed=args.seed,
+            save_every_iteration=False,
+        ),
+        num_workers=args.workers,
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Lost Cities classic Deep CFR tools.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -84,6 +98,13 @@ def main(argv: list[str] | None = None) -> None:
     evaluate.add_argument("--max-steps", type=int, default=10_000)
     evaluate.add_argument("--device", default="cpu")
     evaluate.set_defaults(func=eval_command)
+
+    benchmark = subparsers.add_parser("benchmark")
+    benchmark.add_argument("--workers", type=int, default=0)
+    benchmark.add_argument("--traversals", type=int, default=8)
+    benchmark.add_argument("--depth", type=int, default=4)
+    benchmark.add_argument("--seed", type=int, default=1)
+    benchmark.set_defaults(func=benchmark_command)
 
     args = parser.parse_args(argv)
     args.func(args)

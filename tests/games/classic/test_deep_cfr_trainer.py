@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
+from coolrl_lost_cities.games.classic.deep_cfr.benchmark import benchmark_traversal
 from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
@@ -194,3 +195,42 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
     assert (checkpoint_dir / "train.log").exists()
     assert restored.iteration == 1
     assert "eval_random_games" in metrics[0].eval_metrics
+
+
+def test_deep_cfr_trainer_multiprocessing_smoke_run(tmp_path) -> None:
+    trainer = DeepCFRTrainer(
+        DeepCFRConfig(
+            iterations=1,
+            traversals_per_iteration=2,
+            max_traversal_depth=2,
+            max_nodes_per_traversal=32,
+            batch_size=2,
+            hidden_size=16,
+            seed=43,
+            checkpoint_dir=str(tmp_path / "mp"),
+            save_every_iteration=False,
+            num_workers=2,
+            traversal_worker_chunk_size=1,
+        ),
+        LostCitiesConfig(seed=43),
+    )
+
+    metrics = trainer.train()
+
+    assert metrics[0].traversal_nodes > 0
+    assert metrics[0].advantage_samples > 0
+
+
+def test_deep_cfr_traversal_benchmark_smoke() -> None:
+    result = benchmark_traversal(
+        DeepCFRConfig(
+            traversals_per_iteration=1,
+            max_traversal_depth=2,
+            hidden_size=16,
+            save_every_iteration=False,
+            seed=47,
+        )
+    )
+
+    assert result["traversal_nodes"] > 0
+    assert result["nodes_per_second"] > 0.0

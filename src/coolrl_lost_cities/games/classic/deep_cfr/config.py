@@ -36,6 +36,8 @@ class DeepCFRConfig:
     eval_games: int = 10
     eval_opponents: tuple[str, ...] = ("random",)
     eval_max_steps: int = 10_000
+    num_workers: int = 0
+    traversal_worker_chunk_size: int = 4
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
