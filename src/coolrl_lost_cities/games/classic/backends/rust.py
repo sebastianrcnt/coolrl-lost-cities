@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 import random
 import subprocess
 import tempfile
+from pathlib import Path
 
 from ..game import Card, LostCitiesConfig, build_deck
 from ..interfaces import BackendName, Snapshot
@@ -68,8 +68,7 @@ class RustLostCitiesBackend:
         fixture = {
             "config": self.config.to_snapshot(),
             "initial_deck": [card.to_snapshot() for card in self.initial_deck],
-            "steps": [{"action": None}]
-            + [{"action": action} for action in self.actions],
+            "steps": [{"action": None}] + [{"action": action} for action in self.actions],
         }
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
             json.dump(fixture, handle)

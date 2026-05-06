@@ -3,10 +3,9 @@ import random
 from pathlib import Path
 
 import pytest
-
-import coolrl_lost_cities.games.classic as classic
 from coolrl_lost_cities.games.classic.game import Card, GameState, LostCitiesConfig
 
+import coolrl_lost_cities.games.classic as classic
 
 FIXTURE_DIR = Path(classic.__file__).resolve().parent / "fixtures"
 
@@ -43,13 +42,9 @@ def test_new_game_from_deck_uses_explicit_internal_deck_order() -> None:
 
 def test_snapshot_roundtrip_preserves_json_state() -> None:
     state = GameState.new_game(LostCitiesConfig(seed=5))
-    first_action = next(
-        index for index, legal in enumerate(state.unified_legal_mask()) if legal
-    )
+    first_action = next(index for index, legal in enumerate(state.unified_legal_mask()) if legal)
     state.apply_unified_action(first_action)
-    second_action = next(
-        index for index, legal in enumerate(state.unified_legal_mask()) if legal
-    )
+    second_action = next(index for index, legal in enumerate(state.unified_legal_mask()) if legal)
     state.apply_unified_action(second_action)
 
     payload = json.loads(json.dumps(state.to_snapshot()))
@@ -108,11 +103,7 @@ def test_random_games_preserve_python_core_invariants() -> None:
         steps = 0
         while not state.terminal:
             state.validate_invariants()
-            legal = [
-                index
-                for index, is_legal in enumerate(state.unified_legal_mask())
-                if is_legal
-            ]
+            legal = [index for index, is_legal in enumerate(state.unified_legal_mask()) if is_legal]
             state.apply_unified_action(rng.choice(legal))
             steps += 1
             assert steps < 1000
@@ -129,8 +120,6 @@ def test_same_seed_and_action_sequence_are_deterministic() -> None:
         if left.terminal:
             break
 
-        action = next(
-            index for index, is_legal in enumerate(left.unified_legal_mask()) if is_legal
-        )
+        action = next(index for index, is_legal in enumerate(left.unified_legal_mask()) if is_legal)
         left.apply_unified_action(action)
         right.apply_unified_action(action)

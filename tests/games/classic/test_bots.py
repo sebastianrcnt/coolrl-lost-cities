@@ -1,10 +1,11 @@
+from coolrl_lost_cities.games.classic.game import Card, GameState, LostCitiesConfig
+
 from coolrl_lost_cities.games.classic.bots import (
     LostCitiesBot,
     RandomBot,
     SafeHeuristicBot,
     play_game,
 )
-from coolrl_lost_cities.games.classic.game import Card, GameState, LostCitiesConfig
 from coolrl_lost_cities.games.classic.bots.heuristic import draw_from_discard_action
 
 
@@ -162,14 +163,17 @@ def test_safe_heuristic_avoids_opening_weak_fifth_color() -> None:
     state.hands[0] = [weak_open, Card(color=4, rank=7), Card(color=0, rank=6)]
     state.sort_hand(0)
 
-    assert bot._should_open_expedition(
-        state=state,
-        player=0,
-        color=4,
-        opening_card=weak_open,
-        derived=bot._derived(state),
-        deck_left=config.deck_size,
-    ) is False
+    assert (
+        bot._should_open_expedition(
+            state=state,
+            player=0,
+            color=4,
+            opening_card=weak_open,
+            derived=bot._derived(state),
+            deck_left=config.deck_size,
+        )
+        is False
+    )
 
 
 def test_safe_heuristic_prefers_followup_on_started_expedition() -> None:

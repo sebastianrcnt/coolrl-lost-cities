@@ -23,7 +23,9 @@ lost-cities-classic = "coolrl_lost_cities.games.classic:main"
 [dependency-groups]
 dev = [
     "cython>=3.0",
+    "pre-commit>=4.0.0",
     "pytest>=9.0.3",
+    "ruff>=0.8.0",
 ]
 
 [build-system]
@@ -40,3 +42,14 @@ include = ["coolrl_lost_cities*"]
     "fixtures/*.json",
     "docs/*.md",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+    "src/coolrl_lost_cities/games/classic/game.pyx",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

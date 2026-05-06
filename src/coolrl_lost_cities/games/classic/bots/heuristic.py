@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
-import logging
 
 from ..game import Card, GameState, LostCitiesConfig
 from ..interfaces import BotInput, LostCitiesBot
@@ -94,10 +94,7 @@ def derive_heuristic_config(
     config: LostCitiesConfig,
     params: SafeHeuristicParams,
 ) -> DerivedHeuristicConfig:
-    max_color_sum = sum(
-        config.min_rank + rank - 1
-        for rank in range(1, config.n_ranks + 1)
-    )
+    max_color_sum = sum(config.min_rank + rank - 1 for rank in range(1, config.n_ranks + 1))
     break_even_sum = -config.expedition_penalty
 
     # In small tiers, break-even can be impossible. Do not set impossible targets.
@@ -270,9 +267,7 @@ class SafeHeuristicBot(LostCitiesBot):
                 continue
 
             # Handshakes need a stronger support than normal opening.
-            required_sum = (
-                derived.open_target_sum * self.params.handshake_target_multiplier
-            )
+            required_sum = derived.open_target_sum * self.params.handshake_target_multiplier
             if number_sum < required_sum:
                 continue
 
@@ -368,9 +363,7 @@ class SafeHeuristicBot(LostCitiesBot):
         numeric_value = self._num(state, card)
 
         current_sum = sum(
-            self._num(state, played)
-            for played in expedition
-            if not played.is_handshake
+            self._num(state, played) for played in expedition if not played.is_handshake
         )
 
         followups = [
@@ -384,8 +377,8 @@ class SafeHeuristicBot(LostCitiesBot):
             )
         ]
 
-        projected_sum = current_sum + numeric_value + sum(
-            self._num(state, followup) for followup in followups
+        projected_sum = (
+            current_sum + numeric_value + sum(self._num(state, followup) for followup in followups)
         )
 
         value = 0.0
@@ -434,14 +427,17 @@ class SafeHeuristicBot(LostCitiesBot):
         if deck_left <= derived.late_open_block_threshold:
             return False
 
-        return self._opening_plan_value(
-            state=state,
-            player=player,
-            color=color,
-            opening_card=opening_card,
-            derived=derived,
-            deck_left=deck_left,
-        ) > 0.0
+        return (
+            self._opening_plan_value(
+                state=state,
+                player=player,
+                color=color,
+                opening_card=opening_card,
+                derived=derived,
+                deck_left=deck_left,
+            )
+            > 0.0
+        )
 
     def _opening_plan_value(
         self,
@@ -456,16 +452,10 @@ class SafeHeuristicBot(LostCitiesBot):
         numbers = [
             card
             for card in state.hands[player]
-            if (
-                card.color == color
-                and not card.is_handshake
-                and card.rank >= opening_card.rank
-            )
+            if (card.color == color and not card.is_handshake and card.rank >= opening_card.rank)
         ]
         handshakes = [
-            card
-            for card in state.hands[player]
-            if card.color == color and card.is_handshake
+            card for card in state.hands[player] if card.color == color and card.is_handshake
         ]
         opened_colors = sum(1 for expedition in state.expeditions[player] if expedition)
         number_sum = sum(self._num(state, card) for card in numbers)
@@ -481,15 +471,12 @@ class SafeHeuristicBot(LostCitiesBot):
         )
         speculative_open = (
             opened_colors <= 2
-            and
-            len(numbers) >= 2
+            and len(numbers) >= 2
             and number_sum >= 0.65 * derived.open_target_sum
             and bool(high_cards)
         )
         single_late_open = (
-            deck_left <= derived.mid_deck_threshold
-            and len(numbers) >= 1
-            and opening_value >= 8
+            deck_left <= derived.mid_deck_threshold and len(numbers) >= 1 and opening_value >= 8
         )
         exceptional_open = (
             len(numbers) >= derived.min_open_cards + 1
@@ -525,11 +512,7 @@ class SafeHeuristicBot(LostCitiesBot):
             return 0.0
         if exceptional_open:
             return (
-                10.0
-                + 0.3 * number_sum
-                + 1.0 * len(numbers)
-                + 0.7 * high_count
-                - new_color_penalty
+                10.0 + 0.3 * number_sum + 1.0 * len(numbers) + 0.7 * high_count - new_color_penalty
             )
         if single_late_open:
             return 1.5 + 0.2 * opening_value - new_color_penalty
@@ -549,16 +532,10 @@ class SafeHeuristicBot(LostCitiesBot):
         numbers = [
             card
             for card in state.hands[player]
-            if (
-                card.color == color
-                and not card.is_handshake
-                and card.rank >= opening_card.rank
-            )
+            if (card.color == color and not card.is_handshake and card.rank >= opening_card.rank)
         ]
         handshakes = [
-            card
-            for card in state.hands[player]
-            if card.color == color and card.is_handshake
+            card for card in state.hands[player] if card.color == color and card.is_handshake
         ]
 
         number_sum = sum(self._num(state, card) for card in numbers)
@@ -624,9 +601,7 @@ class SafeHeuristicBot(LostCitiesBot):
                 deck_left=deck_left,
             )
             color_numbers = [
-                other
-                for other in hand
-                if other.color == card.color and not other.is_handshake
+                other for other in hand if other.color == card.color and not other.is_handshake
             ]
             number_sum = sum(self._num(state, other) for other in color_numbers)
 
@@ -786,9 +761,7 @@ class SafeHeuristicBot(LostCitiesBot):
                     )
                 ]
                 number_sum = sum(self._num(state, other) for other in playable_numbers)
-                required_sum = (
-                    derived.open_target_sum * self.params.handshake_target_multiplier
-                )
+                required_sum = derived.open_target_sum * self.params.handshake_target_multiplier
                 if (
                     len(playable_numbers) < derived.min_handshake_numeric_cards
                     or number_sum < required_sum
@@ -874,14 +847,10 @@ class SafeHeuristicBot(LostCitiesBot):
             if other.color == color and not other.is_handshake
         ]
         same_color_handshakes = [
-            other
-            for other in state.hands[player]
-            if other.color == color and other.is_handshake
+            other for other in state.hands[player] if other.color == color and other.is_handshake
         ]
         future_numbers = [
-            other
-            for other in same_color_numbers
-            if other is not card and other.rank >= card.rank
+            other for other in same_color_numbers if other is not card and other.rank >= card.rank
         ]
 
         value = 0.0
@@ -936,11 +905,7 @@ class SafeHeuristicBot(LostCitiesBot):
         numbers = [
             other
             for other in state.hands[player]
-            if (
-                other.color == card.color
-                and not other.is_handshake
-                and other.rank >= card.rank
-            )
+            if (other.color == card.color and not other.is_handshake and other.rank >= card.rank)
         ]
         numbers.append(card)
 
@@ -1067,9 +1032,7 @@ class SafeHeuristicBot(LostCitiesBot):
                 value += 0.25 * self._num(state, card)
 
         playable_cards = [
-            card
-            for card in hand
-            if card.color == color and state.can_play_card(player, card)
+            card for card in hand if card.color == color and state.can_play_card(player, card)
         ]
 
         playable_numbers = [card for card in playable_cards if not card.is_handshake]
@@ -1139,11 +1102,7 @@ class SafeHeuristicBot(LostCitiesBot):
         return [
             card
             for card in state.hands[player]
-            if (
-                card.color == color
-                and not card.is_handshake
-                and state.can_play_card(player, card)
-            )
+            if (card.color == color and not card.is_handshake and state.can_play_card(player, card))
         ]
 
     def _bonus_potential(

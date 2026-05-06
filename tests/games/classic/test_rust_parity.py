@@ -1,12 +1,12 @@
 import json
-from pathlib import Path
 import random
 import subprocess
+from pathlib import Path
+
+from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig, build_deck
 
 import coolrl_lost_cities.games.classic as classic
-from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig, build_deck
 from coolrl_lost_cities.games.classic.backends.rust import RUST_CORE_DIR
-
 
 LOST_CITIES_DIR = Path(classic.__file__).resolve().parent
 FIXTURE_DIR = LOST_CITIES_DIR / "fixtures"
@@ -81,11 +81,7 @@ def test_rust_randomized_fixture_traces_match_python_core(tmp_path: Path) -> Non
         for _ in range(64):
             if state.terminal:
                 break
-            legal = [
-                index
-                for index, is_legal in enumerate(state.unified_legal_mask())
-                if is_legal
-            ]
+            legal = [index for index, is_legal in enumerate(state.unified_legal_mask()) if is_legal]
             action = rng.choice(legal)
             state.apply_unified_action(action)
             steps.append({"action": action})
@@ -154,9 +150,7 @@ def test_rust_grpc_contract_is_checked_from_python() -> None:
 
 def test_rust_core_has_no_native_tests_left() -> None:
     rust_files = [
-        path
-        for path in (RUST_CORE_DIR / "src").rglob("*.rs")
-        if "target" not in path.parts
+        path for path in (RUST_CORE_DIR / "src").rglob("*.rs") if "target" not in path.parts
     ]
     for path in rust_files:
         text = path.read_text()

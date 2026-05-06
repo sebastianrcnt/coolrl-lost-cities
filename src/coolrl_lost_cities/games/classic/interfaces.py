@@ -34,10 +34,7 @@ class Snapshot:
         return score_expedition(self.expeditions[player][color], self.config)
 
     def total_score(self, player: int) -> int:
-        return sum(
-            self.expedition_score(player, color)
-            for color in range(self.config.n_colors)
-        )
+        return sum(self.expedition_score(player, color) for color in range(self.config.n_colors))
 
     def score_diff(self, player: int = 0) -> int:
         return self.total_score(player) - self.total_score(1 - player)

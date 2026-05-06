@@ -1,5 +1,6 @@
-from coolrl_lost_cities.games.classic.bots import RandomBot
 from coolrl_lost_cities.games.classic.game import Card, GameState, LostCitiesConfig
+
+from coolrl_lost_cities.games.classic.bots import RandomBot
 
 
 def test_legal_mask_has_action_in_nonterminal_phases() -> None:
@@ -39,8 +40,8 @@ def test_unified_legal_mask_has_fixed_shape_across_phases() -> None:
     mask = state.unified_legal_mask()
     assert state.phase == "draw"
     assert len(mask) == config.action_size
-    assert all(value is False for value in mask[:config.card_action_size])
-    assert any(mask[config.card_action_size:])
+    assert all(value is False for value in mask[: config.card_action_size])
+    assert any(mask[config.card_action_size :])
 
 
 def test_random_fuzz_invariants() -> None:

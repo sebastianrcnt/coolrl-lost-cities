@@ -1,6 +1,11 @@
 import pytest
-
-from coolrl_lost_cities.games.classic.game import Card, GameState, IllegalMoveError, LostCitiesConfig, build_deck
+from coolrl_lost_cities.games.classic.game import (
+    Card,
+    GameState,
+    IllegalMoveError,
+    LostCitiesConfig,
+    build_deck,
+)
 
 
 def test_deck_generation_count() -> None:

@@ -1,7 +1,7 @@
 import numpy as np
+from coolrl_lost_cities.games.classic.game import Card, GameState, LostCitiesConfig
 
 from coolrl_lost_cities.games.classic.env import LostCitiesEnv
-from coolrl_lost_cities.games.classic.game import Card, GameState, LostCitiesConfig
 
 
 def test_env_observation_uses_fixed_unified_mask() -> None:
@@ -17,8 +17,8 @@ def test_env_observation_uses_fixed_unified_mask() -> None:
 
     assert env.phase == "draw"
     assert obs["legal_mask"].shape == (config.action_size,)
-    assert np.all(obs["legal_mask"][:config.card_action_size] == 0)
-    assert np.any(obs["legal_mask"][config.card_action_size:])
+    assert np.all(obs["legal_mask"][: config.card_action_size] == 0)
+    assert np.any(obs["legal_mask"][config.card_action_size :])
 
 
 def test_env_step_accepts_legacy_draw_action_ids() -> None:
