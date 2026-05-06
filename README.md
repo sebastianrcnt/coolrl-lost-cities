@@ -50,4 +50,11 @@ backend = build_backend("python", classic_config(), seed=1)
 snapshot = backend.snapshot()
 ```
 
+Rust sources live outside the Python package:
+
+```text
+rust/lost-cities-core/
+proto/lost_cities.proto
+```
+
 See [classic port notes](docs/classic-port-notes.md) for the current direction.

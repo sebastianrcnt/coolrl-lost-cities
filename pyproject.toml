@@ -39,10 +39,4 @@ include = ["coolrl_lost_cities*"]
     "assets/*.json",
     "fixtures/*.json",
     "docs/*.md",
-    "schemas/*.proto",
-    "rust_core/Cargo.lock",
-    "rust_core/Cargo.toml",
-    "rust_core/build.rs",
-    "rust_core/src/*.rs",
-    "rust_core/src/bin/*.rs",
 ]

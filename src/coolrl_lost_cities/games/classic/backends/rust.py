@@ -12,6 +12,7 @@ from ..interfaces import BackendName, Snapshot
 from .common import snapshot_from_trace, snapshot_summary
 
 LOGGER = logging.getLogger("coolrl_lost_cities.games.classic.backends.rust")
+RUST_CORE_DIR = Path(__file__).resolve().parents[5] / "rust" / "lost-cities-core"
 
 
 class RustLostCitiesBackend:
@@ -70,7 +71,6 @@ class RustLostCitiesBackend:
             "steps": [{"action": None}]
             + [{"action": action} for action in self.actions],
         }
-        rust_core = Path(__file__).resolve().parents[1] / "rust_core"
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
             json.dump(fixture, handle)
             fixture_path = Path(handle.name)
@@ -86,7 +86,7 @@ class RustLostCitiesBackend:
                     "trace",
                     str(fixture_path),
                 ],
-                cwd=rust_core,
+                cwd=RUST_CORE_DIR,
                 check=True,
                 text=True,
                 capture_output=True,

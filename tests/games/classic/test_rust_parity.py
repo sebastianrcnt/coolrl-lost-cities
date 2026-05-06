@@ -5,11 +5,11 @@ import subprocess
 
 import coolrl_lost_cities.games.classic as classic
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig, build_deck
+from coolrl_lost_cities.games.classic.backends.rust import RUST_CORE_DIR
 
 
 LOST_CITIES_DIR = Path(classic.__file__).resolve().parent
 FIXTURE_DIR = LOST_CITIES_DIR / "fixtures"
-RUST_CORE_DIR = LOST_CITIES_DIR / "rust_core"
 
 
 def _run_probe(*args: str) -> dict:

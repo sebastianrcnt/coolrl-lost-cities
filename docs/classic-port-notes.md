@@ -30,7 +30,10 @@ src/coolrl_lost_cities/
       fixtures/
       assets/
       docs/
-      rust_core/
+rust/
+  lost-cities-core/
+proto/
+  lost_cities.proto
 ```
 
 Tests should live outside the package, roughly under:

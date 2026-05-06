@@ -4,7 +4,7 @@ fn main() {
     let protoc = protoc_bin_vendored::protoc_bin_path().expect("vendored protoc");
     std::env::set_var("PROTOC", protoc);
 
-    let proto_dir = PathBuf::from("../schemas");
+    let proto_dir = PathBuf::from("../../proto");
     let proto_file = proto_dir.join("lost_cities.proto");
 
     println!("cargo:rerun-if-changed={}", proto_file.display());
