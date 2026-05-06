@@ -181,14 +181,14 @@ class DeepCFRTrainer:
             self.input_dim, self.action_size, self.config.network
         ).to(self.device)
         self.advantage_optimizers = [
-            torch.optim.Adam(
+            torch.optim.AdamW(
                 network.parameters(),
                 lr=self.config.optimization.learning_rate,
                 weight_decay=self.config.optimization.weight_decay,
             )
             for network in self.advantage_networks
         ]
-        self.strategy_optimizer = torch.optim.Adam(
+        self.strategy_optimizer = torch.optim.AdamW(
             self.strategy_network.parameters(),
             lr=self.config.optimization.learning_rate,
             weight_decay=self.config.optimization.weight_decay,
@@ -717,7 +717,7 @@ class DeepCFRTrainer:
         network: nn.Module,
         optimizer: torch.optim.Optimizer,
     ) -> float:
-        last_loss = 0.0
+        losses: list[float] = []
         network.train()
         for _step in range(self.config.optimization.resolved_advantage_train_steps()):
             sample_started = time.perf_counter()
@@ -741,8 +741,8 @@ class DeepCFRTrainer:
                     network.parameters(), self.config.optimization.grad_clip
                 )
             optimizer.step()
-            last_loss = float(loss.detach().cpu())
-        return last_loss
+            losses.append(float(loss.detach().cpu()))
+        return float(np.mean(losses)) if losses else 0.0
 
     def _train_strategy(
         self,

@@ -94,6 +94,8 @@ cdef class CythonDeepCFRTraverser:
     cdef float self_play_older_weight
     cdef float self_play_anchor_weight
     cdef int self_play_recent_window
+    cdef int active_self_play_bucket
+    cdef object active_self_play_networks
     cdef int endpoint_depth_bucket_width
     cdef int endpoint_depth_bucket_max
     cdef bint derived_playability
@@ -187,6 +189,8 @@ cdef class CythonDeepCFRTraverser:
         self.self_play_older_weight = max(0.0, self_play_older_weight)
         self.self_play_anchor_weight = max(0.0, self_play_anchor_weight)
         self.self_play_recent_window = max(0, self_play_recent_window)
+        self.active_self_play_bucket = 0
+        self.active_self_play_networks = None
         self.safe_heuristic_opponent_bot = (
             SafeHeuristicBot()
             if self.opponent_policy_id == 1 or self.self_play_anchor_probability > 0.0
@@ -203,8 +207,20 @@ cdef class CythonDeepCFRTraverser:
             self.input_dim = _input_dim_with_flags_c(
                 state, self.derived_playability, self.slot_aware_playability
             )
-        value = self._traverse(state, traverser, iteration, 0, stats)
-        return value, stats
+        if self.opponent_policy_id == 2:
+            self.active_self_play_bucket = self._self_play_bucket()
+            if self.active_self_play_bucket in (1, 2):
+                self.active_self_play_networks = self._self_play_snapshot_networks(
+                    self.active_self_play_bucket
+                )
+            else:
+                self.active_self_play_networks = None
+        try:
+            value = self._traverse(state, traverser, iteration, 0, stats)
+            return value, stats
+        finally:
+            self.active_self_play_bucket = 0
+            self.active_self_play_networks = None
 
     cdef float _traverse(
         self,
@@ -401,14 +417,14 @@ cdef class CythonDeepCFRTraverser:
             if self.safe_heuristic_opponent_bot is None:
                 self.safe_heuristic_opponent_bot = SafeHeuristicBot()
             return int(self.safe_heuristic_opponent_bot.act(state))
-        bucket = self._self_play_bucket()
+        bucket = self.active_self_play_bucket
         if bucket == 0:
             return -1
         if bucket == 3:
             if self.safe_heuristic_opponent_bot is None:
                 self.safe_heuristic_opponent_bot = SafeHeuristicBot()
             return int(self.safe_heuristic_opponent_bot.act(state))
-        networks = self._self_play_snapshot_networks(bucket)
+        networks = self.active_self_play_networks
         if networks is None:
             return -1
         self._policy_from_networks(networks, state, player, legal, policy)
