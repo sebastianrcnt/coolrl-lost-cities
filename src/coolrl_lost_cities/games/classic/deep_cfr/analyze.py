@@ -2,69 +2,243 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-TRAINING_PLOTS: list[tuple[str, list[str], str]] = [
-    ("Advantage Loss", ["advantage_loss"], "loss"),
-    ("Strategy Loss", ["strategy_loss"], "loss"),
-    ("Iteration Time", ["iteration_seconds"], "seconds"),
-    ("Throughput", ["nodes_per_second"], "nodes / second"),
-    ("Samples", ["advantage_samples", "strategy_samples"], "samples"),
-    ("Memory Size", ["advantage_memory_size", "strategy_memory_size"], "samples"),
-    (
-        "Traversal Depth",
-        ["traversal_avg_endpoint_depth", "traversal_max_depth_reached"],
-        "depth",
-    ),
-    (
-        "Traversal Endpoints",
-        [
-            "traversal_terminals",
-            "traversal_node_limit_cutoffs",
-            "traversal_depth_cutoffs",
-        ],
-        "count",
-    ),
-]
+DEFAULT_SMOOTHING_WINDOW = 5
 
-EVAL_PLOTS: list[tuple[str, str, str, float]] = [
-    ("Win Rate", "win_rate0", "rate (%)", 100.0),
-    ("Avg Score Diff", "avg_score_diff0", "score diff", 1.0),
-    ("Avg Score", "avg_score0", "score", 1.0),
-    ("Policy Entropy", "policy_entropy", "entropy", 1.0),
-    ("Play Action Rate", "play_action_rate", "rate (%)", 100.0),
-    ("Discard Action Rate", "discard_action_rate", "rate (%)", 100.0),
-    ("Draw Deck Rate", "draw_deck_rate", "rate (%)", 100.0),
-    ("Draw Pile Rate", "draw_pile_rate", "rate (%)", 100.0),
-    ("Opened Colors", "avg_opened_colors", "colors", 1.0),
-    ("5-Color Open Count", "5_color_open_count", "games / eval", 1.0),
-    ("Expedition Cards", "avg_expedition_cards", "cards", 1.0),
-    ("Bad Open Rate", "bad_open_rate", "rate (%)", 100.0),
-    ("Good Open Rate", "good_open_rate", "rate (%)", 100.0),
-    ("Opening Recoverable Score", "opening_recoverable_score_mean", "score", 1.0),
-    ("Score per Opened Color", "score_per_opened_color", "score / color", 1.0),
-    ("Negative Expedition Rate", "negative_expedition_rate", "rate (%)", 100.0),
-    ("Positive Expedition Rate", "positive_expedition_rate", "rate (%)", 100.0),
-    (
-        "Final Score per Expedition",
-        "avg_final_score_per_opened_expedition",
-        "score",
-        1.0,
-    ),
-    ("Max Step Timeouts", "max_step_timeouts", "timeouts", 1.0),
-]
 
-SUMMARY_EVAL_METRICS: list[tuple[str, str, float]] = [
+@dataclass(frozen=True)
+class PlotSpec:
+    title: str
+    metrics: tuple[str, ...]
+    ylabel: str
+    scale: float = 1.0
+    kind: str = "eval"
+    fixed_ylim: tuple[float, float] | None = None
+
+
+@dataclass(frozen=True)
+class SectionSpec:
+    name: str
+    filename: str
+    plots: tuple[PlotSpec, ...]
+
+
+SECTIONS: tuple[SectionSpec, ...] = (
+    SectionSpec(
+        "Loss",
+        "analysis_01_loss.png",
+        (
+            PlotSpec("Advantage Loss", ("advantage_loss",), "loss", kind="train"),
+            PlotSpec("Strategy Loss", ("strategy_loss",), "loss", kind="train"),
+            PlotSpec(
+                "Samples",
+                ("advantage_samples", "strategy_samples"),
+                "samples",
+                kind="train",
+            ),
+            PlotSpec(
+                "Memory Size",
+                ("advantage_memory_size", "strategy_memory_size"),
+                "samples",
+                kind="train",
+            ),
+        ),
+    ),
+    SectionSpec(
+        "Match",
+        "analysis_02_match.png",
+        (
+            PlotSpec("Win Rate", ("win_rate0",), "rate (%)", scale=100.0, fixed_ylim=(0, 100)),
+            PlotSpec("Avg Score Diff", ("avg_score_diff0",), "score diff"),
+            PlotSpec("Avg Score", ("avg_score0",), "score"),
+            PlotSpec("Policy Entropy", ("policy_entropy",), "entropy"),
+        ),
+    ),
+    SectionSpec(
+        "Action",
+        "analysis_03_action.png",
+        (
+            PlotSpec(
+                "Play Action Rate",
+                ("play_action_rate",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+            ),
+            PlotSpec(
+                "Discard Action Rate",
+                ("discard_action_rate",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+            ),
+            PlotSpec(
+                "Draw Deck Rate",
+                ("draw_deck_rate",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+            ),
+            PlotSpec(
+                "Draw Pile Rate",
+                ("draw_pile_rate",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+            ),
+        ),
+    ),
+    SectionSpec(
+        "GameFlow",
+        "analysis_04_gameflow.png",
+        (
+            PlotSpec("Opened Colors", ("avg_opened_colors",), "colors", fixed_ylim=(0, 5)),
+            PlotSpec("Opened Colors Std", ("opened_colors_std",), "std"),
+            PlotSpec(
+                "5-Color Open Count",
+                ("5_color_open_count",),
+                "games / eval",
+                fixed_ylim=(0, 100),
+            ),
+            PlotSpec("Expedition Cards", ("avg_expedition_cards",), "cards"),
+        ),
+    ),
+    SectionSpec(
+        "OpenQuality",
+        "analysis_05_open_quality.png",
+        (
+            PlotSpec(
+                "Bad Open Rate",
+                ("bad_open_rate",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+            ),
+            PlotSpec(
+                "Weak Open Rate",
+                ("weak_open_rate",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+            ),
+            PlotSpec(
+                "Bad or Weak Open Rate",
+                ("bad_or_weak_open_rate",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+            ),
+            PlotSpec(
+                "Good Open Rate",
+                ("good_open_rate",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+            ),
+            PlotSpec("Bad Open per Game", ("bad_open_per_game",), "opens / game"),
+            PlotSpec(
+                "Bad or Weak Open per Game",
+                ("bad_or_weak_open_per_game",),
+                "opens / game",
+            ),
+            PlotSpec("Opening Play Actions", ("opening_play_actions",), "actions / game"),
+            PlotSpec("Opening Recoverable p25", ("opening_recoverable_score_p25",), "score"),
+        ),
+    ),
+    SectionSpec(
+        "ExpeditionOutcomes",
+        "analysis_06_expedition_outcomes.png",
+        (
+            PlotSpec(
+                "Positive Expedition Rate",
+                ("positive_expedition_rate",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+            ),
+            PlotSpec(
+                "Negative Expedition Rate",
+                ("negative_expedition_rate",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+            ),
+            PlotSpec(
+                "Bonus Expedition Rate",
+                ("bonus_expedition_rate",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+            ),
+            PlotSpec(
+                "Per-Game Expedition Counts",
+                (
+                    "per_game_positive_expeditions",
+                    "per_game_negative_expeditions",
+                    "per_game_breakeven_expeditions",
+                    "per_game_below_minus_20_expeditions",
+                ),
+                "expeditions / game",
+            ),
+            PlotSpec("Final Expedition Score", ("avg_final_score_per_opened_expedition",), "score"),
+            PlotSpec("Score per Opened Color", ("score_per_opened_color",), "score / color"),
+        ),
+    ),
+    SectionSpec(
+        "Calibration",
+        "analysis_07_calibration.png",
+        (
+            PlotSpec(
+                "First Open Recoverable Score",
+                (
+                    "first_open_recoverable_score_mean_for_positive_final",
+                    "first_open_recoverable_score_mean_for_negative_final",
+                ),
+                "score",
+            ),
+            PlotSpec("Opening Recoverable Mean", ("opening_recoverable_score_mean",), "score"),
+            PlotSpec("Opening Recoverable p25", ("opening_recoverable_score_p25",), "score"),
+            PlotSpec("Calibration Gap", ("calibration_gap",), "score"),
+        ),
+    ),
+    SectionSpec(
+        "Traversal",
+        "analysis_08_traversal.png",
+        (
+            PlotSpec("Iteration Time", ("iteration_seconds",), "seconds", kind="train"),
+            PlotSpec("Throughput", ("nodes_per_second",), "nodes / second", kind="train"),
+            PlotSpec(
+                "Traversal Depth",
+                ("traversal_avg_endpoint_depth", "traversal_max_depth_reached"),
+                "depth",
+                kind="train",
+            ),
+            PlotSpec(
+                "Traversal Endpoints",
+                ("traversal_terminals", "traversal_node_limit_cutoffs", "traversal_depth_cutoffs"),
+                "count",
+                kind="train",
+            ),
+            PlotSpec("Traversal Nodes", ("traversal_nodes",), "nodes", kind="train"),
+        ),
+    ),
+)
+
+SUMMARY_EVAL_METRICS: tuple[tuple[str, str, float], ...] = (
     ("win_rate0", "win rate (%)", 100.0),
     ("avg_score_diff0", "avg score diff", 1.0),
     ("avg_score0", "avg score", 1.0),
     ("play_action_rate", "play rate (%)", 100.0),
     ("avg_opened_colors", "opened colors", 1.0),
     ("bad_open_rate", "bad open (%)", 100.0),
-    ("good_open_rate", "good open (%)", 100.0),
     ("score_per_opened_color", "score / opened color", 1.0),
-]
+    ("calibration_gap", "calibration gap", 1.0),
+    ("bonus_contribution_per_game", "bonus / game", 1.0),
+)
 
 OPPONENT_COLORS: dict[str, str] = {
     "noisy_safe": "tab:blue",
@@ -73,6 +247,13 @@ OPPONENT_COLORS: dict[str, str] = {
     "safe_heuristic": "tab:red",
     "safe_heuristic_loose": "tab:purple",
     "safe_heuristic_strict": "tab:brown",
+}
+
+ACTION_RATE_METRICS = {
+    "play_action_rate",
+    "discard_action_rate",
+    "draw_deck_rate",
+    "draw_pile_rate",
 }
 
 
@@ -100,57 +281,51 @@ def opponent_names(rows: list[dict[str, Any]]) -> list[str]:
     return sorted(names)
 
 
-def plot_training_dashboard(rows: list[dict[str, Any]], output: Path) -> bool:
-    import matplotlib.pyplot as plt
-
-    x = [int(row["iteration"]) for row in rows if "iteration" in row]
-    if not x:
-        return False
-
-    fig, axes = plt.subplots(3, 3, figsize=(16, 12))
-    axes_flat = list(axes.flat)
-    plotted_any = False
-    for ax, (title, metrics, ylabel) in zip(axes_flat, TRAINING_PLOTS, strict=False):
-        plotted = _plot_row_metrics(ax, rows, x, metrics)
-        _finish_axis(ax, title, ylabel=ylabel, plotted=plotted)
-        plotted_any = plotted_any or plotted
-
-    _plot_latest_depth_buckets(axes_flat[len(TRAINING_PLOTS)], rows)
-    plotted_any = plotted_any or bool(_latest_depth_buckets(rows))
-
-    fig.suptitle("Lost Cities Deep CFR training metrics", fontsize=14, fontweight="bold")
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
-    if not plotted_any:
-        plt.close(fig)
-        return False
-    fig.savefig(output, dpi=150)
-    plt.close(fig)
-    return True
-
-
-def plot_eval_dashboard(rows: list[dict[str, Any]], output: Path) -> bool:
+def plot_section(
+    rows: list[dict[str, Any]],
+    section: SectionSpec,
+    output: Path,
+    *,
+    smoothing_window: int,
+) -> bool:
     import matplotlib.pyplot as plt
 
     opponents = opponent_names(rows)
-    if not opponents:
-        return False
-
-    fig, axes = plt.subplots(5, 4, figsize=(20, 18))
+    cols = 2
+    rows_count = math.ceil((len(section.plots) + _extra_plot_count(section)) / cols)
+    fig, axes = plt.subplots(rows_count, cols, figsize=(16, 4.2 * rows_count), squeeze=False)
     axes_flat = list(axes.flat)
     plotted_any = False
-    for ax, (title, metric, ylabel, scale) in zip(axes_flat, EVAL_PLOTS, strict=False):
-        plotted = _plot_eval_metric(ax, rows, opponents, metric, scale)
-        _finish_axis(ax, title, ylabel=ylabel, plotted=plotted)
+
+    for ax, spec in zip(axes_flat, section.plots, strict=False):
+        if spec.kind == "train":
+            plotted = _plot_train_spec(ax, rows, spec, smoothing_window=smoothing_window)
+        else:
+            plotted = _plot_eval_spec(ax, rows, opponents, spec, smoothing_window=smoothing_window)
+        _finish_axis(
+            ax, spec.title, ylabel=spec.ylabel, plotted=plotted, fixed_ylim=spec.fixed_ylim
+        )
         plotted_any = plotted_any or plotted
 
-    for ax in axes_flat[len(EVAL_PLOTS) :]:
+    next_axis = len(section.plots)
+    if section.name == "Traversal" and next_axis < len(axes_flat):
+        _plot_latest_depth_buckets(axes_flat[next_axis], rows)
+        plotted_any = plotted_any or bool(_latest_depth_buckets(rows))
+        next_axis += 1
+
+    for ax in axes_flat[next_axis:]:
         ax.axis("off")
 
     handles, labels = _legend_items(axes_flat)
     if handles:
         fig.legend(handles, labels, loc="upper center", ncols=min(len(labels), 6), fontsize="small")
-    fig.suptitle("Lost Cities Deep CFR eval metrics", fontsize=14, fontweight="bold")
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    suffix = f" ({smoothing_window}-iter moving average)" if smoothing_window > 1 else ""
+    fig.suptitle(
+        f"Lost Cities Deep CFR {section.name} metrics{suffix}",
+        fontsize=14,
+        fontweight="bold",
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     if not plotted_any:
         plt.close(fig)
         return False
@@ -167,24 +342,32 @@ def plot_final_eval_summary(rows: list[dict[str, Any]], output: Path) -> bool:
     if not opponents or latest is None:
         return False
 
-    fig, axes = plt.subplots(2, 4, figsize=(18, 8))
+    cols = 3
+    rows_count = math.ceil(len(SUMMARY_EVAL_METRICS) / cols)
+    fig, axes = plt.subplots(rows_count, cols, figsize=(18, 4.2 * rows_count), squeeze=False)
     plotted_any = False
     for ax, (metric, title, scale) in zip(axes.flat, SUMMARY_EVAL_METRICS, strict=False):
         labels: list[str] = []
         values: list[float] = []
         colors: list[str] = []
         for opponent in opponents:
-            value = latest.get(f"eval_{opponent}_{metric}")
-            if value is None:
+            value = _eval_value(latest, opponent, metric)
+            if value is None or not math.isfinite(value):
                 continue
             labels.append(opponent)
-            values.append(float(value) * scale)
+            values.append(value * scale)
             colors.append(_opponent_color(opponent))
         if values:
             ax.bar(labels, values, color=colors)
             plotted_any = True
             ax.tick_params(axis="x", labelrotation=35, labelsize="x-small")
-        _finish_axis(ax, title, xlabel="", plotted=bool(values))
+        fixed_ylim = (0, 100) if "rate (%)" in title or title == "opened colors" else None
+        if title == "opened colors":
+            fixed_ylim = (0, 5)
+        _finish_axis(ax, title, xlabel="", plotted=bool(values), fixed_ylim=fixed_ylim)
+
+    for ax in list(axes.flat)[len(SUMMARY_EVAL_METRICS) :]:
+        ax.axis("off")
 
     iteration = latest.get("iteration", "latest")
     fig.suptitle(
@@ -201,20 +384,22 @@ def plot_final_eval_summary(rows: list[dict[str, Any]], output: Path) -> bool:
     return True
 
 
-def analyze_run(run_dir: Path, output_dir: Path | None = None) -> list[Path]:
+def analyze_run(
+    run_dir: Path,
+    output_dir: Path | None = None,
+    *,
+    smoothing_window: int = DEFAULT_SMOOTHING_WINDOW,
+) -> list[Path]:
     metrics_path = run_dir / "metrics.jsonl"
     rows = load_metrics(metrics_path)
     output_dir = output_dir or run_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
 
-    training_path = output_dir / "analysis_training_dashboard.png"
-    if plot_training_dashboard(rows, training_path):
-        written.append(training_path)
-
-    eval_path = output_dir / "analysis_eval_dashboard.png"
-    if _has_eval_history(rows) and plot_eval_dashboard(rows, eval_path):
-        written.append(eval_path)
+    for section in SECTIONS:
+        path = output_dir / section.filename
+        if plot_section(rows, section, path, smoothing_window=smoothing_window):
+            written.append(path)
 
     final_eval_path = output_dir / "analysis_final_eval_summary.png"
     if plot_final_eval_summary(rows, final_eval_path):
@@ -223,53 +408,188 @@ def analyze_run(run_dir: Path, output_dir: Path | None = None) -> list[Path]:
 
 
 def _all_eval_metrics() -> set[str]:
-    metrics = {metric for _, metric, _, _ in EVAL_PLOTS}
+    metrics: set[str] = set()
+    for section in SECTIONS:
+        for plot in section.plots:
+            if plot.kind == "eval":
+                metrics.update(plot.metrics)
     metrics.update(metric for metric, _, _ in SUMMARY_EVAL_METRICS)
+    metrics.update(_base_metrics_for_derived_values())
     return metrics
 
 
-def _plot_row_metrics(
-    ax: Any, rows: list[dict[str, Any]], x: list[int], metrics: list[str]
+def _plot_train_spec(
+    ax: Any,
+    rows: list[dict[str, Any]],
+    spec: PlotSpec,
+    *,
+    smoothing_window: int,
 ) -> bool:
+    x = [int(row["iteration"]) for row in rows if "iteration" in row]
+    if not x:
+        return False
+
     plotted = False
-    for metric in metrics:
-        values = [row.get(metric) for row in rows]
-        if all(value is None for value in values):
-            continue
-        y = [float("nan") if value is None else float(value) for value in values]
-        ax.plot(x, y, marker="o", linewidth=1.5, markersize=3, label=_label(metric))
-        plotted = True
+    for metric in spec.metrics:
+        pairs = [
+            (int(row["iteration"]), float(row[metric]) * spec.scale)
+            for row in rows
+            if "iteration" in row and metric in row
+        ]
+        plotted = (
+            _plot_pairs(
+                ax,
+                pairs,
+                label=_label(metric),
+                color=None,
+                smoothing_window=smoothing_window,
+            )
+            or plotted
+        )
     return plotted
 
 
-def _plot_eval_metric(
+def _plot_eval_spec(
     ax: Any,
     rows: list[dict[str, Any]],
     opponents: list[str],
-    metric: str,
-    scale: float,
+    spec: PlotSpec,
+    *,
+    smoothing_window: int,
 ) -> bool:
     plotted = False
+    multi_metric = len(spec.metrics) > 1
     for opponent in opponents:
-        pairs = [
-            (int(row["iteration"]), float(row[f"eval_{opponent}_{metric}"]) * scale)
-            for row in rows
-            if "iteration" in row and f"eval_{opponent}_{metric}" in row
-        ]
-        if not pairs:
-            continue
-        x, y = zip(*pairs, strict=True)
-        ax.plot(
-            x,
-            y,
-            marker="o",
-            linewidth=1.5,
-            markersize=3,
-            label=opponent,
-            color=_opponent_color(opponent),
-        )
-        plotted = True
+        for metric in spec.metrics:
+            pairs: list[tuple[int, float]] = []
+            for row in rows:
+                if "iteration" not in row:
+                    continue
+                value = _eval_value(row, opponent, metric)
+                if value is None:
+                    continue
+                if _should_mask_open_rate(row, opponent, metric):
+                    value = float("nan")
+                pairs.append((int(row["iteration"]), value * spec.scale))
+
+            label = opponent
+            if multi_metric:
+                label = f"{opponent}: {_short_metric_label(metric)}"
+            plotted = (
+                _plot_pairs(
+                    ax,
+                    pairs,
+                    label=label,
+                    color=_opponent_color(opponent),
+                    linestyle=_metric_linestyle(metric) if multi_metric else "-",
+                    smoothing_window=smoothing_window,
+                )
+                or plotted
+            )
     return plotted
+
+
+def _plot_pairs(
+    ax: Any,
+    pairs: list[tuple[int, float]],
+    *,
+    label: str,
+    color: str | None,
+    smoothing_window: int,
+    linestyle: str = "-",
+) -> bool:
+    if not pairs:
+        return False
+    x = [pair[0] for pair in pairs]
+    y = [pair[1] for pair in pairs]
+    y = _moving_average(y, smoothing_window)
+    if all(not math.isfinite(value) for value in y):
+        return False
+    ax.plot(
+        x,
+        y,
+        marker="o",
+        linewidth=1.5,
+        markersize=3,
+        label=label,
+        color=color,
+        linestyle=linestyle,
+    )
+    return True
+
+
+def _eval_value(row: dict[str, Any], opponent: str, metric: str) -> float | None:
+    if metric == "bad_open_per_game":
+        return _first_existing_eval(row, opponent, ("bad_open_per_game", "bad_open_actions"))
+    if metric == "bad_or_weak_open_per_game":
+        direct = _first_existing_eval(row, opponent, ("bad_or_weak_open_per_game",))
+        if direct is not None:
+            return direct
+        bad = _first_existing_eval(row, opponent, ("bad_open_actions", "bad_open_per_game"))
+        weak = _first_existing_eval(row, opponent, ("weak_open_actions", "weak_open_per_game"))
+        if bad is None and weak is None:
+            return None
+        return (bad or 0.0) + (weak or 0.0)
+    if metric == "bad_or_weak_open_rate":
+        direct = _first_existing_eval(row, opponent, ("bad_or_weak_open_rate",))
+        if direct is not None:
+            return direct
+        bad = _first_existing_eval(row, opponent, ("bad_open_rate",))
+        weak = _first_existing_eval(row, opponent, ("weak_open_rate",))
+        if bad is None and weak is None:
+            return None
+        return (bad or 0.0) + (weak or 0.0)
+    if metric == "calibration_gap":
+        positive = _first_existing_eval(
+            row, opponent, ("first_open_recoverable_score_mean_for_positive_final",)
+        )
+        negative = _first_existing_eval(
+            row, opponent, ("first_open_recoverable_score_mean_for_negative_final",)
+        )
+        if positive is None or negative is None:
+            return None
+        return positive - negative
+    if metric == "bonus_contribution_per_game":
+        per_game_bonus = _first_existing_eval(row, opponent, ("per_game_bonus_expeditions",))
+        if per_game_bonus is not None:
+            return per_game_bonus * 20.0
+        bonus_rate = _first_existing_eval(row, opponent, ("bonus_expedition_rate",))
+        opened_colors = _first_existing_eval(row, opponent, ("avg_opened_colors",))
+        if bonus_rate is None or opened_colors is None:
+            return None
+        return bonus_rate * opened_colors * 20.0
+    return _first_existing_eval(row, opponent, (metric,))
+
+
+def _first_existing_eval(
+    row: dict[str, Any], opponent: str, metrics: tuple[str, ...]
+) -> float | None:
+    for metric in metrics:
+        value = row.get(f"eval_{opponent}_{metric}")
+        if value is not None:
+            return float(value)
+    return None
+
+
+def _should_mask_open_rate(row: dict[str, Any], opponent: str, metric: str) -> bool:
+    if metric in ACTION_RATE_METRICS or not metric.endswith("_rate"):
+        return False
+    opening_play_actions = _first_existing_eval(row, opponent, ("opening_play_actions",))
+    return opening_play_actions is not None and opening_play_actions < 1.0
+
+
+def _moving_average(values: list[float], window: int) -> list[float]:
+    if window <= 1:
+        return values
+    smoothed: list[float] = []
+    for idx in range(len(values)):
+        start = max(0, idx - window + 1)
+        window_values = [value for value in values[start : idx + 1] if math.isfinite(value)]
+        if not window_values:
+            smoothed.append(float("nan"))
+        else:
+            smoothed.append(sum(window_values) / len(window_values))
+    return smoothed
 
 
 def _plot_latest_depth_buckets(ax: Any, rows: list[dict[str, Any]]) -> None:
@@ -312,15 +632,6 @@ def _latest_eval_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
-def _has_eval_history(rows: list[dict[str, Any]]) -> bool:
-    eval_iterations = {
-        int(row["iteration"])
-        for row in rows
-        if "iteration" in row and any(key.startswith("eval_") for key in row)
-    }
-    return len(eval_iterations) >= 2
-
-
 def _finish_axis(
     ax: Any,
     title: str,
@@ -328,12 +639,15 @@ def _finish_axis(
     xlabel: str = "iteration",
     ylabel: str | None = None,
     plotted: bool,
+    fixed_ylim: tuple[float, float] | None = None,
 ) -> None:
     ax.set_title(title, fontsize=10, fontweight="bold")
     if xlabel:
         ax.set_xlabel(xlabel)
     if ylabel:
         ax.set_ylabel(ylabel)
+    if fixed_ylim is not None:
+        ax.set_ylim(*fixed_ylim)
     ax.grid(True, alpha=0.3)
     if plotted:
         handles, _ = ax.get_legend_handles_labels()
@@ -359,20 +673,69 @@ def _opponent_color(opponent: str) -> str:
     return OPPONENT_COLORS.get(opponent, "tab:gray")
 
 
+def _metric_linestyle(metric: str) -> str:
+    if "negative" in metric or metric.endswith("_negative_final"):
+        return "--"
+    if "breakeven" in metric or "weak" in metric:
+        return ":"
+    if "below_minus_20" in metric:
+        return "-."
+    return "-"
+
+
 def _label(metric: str) -> str:
     return metric.replace("_", " ")
 
 
-def _slug(value: str) -> str:
-    return value.lower().replace(" ", "_").replace("-", "_")
+def _short_metric_label(metric: str) -> str:
+    labels = {
+        "first_open_recoverable_score_mean_for_positive_final": "positive final",
+        "first_open_recoverable_score_mean_for_negative_final": "negative final",
+        "per_game_positive_expeditions": "positive",
+        "per_game_negative_expeditions": "negative",
+        "per_game_breakeven_expeditions": "breakeven",
+        "per_game_below_minus_20_expeditions": "below -20",
+    }
+    return labels.get(metric, _label(metric))
+
+
+def _base_metrics_for_derived_values() -> set[str]:
+    return {
+        "avg_opened_colors",
+        "bad_open_actions",
+        "bad_open_rate",
+        "bonus_expedition_rate",
+        "first_open_recoverable_score_mean_for_negative_final",
+        "first_open_recoverable_score_mean_for_positive_final",
+        "opening_play_actions",
+        "per_game_bonus_expeditions",
+        "weak_open_actions",
+        "weak_open_rate",
+    }
+
+
+def _extra_plot_count(section: SectionSpec) -> int:
+    return 1 if section.name == "Traversal" else 0
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Plot Lost Cities Deep CFR evaluation metrics.")
+    parser = argparse.ArgumentParser(description="Plot Lost Cities Deep CFR metrics.")
     parser.add_argument("--run", required=True, type=Path)
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument(
+        "--smoothing-window",
+        type=int,
+        default=DEFAULT_SMOOTHING_WINDOW,
+        help="Moving-average window. Default: 5.",
+    )
+    parser.add_argument(
+        "--no-smoothing",
+        action="store_true",
+        help="Disable moving-average smoothing.",
+    )
     args = parser.parse_args(argv)
-    written = analyze_run(args.run, args.output_dir)
+    smoothing_window = 1 if args.no_smoothing else max(1, args.smoothing_window)
+    written = analyze_run(args.run, args.output_dir, smoothing_window=smoothing_window)
     for path in written:
         print(path)
 

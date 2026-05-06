@@ -165,13 +165,22 @@ uv run lost-cities-deep-cfr analyze \
   --output-dir runs/deep_cfr/<run-name>/analysis
 ```
 
-The analyzer reads `metrics.jsonl` and writes PNG files such as:
+The analyzer reads `metrics.jsonl` and writes PNG files grouped by diagnostic
+section. Opponents are compared within each plot using fixed colors. Smoothing
+uses a 5-iteration moving average by default; pass `--no-smoothing` to disable
+it or `--smoothing-window N` to choose a different window.
 
-- `analysis_<opponent>_action_distribution.png`
-- `analysis_<opponent>_game_flow.png`
-- `analysis_<opponent>_open_quality.png`
-- `analysis_<opponent>_expedition_outcomes.png`
-- `analysis_<opponent>_calibration.png`
+Current output files:
+
+- `analysis_01_loss.png`
+- `analysis_02_match.png`
+- `analysis_03_action.png`
+- `analysis_04_gameflow.png`
+- `analysis_05_open_quality.png`
+- `analysis_06_expedition_outcomes.png`
+- `analysis_07_calibration.png`
+- `analysis_08_traversal.png`
+- `analysis_final_eval_summary.png`
 
 ## Runtime Artifacts
 
