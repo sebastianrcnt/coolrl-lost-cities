@@ -85,6 +85,7 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
         self_play_older_weight=cfg.self_play.older_weight,
         self_play_anchor_weight=cfg.self_play.anchor_weight,
         self_play_recent_window=cfg.self_play.recent_window,
+        encoding=cfg.encoding,
         rng=np.random.default_rng(batch.worker_seed),
     )
     game_config = LostCitiesConfig(**batch.game_config)

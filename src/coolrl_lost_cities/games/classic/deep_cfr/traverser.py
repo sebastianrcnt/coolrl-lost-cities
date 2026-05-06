@@ -103,6 +103,7 @@ class DeepCFRTraverser:
         self_play_older_weight: float = 0.2,
         self_play_anchor_weight: float = 0.0,
         self_play_recent_window: int = 5,
+        encoding=None,
         rng: np.random.Generator | None = None,
     ) -> None:
         self.advantage_networks = advantage_networks
@@ -145,6 +146,7 @@ class DeepCFRTraverser:
         self.self_play_older_weight = max(0.0, float(self_play_older_weight))
         self.self_play_anchor_weight = max(0.0, float(self_play_anchor_weight))
         self.self_play_recent_window = max(0, int(self_play_recent_window))
+        self.encoding = encoding
         self.rng = rng or np.random.default_rng()
         self._safe_heuristic_rollout_bot = (
             SafeHeuristicBot() if self.cutoff_rollout_policy == "safe_heuristic" else None
@@ -275,7 +277,7 @@ class DeepCFRTraverser:
         state: GameState,
         player: int,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        info_state = encode_info_state(state, player)
+        info_state = encode_info_state(state, player, self.encoding)
         legal = np.asarray(state.unified_legal_mask(), dtype=bool)
         with torch.inference_mode():
             x = torch.as_tensor(info_state, dtype=torch.float32, device=self.device).unsqueeze(0)

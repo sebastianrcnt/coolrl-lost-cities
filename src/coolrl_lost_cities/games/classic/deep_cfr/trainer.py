@@ -81,7 +81,7 @@ class DeepCFRTrainer:
         self.device = _resolve_torch_device(device)
 
         probe = GameState.new_game(self.game_config, seed=self.config.run.seed)
-        self.input_dim = input_dim(probe)
+        self.input_dim = input_dim(probe, self.config.encoding)
         self.action_size = 2 * probe.config.hand_size + 1 + probe.config.n_colors
 
         torch.manual_seed(self.config.run.seed)
@@ -206,6 +206,7 @@ class DeepCFRTrainer:
             self_play_older_weight=self.config.self_play.older_weight,
             self_play_anchor_weight=self.config.self_play.anchor_weight,
             self_play_recent_window=self.config.self_play.recent_window,
+            encoding=self.config.encoding,
             rng=self.rng,
         )
         for network in self.advantage_networks:
@@ -394,6 +395,7 @@ class DeepCFRTrainer:
                 opponent=opponent,
                 device=self.device,
                 max_steps=self.config.evaluation.max_steps,
+                encoding=self.config.encoding,
             )
             for key, value in result.items():
                 results[f"eval_{opponent}_{key}"] = value
