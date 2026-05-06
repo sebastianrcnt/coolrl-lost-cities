@@ -1,0 +1,85 @@
+{
+  "name": "canonical-small-deterministic",
+  "config": {
+    "n_colors": 2,
+    "n_ranks": 2,
+    "min_rank": 1,
+    "n_handshakes": 0,
+    "hand_size": 1,
+    "expedition_penalty": 0,
+    "bonus_threshold": 99,
+    "bonus_amount": 0,
+    "seed": null
+  },
+  "initial_deck": [
+    {"color": 0, "rank": 1},
+    {"color": 0, "rank": 2},
+    {"color": 1, "rank": 1},
+    {"color": 1, "rank": 2}
+  ],
+  "steps": [
+    {
+      "action": null,
+      "phase": "card",
+      "current_player": 0,
+      "turn_count": 0,
+      "terminal": false,
+      "score_diff_player0": 0,
+      "legal_mask": [true, true, false, false, false]
+    },
+    {
+      "action": 1,
+      "phase": "draw",
+      "current_player": 0,
+      "turn_count": 0,
+      "terminal": false,
+      "score_diff_player0": 0,
+      "legal_mask": [false, false, true, false, false]
+    },
+    {
+      "action": 2,
+      "phase": "card",
+      "current_player": 1,
+      "turn_count": 1,
+      "terminal": false,
+      "score_diff_player0": 0,
+      "legal_mask": [true, true, false, false, false]
+    },
+    {
+      "action": 0,
+      "phase": "draw",
+      "current_player": 1,
+      "turn_count": 1,
+      "terminal": false,
+      "score_diff_player0": -1,
+      "legal_mask": [false, false, true, false, true]
+    },
+    {
+      "action": 4,
+      "phase": "card",
+      "current_player": 0,
+      "turn_count": 2,
+      "terminal": false,
+      "score_diff_player0": -1,
+      "legal_mask": [true, true, false, false, false]
+    },
+    {
+      "action": 0,
+      "phase": "draw",
+      "current_player": 0,
+      "turn_count": 2,
+      "terminal": false,
+      "score_diff_player0": 1,
+      "legal_mask": [false, false, true, false, false]
+    },
+    {
+      "action": 2,
+      "phase": "draw",
+      "current_player": 0,
+      "turn_count": 3,
+      "terminal": true,
+      "score_diff_player0": 1,
+      "legal_mask": [false, false, false, false, false]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+*.so
+build/
+dist/
+wheels/
+*.egg-info
+
+# Cython-generated sources
+src/coolrl_lost_cities/games/classic/game.c
+
+# Rust build output
+target/
+
+# Virtual environments
+.venv

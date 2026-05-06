@@ -1,0 +1,42 @@
+[project]
+name = "coolrl-lost-cities"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "정시원", email = "sebastianrcnt@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26.0",
+]
+
+[project.scripts]
+lost-cities-classic = "coolrl_lost_cities.games.classic:main"
+
+[dependency-groups]
+dev = [
+    "cython>=3.0",
+    "pytest>=9.0.3",
+]
+
+[build-system]
+requires = ["setuptools>=69", "wheel", "Cython>=3.0", "numpy>=1.26.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["coolrl_lost_cities*"]
+
+[tool.setuptools.package-data]
+"coolrl_lost_cities.games.classic" = [
+    "assets/*.json",
+    "fixtures/*.json",
+    "docs/*.md",
+    "schemas/*.proto",
+    "rust_core/Cargo.lock",
+    "rust_core/Cargo.toml",
+    "rust_core/build.rs",
+    "rust_core/src/*.rs",
+    "rust_core/src/bin/*.rs",
+]

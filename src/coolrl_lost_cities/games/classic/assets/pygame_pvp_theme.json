@@ -1,0 +1,60 @@
+{
+  "defaults": {
+    "font": {
+      "name": "b612",
+      "size": "16"
+    },
+    "colours": {
+      "normal_bg": "#050505",
+      "hovered_bg": "#101010",
+      "disabled_bg": "#050505",
+      "selected_bg": "#151515",
+      "active_bg": "#151515",
+      "dark_bg": "#000000",
+      "disabled_dark_bg": "#000000",
+      "normal_text": "#dddddd",
+      "hovered_text": "#ffffff",
+      "disabled_text": "#777777",
+      "selected_text": "#ffffff",
+      "active_text": "#ffffff",
+      "normal_text_shadow": "#00000000",
+      "hovered_text_shadow": "#00000000",
+      "disabled_text_shadow": "#00000000",
+      "selected_text_shadow": "#00000000",
+      "active_text_shadow": "#00000000",
+      "normal_border": "#3a3a40",
+      "hovered_border": "#d6d6dc",
+      "disabled_border": "#252529",
+      "selected_border": "#d6d6dc",
+      "active_border": "#d6d6dc",
+      "text_shadow": "#00000000"
+    }
+  },
+  "#pvp_control": {
+    "misc": {
+      "shape": "rectangle",
+      "border_width": "1",
+      "shadow_width": "0",
+      "shape_corner_radius": "0",
+      "text_horiz_alignment_padding": "12"
+    }
+  },
+  "button": {
+    "prototype": "#pvp_control"
+  },
+  "drop_down_menu": {
+    "prototype": "#pvp_control",
+    "misc": {
+      "expand_direction": "down"
+    }
+  },
+  "drop_down_menu.button": {
+    "prototype": "#pvp_control"
+  },
+  "drop_down_menu.selection_list.button": {
+    "prototype": "#pvp_control"
+  },
+  "drop_down_menu.#expand_button": {
+    "prototype": "#pvp_control"
+  }
+}

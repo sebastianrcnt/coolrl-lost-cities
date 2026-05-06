@@ -1,0 +1,225 @@
+syntax = "proto3";
+package lost_cities.v1;
+
+import "google/protobuf/empty.proto";
+
+// See lost_cities_spec.md for the full game rules.
+// This proto is the wire contract for external agents to play Lost Cities
+// against a trusted orchestrator. RL training uses in-process PyO3 bindings
+// instead and does not go through this service.
+
+// =============================================================
+// Core value types
+// =============================================================
+
+// A single card. Rank 0 is a handshake (investment) card.
+// Rank 1..n_ranks are numeric cards whose printed face value is
+// min_rank + rank - 1.
+message Card {
+  uint32 color = 1;
+  uint32 rank = 2;
+  uint32 numeric_value = 3;  // 0 for handshake, else min_rank + rank - 1
+  string label = 4;          // debug-friendly e.g. "[2]H", "[0]5"
+                             // non-authoritative, do not parse
+}
+
+enum Phase {
+  PHASE_UNSPECIFIED = 0;
+  PHASE_CARD = 1;  // the current player must play or discard a card
+  PHASE_DRAW = 2;  // the current player must draw from deck or a discard pile
+}
+
+enum ActionKind {
+  ACTION_KIND_UNSPECIFIED = 0;
+  ACTION_KIND_PLAY_CARD = 1;
+  ACTION_KIND_DISCARD_CARD = 2;
+  ACTION_KIND_DRAW_DECK = 3;
+  ACTION_KIND_DRAW_DISCARD = 4;
+}
+
+// A resolved legal action.
+//
+// `id` is an opaque integer handle valid only within the observation it
+// was returned with. Clients pass it back via ApplyAction together with
+// the observation's state_version.
+//
+// `kind` plus typed payload fields let semantic agents (LLM, rule-based)
+// reason without decoding ids. `description` is a human-readable label
+// such as "Play yellow 5" and must not be parsed by the agent.
+message Action {
+  uint32 id = 1;
+  ActionKind kind = 2;
+
+  // Set for PLAY_CARD and DISCARD_CARD.
+  uint32 hand_slot = 3;
+  Card card = 4;
+
+  // Set for DRAW_DISCARD.
+  uint32 discard_color = 5;
+
+  string description = 6;
+}
+
+// =============================================================
+// Configuration
+// =============================================================
+
+message GameConfig {
+  uint32 n_colors = 1;
+  uint32 n_ranks = 2;
+  uint32 min_rank = 3;
+  uint32 n_handshakes = 4;
+  uint32 hand_size = 5;
+  int32  expedition_penalty = 6;  // typically negative, e.g. -20
+  uint32 bonus_threshold = 7;
+  int32  bonus_amount = 8;
+  optional uint64 seed = 9;        // absent = nondeterministic shuffle
+}
+
+// =============================================================
+// Piles and expeditions
+// =============================================================
+
+message Expedition {
+  uint32 color = 1;
+  repeated Card cards = 2;        // bottom to top, push-only during game
+  int32 current_score = 3;        // derived from the game rules
+}
+
+message DiscardPile {
+  uint32 color = 1;
+  repeated Card cards = 2;        // bottom to top; last element is drawable top
+  uint32 size = 3;                // = cards.size(); convenience
+}
+
+// =============================================================
+// Legal actions
+// =============================================================
+
+// The set of legal actions at a specific state.
+//
+// Invariants:
+//   - actions are sorted by id ascending
+//   - for every action a in actions: mask[a.id] == true
+//   - mask.size() == action_space_size
+//   - all ids are < action_space_size
+//   - state_version matches the observation this set was produced for
+message LegalActionSet {
+  uint64 state_version = 1;
+  repeated Action actions = 2;
+  repeated bool mask = 3;
+  uint32 action_space_size = 4;
+  Phase phase = 5;
+}
+
+// =============================================================
+// Observation
+// =============================================================
+
+// Player-perspective snapshot. `observer_player` identifies whose view
+// this is. The observer sees their own hand; the opponent's hand is
+// represented only by its size.
+message GameObservation {
+  string session_id = 1;
+  GameConfig config = 2;
+
+  // Monotonically increasing per session. Required for ApplyAction.
+  uint64 state_version = 3;
+
+  uint32 observer_player = 4;
+  uint32 current_player = 5;
+  Phase  phase = 6;
+
+  repeated Card hand = 7;                   // observer's hand, sorted
+  uint32 opponent_hand_size = 8;
+
+  repeated Expedition my_expeditions = 9;
+  repeated Expedition opponent_expeditions = 10;
+  repeated DiscardPile discards = 11;
+
+  uint32 deck_size = 12;
+
+  // Color just discarded during the current turn's card phase.
+  // The current player's draw phase may not re-draw that color
+  // from the discard pile. Cleared at turn boundary.
+  optional uint32 pending_discarded_color = 13;
+
+  // Legal actions for the player to act. Empty when terminal.
+  // Embedded to avoid a round-trip on the common observe->select->apply loop.
+  LegalActionSet legal_actions = 14;
+
+  uint32 turn_count = 15;
+  bool   terminal = 16;
+
+  // Scores are from the observer's perspective.
+  int32 my_score = 17;
+  int32 opponent_score = 18;
+  int32 score_diff = 19;                    // my_score - opponent_score
+}
+
+// =============================================================
+// Requests and responses
+// =============================================================
+
+message NewGameRequest {
+  string session_id = 1;
+  GameConfig config = 2;
+}
+
+message SessionRef {
+  string session_id = 1;
+  // Defaults to current_player when absent.
+  optional uint32 observer_player = 2;
+}
+
+message ApplyActionRequest {
+  string session_id = 1;
+  uint32 action_id = 2;
+
+  // Must match the observation the action was selected from.
+  // Mismatch yields FAILED_PRECONDITION; no state change occurs.
+  // This makes ApplyAction safely retryable.
+  uint64 expected_state_version = 3;
+
+  // Perspective for the returned observation. Defaults to current_player
+  // after the action is applied.
+  optional uint32 observer_player = 4;
+}
+
+message StepResult {
+  GameObservation observation = 1;
+
+  // From the observation's observer_player perspective.
+  // Sparse: nonzero only on the terminal transition, equal to score_diff.
+  double reward = 2;
+
+  bool terminal = 3;
+
+  // Populated on terminal transitions. Keyed by player index.
+  map<uint32, int32> final_scores = 4;
+}
+
+// =============================================================
+// Service
+// =============================================================
+
+service LostCities {
+  // Start a new game. session_id must be unique; duplicates return
+  // ALREADY_EXISTS. The returned observation is from player 0's perspective.
+  rpc NewGame(NewGameRequest) returns (GameObservation);
+
+  // Re-read the current state without advancing. Useful after reconnects
+  // or for a second client joining an existing session.
+  rpc GetObservation(SessionRef) returns (GameObservation);
+
+  // Apply one action. Fails with:
+  //   NOT_FOUND            session_id unknown
+  //   FAILED_PRECONDITION  expected_state_version mismatch,
+  //                        action_id not legal in current state,
+  //                        or game already terminal
+  //   INVALID_ARGUMENT     malformed request
+  rpc ApplyAction(ApplyActionRequest) returns (StepResult);
+
+  // Release server-side session state. Idempotent.
+  rpc EndSession(SessionRef) returns (google.protobuf.Empty);
+}
