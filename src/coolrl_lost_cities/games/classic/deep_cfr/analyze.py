@@ -223,9 +223,108 @@ SECTIONS: tuple[SectionSpec, ...] = (
                 "count",
                 kind="train",
             ),
+            PlotSpec(
+                "Traversal Endpoint Rates",
+                (
+                    "traversal_terminal_rate",
+                    "traversal_node_limit_cutoff_rate",
+                    "traversal_depth_cutoff_rate",
+                ),
+                "rate (%)",
+                scale=100.0,
+                kind="train",
+                fixed_ylim=(0, 100),
+            ),
             PlotSpec("Traversal Nodes", ("traversal_nodes",), "nodes", kind="train"),
+            PlotSpec(
+                "Regret Fallback Rate",
+                ("traversal_regret_fallback_rate",),
+                "rate (%)",
+                scale=100.0,
+                kind="train",
+                fixed_ylim=(0, 100),
+            ),
+            PlotSpec(
+                "Regret Fallback Count",
+                ("traversal_regret_fallback_count",),
+                "count",
+                kind="train",
+            ),
+            PlotSpec(
+                "Fallback Selected Actions",
+                (
+                    "traversal_regret_fallback_action_play_existing",
+                    "traversal_regret_fallback_action_open_new",
+                    "traversal_regret_fallback_action_discard",
+                    "traversal_regret_fallback_action_draw_deck",
+                    "traversal_regret_fallback_action_draw_pile",
+                ),
+                "count",
+                kind="train",
+            ),
+            PlotSpec(
+                "Fallback Open-New Rates",
+                (
+                    "traversal_regret_fallback_open_new_available_rate",
+                    "traversal_regret_fallback_open_new_selected_rate",
+                ),
+                "rate (%)",
+                scale=100.0,
+                kind="train",
+                fixed_ylim=(0, 100),
+            ),
+            PlotSpec(
+                "Fallback Open-New Bias",
+                ("traversal_regret_fallback_open_new_selection_over_availability",),
+                "selected / available",
+                kind="train",
+            ),
+            PlotSpec(
+                "Fallback Avg Depth",
+                ("traversal_regret_fallback_avg_depth",),
+                "depth",
+                kind="train",
+            ),
+            PlotSpec(
+                "Fallback Opened Colors Before Action",
+                ("traversal_regret_fallback_avg_opened_colors_before_action",),
+                "colors",
+                kind="train",
+            ),
+            PlotSpec(
+                "Fallback Legal Actions Mean",
+                ("traversal_regret_fallback_legal_actions_mean",),
+                "value",
+                kind="train",
+            ),
+            PlotSpec(
+                "Argmax Tie Diagnostics",
+                (
+                    "traversal_regret_fallback_argmax_tie_rate",
+                    "traversal_regret_fallback_argmax_full_tie_rate",
+                    "traversal_regret_fallback_argmax_tie_size_mean",
+                ),
+                "rate / size",
+                kind="train",
+            ),
         ),
     ),
+)
+
+SELECTIVITY_PLOTS: tuple[PlotSpec, ...] = (
+    PlotSpec("Opened Colors", ("avg_opened_colors",), "colors"),
+    PlotSpec("5-Color Open Count", ("5_color_open_count",), "games / eval"),
+    PlotSpec("Opening Recoverable Mean", ("opening_recoverable_score_mean",), "score"),
+    PlotSpec("Calibration Gap", ("calibration_gap",), "score"),
+    PlotSpec(
+        "First Open Recoverable Score",
+        (
+            "first_open_recoverable_score_mean_for_positive_final",
+            "first_open_recoverable_score_mean_for_negative_final",
+        ),
+        "score",
+    ),
+    PlotSpec("Opening Play Actions", ("opening_play_actions",), "actions / game"),
 )
 
 SUMMARY_EVAL_METRICS: tuple[tuple[str, str, float], ...] = (
@@ -247,6 +346,36 @@ OPPONENT_COLORS: dict[str, str] = {
     "safe_heuristic": "tab:red",
     "safe_heuristic_loose": "tab:purple",
     "safe_heuristic_strict": "tab:brown",
+}
+
+TRAVERSAL_COLORS: dict[str, str] = {
+    "iteration_seconds": "#4c78a8",
+    "nodes_per_second": "#4c78a8",
+    "traversal_avg_endpoint_depth": "#72b7b2",
+    "traversal_max_depth_reached": "#f58518",
+    "traversal_terminals": "#54a24b",
+    "traversal_node_limit_cutoffs": "#e45756",
+    "traversal_depth_cutoffs": "#b279a2",
+    "traversal_terminal_rate": "#54a24b",
+    "traversal_node_limit_cutoff_rate": "#e45756",
+    "traversal_depth_cutoff_rate": "#b279a2",
+    "traversal_nodes": "#4c78a8",
+    "traversal_regret_fallback_rate": "#e45756",
+    "traversal_regret_fallback_count": "#e45756",
+    "traversal_regret_fallback_action_play_existing": "#4c78a8",
+    "traversal_regret_fallback_action_open_new": "#f58518",
+    "traversal_regret_fallback_action_discard": "#54a24b",
+    "traversal_regret_fallback_action_draw_deck": "#b279a2",
+    "traversal_regret_fallback_action_draw_pile": "#72b7b2",
+    "traversal_regret_fallback_open_new_available_rate": "#9d755d",
+    "traversal_regret_fallback_open_new_selected_rate": "#f58518",
+    "traversal_regret_fallback_open_new_selection_over_availability": "#f58518",
+    "traversal_regret_fallback_avg_depth": "#72b7b2",
+    "traversal_regret_fallback_avg_opened_colors_before_action": "#f58518",
+    "traversal_regret_fallback_legal_actions_mean": "#54a24b",
+    "traversal_regret_fallback_argmax_tie_rate": "#e45756",
+    "traversal_regret_fallback_argmax_full_tie_rate": "#b279a2",
+    "traversal_regret_fallback_argmax_tie_size_mean": "#4c78a8",
 }
 
 ACTION_RATE_METRICS = {
@@ -305,6 +434,8 @@ def plot_section(
         _finish_axis(
             ax, spec.title, ylabel=spec.ylabel, plotted=plotted, fixed_ylim=spec.fixed_ylim
         )
+        if spec.title == "Fallback Open-New Bias" and plotted:
+            ax.axhline(1.0, color="0.35", linestyle="--", linewidth=1.0, alpha=0.7)
         plotted_any = plotted_any or plotted
 
     next_axis = len(section.plots)
@@ -316,9 +447,12 @@ def plot_section(
     for ax in axes_flat[next_axis:]:
         ax.axis("off")
 
-    handles, labels = _legend_items(axes_flat)
-    if handles:
-        fig.legend(handles, labels, loc="upper center", ncols=min(len(labels), 6), fontsize="small")
+    if section.name != "Traversal":
+        handles, labels = _legend_items(axes_flat)
+        if handles:
+            fig.legend(
+                handles, labels, loc="upper center", ncols=min(len(labels), 6), fontsize="small"
+            )
     suffix = f" ({smoothing_window}-iter moving average)" if smoothing_window > 1 else ""
     fig.suptitle(
         f"Lost Cities Deep CFR {section.name} metrics{suffix}",
@@ -401,10 +535,53 @@ def analyze_run(
         if plot_section(rows, section, path, smoothing_window=smoothing_window):
             written.append(path)
 
+    selectivity_path = output_dir / "analysis_09_selectivity.png"
+    if plot_selectivity(rows, selectivity_path, smoothing_window=smoothing_window):
+        written.append(selectivity_path)
+
     final_eval_path = output_dir / "analysis_final_eval_summary.png"
     if plot_final_eval_summary(rows, final_eval_path):
         written.append(final_eval_path)
     return written
+
+
+def plot_selectivity(
+    rows: list[dict[str, Any]],
+    output: Path,
+    *,
+    smoothing_window: int,
+) -> bool:
+    import matplotlib.pyplot as plt
+
+    opponents = opponent_names(rows)
+    if not opponents:
+        return False
+
+    fig, axes = plt.subplots(3, 2, figsize=(16, 12), squeeze=False)
+    axes_flat = list(axes.flat)
+    plotted_any = False
+
+    for ax, spec in zip(axes_flat, SELECTIVITY_PLOTS, strict=True):
+        plotted = _plot_eval_spec(ax, rows, opponents, spec, smoothing_window=smoothing_window)
+        _finish_axis(ax, spec.title, ylabel=spec.ylabel, plotted=plotted)
+        plotted_any = plotted_any or plotted
+
+    handles, labels = _legend_items(axes_flat)
+    if handles:
+        fig.legend(handles, labels, loc="upper center", ncols=min(len(labels), 6), fontsize="small")
+    suffix = f" ({smoothing_window}-iter moving average)" if smoothing_window > 1 else ""
+    fig.suptitle(
+        f"Lost Cities Deep CFR selectivity metrics{suffix}",
+        fontsize=14,
+        fontweight="bold",
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    if not plotted_any:
+        plt.close(fig)
+        return False
+    fig.savefig(output, dpi=150)
+    plt.close(fig)
+    return True
 
 
 def _all_eval_metrics() -> set[str]:
@@ -431,22 +608,46 @@ def _plot_train_spec(
 
     plotted = False
     for metric in spec.metrics:
-        pairs = [
-            (int(row["iteration"]), float(row[metric]) * spec.scale)
-            for row in rows
-            if "iteration" in row and metric in row
-        ]
+        pairs: list[tuple[int, float]] = []
+        for row in rows:
+            if "iteration" not in row:
+                continue
+            value = _train_value(row, metric)
+            if value is None:
+                continue
+            pairs.append((int(row["iteration"]), value * spec.scale))
         plotted = (
             _plot_pairs(
                 ax,
                 pairs,
-                label=_label(metric),
-                color=None,
+                label=_train_metric_label(metric),
+                color=_train_metric_color(metric, section_title=spec.title),
                 smoothing_window=smoothing_window,
             )
             or plotted
         )
     return plotted
+
+
+def _train_value(row: dict[str, Any], metric: str) -> float | None:
+    if metric == "traversal_terminal_rate":
+        return _ratio(row, "traversal_terminals", "traversal_endpoints")
+    if metric == "traversal_node_limit_cutoff_rate":
+        return _ratio(row, "traversal_node_limit_cutoffs", "traversal_endpoints")
+    if metric == "traversal_depth_cutoff_rate":
+        return _ratio(row, "traversal_depth_cutoffs", "traversal_endpoints")
+    value = row.get(metric)
+    if value is None:
+        return None
+    return float(value)
+
+
+def _ratio(row: dict[str, Any], numerator: str, denominator: str) -> float | None:
+    num = row.get(numerator)
+    den = row.get(denominator)
+    if num is None or den is None or float(den) == 0.0:
+        return None
+    return float(num) / float(den)
 
 
 def _plot_eval_spec(
@@ -673,6 +874,14 @@ def _opponent_color(opponent: str) -> str:
     return OPPONENT_COLORS.get(opponent, "tab:gray")
 
 
+def _train_metric_color(metric: str, *, section_title: str) -> str | None:
+    if section_title.startswith("Fallback") or section_title.startswith("Traversal"):
+        return TRAVERSAL_COLORS.get(metric)
+    if metric.startswith("traversal_"):
+        return TRAVERSAL_COLORS.get(metric)
+    return None
+
+
 def _metric_linestyle(metric: str) -> str:
     if "negative" in metric or metric.endswith("_negative_final"):
         return "--"
@@ -685,6 +894,43 @@ def _metric_linestyle(metric: str) -> str:
 
 def _label(metric: str) -> str:
     return metric.replace("_", " ")
+
+
+def _train_metric_label(metric: str) -> str:
+    labels = {
+        "advantage_memory_size": "advantage",
+        "advantage_samples": "advantage",
+        "iteration_seconds": "iteration",
+        "nodes_per_second": "nodes/sec",
+        "strategy_memory_size": "strategy",
+        "strategy_samples": "strategy",
+        "traversal_avg_endpoint_depth": "avg endpoint depth",
+        "traversal_depth_cutoff_rate": "depth cutoff",
+        "traversal_depth_cutoffs": "depth cutoff",
+        "traversal_max_depth_reached": "max depth",
+        "traversal_node_limit_cutoff_rate": "node limit cutoff",
+        "traversal_node_limit_cutoffs": "node limit cutoff",
+        "traversal_nodes": "nodes",
+        "traversal_regret_fallback_action_discard": "discard",
+        "traversal_regret_fallback_action_draw_deck": "draw deck",
+        "traversal_regret_fallback_action_draw_pile": "draw pile",
+        "traversal_regret_fallback_action_open_new": "open new",
+        "traversal_regret_fallback_action_play_existing": "play existing",
+        "traversal_regret_fallback_argmax_full_tie_rate": "full tie rate",
+        "traversal_regret_fallback_argmax_tie_rate": "tie rate",
+        "traversal_regret_fallback_argmax_tie_size_mean": "tie size",
+        "traversal_regret_fallback_avg_depth": "avg depth",
+        "traversal_regret_fallback_avg_opened_colors_before_action": "opened colors",
+        "traversal_regret_fallback_count": "fallbacks",
+        "traversal_regret_fallback_legal_actions_mean": "legal actions",
+        "traversal_regret_fallback_open_new_available_rate": "available",
+        "traversal_regret_fallback_open_new_selected_rate": "selected",
+        "traversal_regret_fallback_open_new_selection_over_availability": "selected / available",
+        "traversal_regret_fallback_rate": "fallback rate",
+        "traversal_terminal_rate": "terminal",
+        "traversal_terminals": "terminal",
+    }
+    return labels.get(metric, _label(metric))
 
 
 def _short_metric_label(metric: str) -> str:
