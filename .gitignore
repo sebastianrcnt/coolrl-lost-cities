@@ -10,6 +10,7 @@ wheels/
 # Cython-generated sources
 src/coolrl_lost_cities/games/classic/game.c
 src/coolrl_lost_cities/games/classic/engines/fast.c
+src/coolrl_lost_cities/games/classic/deep_cfr/*.c
 
 # Rust build output
 target/

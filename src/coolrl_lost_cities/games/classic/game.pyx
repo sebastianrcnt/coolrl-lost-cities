@@ -737,6 +737,9 @@ cdef class GameState:
             raise ValueError("undo stack is empty")
         return self._pop_action_c()
 
+    cpdef swap_deck_cards(self, int left, int right):
+        self._swap_deck_cards_c(left, right)
+
     cpdef bint can_play_encoded_card(self, int player, int card):
         cdef int color = self._card_color(card)
         cdef int rank = self._card_rank(card)
@@ -1038,6 +1041,18 @@ cdef class GameState:
         action_id = self.undo_stack[self.undo_stack_len].action_id
         self._undo_action_c(&self.undo_stack[self.undo_stack_len])
         return action_id
+
+    cdef void _swap_deck_cards_c(self, int left, int right) except *:
+        cdef int tmp
+        if left < 0 or left >= self.deck_len:
+            raise IndexError(f"deck index out of range: {left}")
+        if right < 0 or right >= self.deck_len:
+            raise IndexError(f"deck index out of range: {right}")
+        if left == right:
+            return
+        tmp = self.deck_cards[left]
+        self.deck_cards[left] = self.deck_cards[right]
+        self.deck_cards[right] = tmp
 
     cdef object _undo_to_tuple(self, UndoRecord* undo):
         return (

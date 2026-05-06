@@ -14,6 +14,14 @@ extensions = cythonize(
             "coolrl_lost_cities.games.classic.game",
             ["src/coolrl_lost_cities/games/classic/game.pyx"],
         ),
+        Extension(
+            "coolrl_lost_cities.games.classic.deep_cfr.cfr_math",
+            ["src/coolrl_lost_cities/games/classic/deep_cfr/cfr_math.pyx"],
+        ),
+        Extension(
+            "coolrl_lost_cities.games.classic.deep_cfr.encoding",
+            ["src/coolrl_lost_cities/games/classic/deep_cfr/encoding.pyx"],
+        ),
     ],
     language_level=3,
     compiler_directives={

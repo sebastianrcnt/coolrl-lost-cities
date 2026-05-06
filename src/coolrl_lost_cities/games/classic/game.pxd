@@ -73,6 +73,7 @@ cdef class GameState:
     cpdef int push_action(self, int action_id)
     cpdef int push_unified_action(self, int action_id)
     cpdef int pop_action(self)
+    cpdef swap_deck_cards(self, int left, int right)
     cpdef bint can_play_encoded_card(self, int player, int card)
     cpdef int last_numeric_rank(self, int player, int color)
     cpdef int expedition_score(self, int player, int color)
@@ -89,6 +90,7 @@ cdef class GameState:
     cdef void _ensure_undo_capacity_c(self) except *
     cdef int _push_action_c(self, int action_id) except *
     cdef int _pop_action_c(self) except *
+    cdef void _swap_deck_cards_c(self, int left, int right) except *
     cdef object _undo_to_tuple(self, UndoRecord* undo)
     cdef void _tuple_to_undo(self, object data, UndoRecord* undo) except *
     cdef void _apply_card_action(self, int action_id) except *
