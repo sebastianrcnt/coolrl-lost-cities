@@ -58,6 +58,7 @@ class IterationMetrics:
     traversal_endpoints: int
     traversal_avg_endpoint_depth: float
     traversal_endpoint_depth_buckets: dict[str, int]
+    runtime_metrics: dict[str, float | int]
     eval_metrics: dict[str, float | int]
 
     def to_dict(self) -> dict[str, float | int]:
@@ -80,6 +81,7 @@ class IterationMetrics:
                 for key, value in self.traversal_endpoint_depth_buckets.items()
             },
         }
+        data.update(self.runtime_metrics)
         data.update(self.eval_metrics)
         return data
 
@@ -167,6 +169,7 @@ class DeepCFRTrainer:
             ]
         )
         self.self_play_league_snapshots: list[list[dict]] = []
+        self._runtime_metrics: dict[str, float | int] = {}
 
     def checkpoint_payload(self, metrics: IterationMetrics | None = None) -> dict:
         return {
@@ -216,14 +219,27 @@ class DeepCFRTrainer:
 
     def run_iteration(self, iteration: int) -> IterationMetrics:
         self.iteration = iteration
+        self._runtime_metrics = {}
+        traversal_started = time.perf_counter()
         if self.config.traversal.resolved_num_workers() > 1:
             total_stats = self._run_traversals_parallel(iteration)
         else:
             total_stats = self._run_traversals_single_process(iteration)
+        self._runtime_metrics["traversal_seconds"] = time.perf_counter() - traversal_started
 
+        advantage_started = time.perf_counter()
         advantage_loss = self._train_advantage_networks()
+        self._runtime_metrics["advantage_train_seconds"] = time.perf_counter() - advantage_started
+
+        strategy_started = time.perf_counter()
         strategy_loss = self._train_strategy_network()
+        self._runtime_metrics["strategy_train_seconds"] = time.perf_counter() - strategy_started
+
+        eval_started = time.perf_counter()
         eval_metrics = self._evaluate(iteration)
+        self._runtime_metrics["evaluation_seconds"] = time.perf_counter() - eval_started
+        self._runtime_metrics["advantage_memory_size"] = len(self.advantage_memory)
+        self._runtime_metrics["strategy_memory_size"] = len(self.strategy_memory)
         return IterationMetrics(
             iteration=iteration,
             advantage_samples=len(self.advantage_memory),
@@ -239,6 +255,7 @@ class DeepCFRTrainer:
             traversal_endpoints=total_stats.endpoints,
             traversal_avg_endpoint_depth=total_stats.avg_endpoint_depth,
             traversal_endpoint_depth_buckets=dict(total_stats.endpoint_depth_buckets),
+            runtime_metrics=dict(self._runtime_metrics),
             eval_metrics=eval_metrics,
         )
 
@@ -295,8 +312,14 @@ class DeepCFRTrainer:
                 seed=self.config.run.seed + iteration * 1_000_003 + player,
             )
             total_stats.accumulate(stats)
+            memory_add_started = time.perf_counter()
             self.advantage_memory.add_many(advantage_samples, self.rng)
             self.strategy_memory.add_many(strategy_samples, self.rng)
+            self._runtime_metrics["memory_add_seconds"] = (
+                float(self._runtime_metrics.get("memory_add_seconds", 0.0))
+                + time.perf_counter()
+                - memory_add_started
+            )
             completed += len(seeds)
             if progress_every > 0 and completed >= progress_every:
                 elapsed = time.perf_counter() - progress_started
@@ -339,8 +362,14 @@ class DeepCFRTrainer:
             for completed_batches, future in enumerate(as_completed(futures), start=1):
                 result = future.result()
                 total_stats.accumulate(result.stats)
+                memory_add_started = time.perf_counter()
                 self.advantage_memory.add_many(result.advantage_samples, self.rng)
                 self.strategy_memory.add_many(result.strategy_samples, self.rng)
+                self._runtime_metrics["memory_add_seconds"] = (
+                    float(self._runtime_metrics.get("memory_add_seconds", 0.0))
+                    + time.perf_counter()
+                    - memory_add_started
+                )
                 progress_nodes += result.stats.nodes
                 progress_traversals += result.traversals
                 if next_progress_at is not None and progress_traversals >= next_progress_at:
@@ -434,11 +463,13 @@ class DeepCFRTrainer:
         while iteration <= stop:
             started = time.perf_counter()
             item = self.run_iteration(iteration)
-            elapsed = time.perf_counter() - started
             metrics.append(item)
-            self._append_metrics(item, elapsed)
             self._maybe_record_self_play_snapshot(iteration)
+            checkpoint_started = time.perf_counter()
             self._save_iteration_checkpoints(iteration, item)
+            item.runtime_metrics["checkpoint_seconds"] = time.perf_counter() - checkpoint_started
+            elapsed = time.perf_counter() - started
+            self._append_metrics(item, elapsed)
             if self._time_limit_reached(run_started):
                 break
             iteration += 1
@@ -516,7 +547,12 @@ class DeepCFRTrainer:
     def _train_advantage_networks(self) -> float:
         losses: list[float] = []
         for player, network in enumerate(self.advantage_networks):
+            filter_started = time.perf_counter()
             samples = [sample for sample in self.advantage_memory.all() if sample.player == player]
+            self._runtime_metrics[f"advantage_player_{player}_filter_seconds"] = (
+                time.perf_counter() - filter_started
+            )
+            self._runtime_metrics[f"advantage_player_{player}_sample_count"] = len(samples)
             if not samples:
                 continue
             losses.append(self._train_advantage(player, network, self.advantage_optimizers[player]))
@@ -524,6 +560,7 @@ class DeepCFRTrainer:
 
     def _train_strategy_network(self) -> float:
         samples = self.strategy_memory.all()
+        self._runtime_metrics["strategy_sample_count"] = len(samples)
         if not samples:
             return 0.0
         return self._train_strategy(self.strategy_network, self.strategy_optimizer, samples)
@@ -532,6 +569,7 @@ class DeepCFRTrainer:
         self,
         batch: list[TrainingSample],
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        started = time.perf_counter()
         x = torch.as_tensor(
             np.stack([sample.info_state for sample in batch]),
             dtype=torch.float32,
@@ -547,6 +585,11 @@ class DeepCFRTrainer:
             dtype=torch.bool,
             device=self.device,
         )
+        self._runtime_metrics["batch_tensor_seconds"] = (
+            float(self._runtime_metrics.get("batch_tensor_seconds", 0.0))
+            + time.perf_counter()
+            - started
+        )
         return x, y, legal
 
     def _train_advantage(
@@ -558,13 +601,18 @@ class DeepCFRTrainer:
         last_loss = 0.0
         network.train()
         for _step in range(self.config.optimization.resolved_advantage_train_steps()):
-            x, y, legal = self._batch_tensors(
-                self.advantage_memory.sample(
-                    self.config.optimization.resolved_advantage_batch_size(),
-                    self.rng,
-                    player=player,
-                )
+            sample_started = time.perf_counter()
+            batch = self.advantage_memory.sample(
+                self.config.optimization.resolved_advantage_batch_size(),
+                self.rng,
+                player=player,
             )
+            self._runtime_metrics[f"advantage_player_{player}_sample_seconds"] = (
+                float(self._runtime_metrics.get(f"advantage_player_{player}_sample_seconds", 0.0))
+                + time.perf_counter()
+                - sample_started
+            )
+            x, y, legal = self._batch_tensors(batch)
             pred = network(x)
             diff = (pred - y).masked_fill(~legal, 0.0)
             loss = diff.square().sum() / legal.sum().clamp_min(1)
@@ -587,11 +635,16 @@ class DeepCFRTrainer:
         last_loss = 0.0
         network.train()
         for _step in range(self.config.optimization.resolved_strategy_train_steps()):
-            x, y, legal = self._batch_tensors(
-                self.strategy_memory.sample(
-                    self.config.optimization.resolved_strategy_batch_size(), self.rng
-                )
+            sample_started = time.perf_counter()
+            batch = self.strategy_memory.sample(
+                self.config.optimization.resolved_strategy_batch_size(), self.rng
             )
+            self._runtime_metrics["strategy_sample_seconds"] = (
+                float(self._runtime_metrics.get("strategy_sample_seconds", 0.0))
+                + time.perf_counter()
+                - sample_started
+            )
+            x, y, legal = self._batch_tensors(batch)
             logits = network(x).masked_fill(~legal, torch.finfo(torch.float32).min)
             log_probs = nn.functional.log_softmax(logits, dim=-1).masked_fill(~legal, 0.0)
             loss = -(y * log_probs).sum(dim=-1).mean()
