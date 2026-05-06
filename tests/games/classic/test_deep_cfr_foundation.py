@@ -8,6 +8,10 @@ from coolrl_lost_cities.games.classic.deep_cfr.cfr_math import (
     sample_policy,
 )
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import encode_info_state, input_dim
+from coolrl_lost_cities.games.classic.deep_cfr.traversal import (
+    random_rollout_value,
+    root_action_values,
+)
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
 
@@ -93,3 +97,27 @@ def test_encode_info_state_is_deterministic_and_matches_legal_mask_tail() -> Non
 
     with pytest.raises(ValueError, match="invalid player"):
         encode_info_state(state, 2)
+
+
+def test_random_rollout_value_restores_state_and_is_deterministic() -> None:
+    state = GameState.new_game(LostCitiesConfig(seed=17))
+    before = state.to_snapshot()
+
+    value = random_rollout_value(state, 0, seed=101, max_steps=128)
+    same_value = random_rollout_value(state, 0, seed=101, max_steps=128)
+
+    assert value == same_value
+    assert state.to_snapshot() == before
+
+
+def test_root_action_values_restores_state_and_marks_legal_actions() -> None:
+    state = GameState.new_game(LostCitiesConfig(seed=19))
+    before = state.to_snapshot()
+
+    values, legal = root_action_values(state, 0, seed=202, rollouts_per_action=1, max_steps=128)
+
+    assert values.dtype == np.float32
+    assert legal.dtype == np.uint8
+    assert values.shape == legal.shape
+    np.testing.assert_array_equal(legal.astype(bool), state.unified_legal_mask())
+    assert state.to_snapshot() == before

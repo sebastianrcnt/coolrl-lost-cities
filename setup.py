@@ -22,6 +22,10 @@ extensions = cythonize(
             "coolrl_lost_cities.games.classic.deep_cfr.encoding",
             ["src/coolrl_lost_cities/games/classic/deep_cfr/encoding.pyx"],
         ),
+        Extension(
+            "coolrl_lost_cities.games.classic.deep_cfr.traversal",
+            ["src/coolrl_lost_cities/games/classic/deep_cfr/traversal.pyx"],
+        ),
     ],
     language_level=3,
     compiler_directives={
