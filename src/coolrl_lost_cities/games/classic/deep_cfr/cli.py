@@ -5,7 +5,10 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-from coolrl_lost_cities.games.classic.deep_cfr.benchmark import benchmark_traversal
+from coolrl_lost_cities.games.classic.deep_cfr.benchmark import (
+    benchmark_traversal,
+    benchmark_traversal_modes,
+)
 from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig, config_from_dict
 from coolrl_lost_cities.games.classic.deep_cfr.evaluate import (
     evaluate_strategy_network,
@@ -61,13 +64,17 @@ def eval_command(args: argparse.Namespace) -> None:
 
 
 def benchmark_command(args: argparse.Namespace) -> None:
+    config = DeepCFRConfig(
+        traversals_per_iteration=args.traversals,
+        max_traversal_depth=args.depth,
+        seed=args.seed,
+        save_every_iteration=False,
+    )
+    if args.compare:
+        print(json.dumps(benchmark_traversal_modes(config), indent=2, sort_keys=True))
+        return
     result = benchmark_traversal(
-        DeepCFRConfig(
-            traversals_per_iteration=args.traversals,
-            max_traversal_depth=args.depth,
-            seed=args.seed,
-            save_every_iteration=False,
-        ),
+        config,
         num_workers=args.workers,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
@@ -104,6 +111,7 @@ def main(argv: list[str] | None = None) -> None:
     benchmark.add_argument("--traversals", type=int, default=8)
     benchmark.add_argument("--depth", type=int, default=4)
     benchmark.add_argument("--seed", type=int, default=1)
+    benchmark.add_argument("--compare", action="store_true")
     benchmark.set_defaults(func=benchmark_command)
 
     args = parser.parse_args(argv)

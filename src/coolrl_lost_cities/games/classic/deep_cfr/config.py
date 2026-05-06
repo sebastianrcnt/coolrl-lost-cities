@@ -45,7 +45,7 @@ class DeepCFRConfig:
     eval_games: int = 10
     eval_opponents: tuple[str, ...] = ("random",)
     eval_max_steps: int = 10_000
-    num_workers: int = 0
+    num_workers: int | str = 0
     traversal_worker_chunk_size: int = 4
 
     def to_dict(self) -> dict[str, Any]:
@@ -55,9 +55,24 @@ class DeepCFRConfig:
     def checkpoint_path(self) -> Path:
         return Path(self.checkpoint_dir)
 
+    def resolved_num_workers(self, batches: int | None = None) -> int:
+        if isinstance(self.num_workers, str):
+            token = self.num_workers.strip().lower()
+            if token == "auto":
+                guess = max(1, (os_cpu_count() or 2) // 2)
+                return min(guess, batches) if batches is not None and batches > 0 else guess
+            return max(0, int(token))
+        return max(0, int(self.num_workers))
+
 
 def config_from_dict(data: dict[str, Any]) -> DeepCFRConfig:
     values = dict(data)
     if "eval_opponents" in values:
         values["eval_opponents"] = tuple(values["eval_opponents"])
     return DeepCFRConfig(**values)
+
+
+def os_cpu_count() -> int | None:
+    import os
+
+    return os.cpu_count()

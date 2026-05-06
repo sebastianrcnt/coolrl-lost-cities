@@ -3,7 +3,10 @@ from __future__ import annotations
 import numpy as np
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
-from coolrl_lost_cities.games.classic.deep_cfr.benchmark import benchmark_traversal
+from coolrl_lost_cities.games.classic.deep_cfr.benchmark import (
+    benchmark_traversal,
+    benchmark_traversal_modes,
+)
 from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
@@ -234,6 +237,16 @@ def test_deep_cfr_traversal_benchmark_smoke() -> None:
 
     assert result["traversal_nodes"] > 0
     assert result["nodes_per_second"] > 0.0
+    comparison = benchmark_traversal_modes(
+        DeepCFRConfig(
+            traversals_per_iteration=1,
+            max_traversal_depth=2,
+            hidden_size=16,
+            save_every_iteration=False,
+            seed=48,
+        )
+    )
+    assert comparison["summary"]["speedup"] > 0.0
 
 
 def test_deep_cfr_self_play_league_records_snapshots(tmp_path) -> None:

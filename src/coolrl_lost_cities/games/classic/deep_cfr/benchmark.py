@@ -32,3 +32,16 @@ def benchmark_traversal(
         "advantage_samples": metrics.advantage_samples,
         "strategy_samples": metrics.strategy_samples,
     }
+
+
+def benchmark_traversal_modes(
+    config: DeepCFRConfig | None = None,
+) -> dict[str, dict[str, float | int]]:
+    single = benchmark_traversal(config, num_workers=0)
+    multi = benchmark_traversal(config, num_workers=2)
+    speedup = float(multi["nodes_per_second"]) / max(float(single["nodes_per_second"]), 1.0e-12)
+    return {
+        "single": single,
+        "multi": multi,
+        "summary": {"speedup": speedup},
+    }

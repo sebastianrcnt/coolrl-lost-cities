@@ -138,7 +138,7 @@ class DeepCFRTrainer:
 
     def run_iteration(self, iteration: int) -> IterationMetrics:
         self.iteration = iteration
-        if self.config.num_workers > 1:
+        if self.config.resolved_num_workers() > 1:
             total_stats = self._run_traversals_parallel(iteration)
         else:
             total_stats = self._run_traversals_single_process(iteration)
@@ -206,7 +206,7 @@ class DeepCFRTrainer:
         total_stats = TraversalStats()
         if not batches:
             return total_stats
-        max_workers = min(self.config.num_workers, len(batches))
+        max_workers = self.config.resolved_num_workers(len(batches))
         with ProcessPoolExecutor(
             max_workers=max_workers,
             mp_context=mp.get_context("spawn"),
