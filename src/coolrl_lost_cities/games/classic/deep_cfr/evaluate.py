@@ -159,6 +159,17 @@ class PolicyEvalDiagnostics:
         return data
 
 
+@dataclass
+class _EvalGame:
+    state: GameState
+    policies: list[LostCitiesPolicy]
+    policy_player: int
+    diagnostics: PolicyEvalDiagnostics
+    first_open_recoverable_by_color: dict[int, float]
+    steps: int = 0
+    done: bool = False
+
+
 class StrategyNetPolicy(LostCitiesPolicy):
     def __init__(
         self,
@@ -175,6 +186,51 @@ class StrategyNetPolicy(LostCitiesPolicy):
         self.rng = np.random.default_rng(seed)
         self.encoding = encoding
         self.runtime = EvalRuntimeCounters()
+
+    def select_actions_batch(self, states: list[GameState]) -> list[tuple[int, float]]:
+        if not states:
+            return []
+        started = time.perf_counter()
+        self.runtime.policy_turns += len(states)
+
+        legal_started = time.perf_counter()
+        legal_masks = [np.asarray(state.unified_legal_mask(), dtype=bool) for state in states]
+        legal_actions_list = [np.flatnonzero(legal) for legal in legal_masks]
+        self.runtime.policy_legal_mask_seconds += time.perf_counter() - legal_started
+        if any(len(legal_actions) == 0 for legal_actions in legal_actions_list):
+            raise RuntimeError("no legal action available")
+
+        encoding_started = time.perf_counter()
+        infos = [encode_info_state(state, state.current_player, self.encoding) for state in states]
+        self.runtime.policy_encoding_seconds += time.perf_counter() - encoding_started
+
+        network_started = time.perf_counter()
+        with torch.inference_mode():
+            x = torch.as_tensor(np.stack(infos), dtype=torch.float32, device=self.device)
+            logits = self.strategy_network(x)
+        self.runtime.policy_network_seconds += time.perf_counter() - network_started
+
+        postprocess_started = time.perf_counter()
+        legal_tensor = torch.as_tensor(np.stack(legal_masks), dtype=torch.bool, device=self.device)
+        masked = logits.masked_fill(~legal_tensor, torch.finfo(torch.float32).min)
+        probs_tensor = torch.softmax(masked, dim=-1).masked_fill(~legal_tensor, 0.0)
+        entropy_tensor = -(probs_tensor * probs_tensor.clamp_min(1.0e-12).log()).sum(dim=-1)
+        if self.sample:
+            probs_np = probs_tensor.detach().cpu().numpy()
+            unified_actions = [
+                int(self.rng.choice(legal_actions, p=probs_np[index][legal_actions]))
+                for index, legal_actions in enumerate(legal_actions_list)
+            ]
+        else:
+            unified_actions = [int(value) for value in torch.argmax(masked, dim=-1).cpu()]
+        entropies = [float(value) for value in entropy_tensor.cpu()]
+        actions = [
+            state.from_unified_action(unified)
+            for state, unified in zip(states, unified_actions, strict=True)
+        ]
+        self.runtime.policy_postprocess_seconds += time.perf_counter() - postprocess_started
+        self.runtime.policy_select_seconds += time.perf_counter() - started
+        return list(zip(actions, entropies, strict=True))
 
     def action_distribution(self, state: GameState) -> tuple[np.ndarray, np.ndarray]:
         started = time.perf_counter()
@@ -236,6 +292,7 @@ def evaluate_strategy_network(
     device: torch.device | str = "cpu",
     max_steps: int = 10_000,
     encoding: EncodingConfig | None = None,
+    batch_size: int = 64,
 ) -> dict[str, float | int]:
     strategy_network.eval()
     return _evaluate_strategy_network_with_diagnostics(
@@ -247,6 +304,7 @@ def evaluate_strategy_network(
         device=device,
         max_steps=max_steps,
         encoding=encoding,
+        batch_size=batch_size,
     )
 
 
@@ -260,33 +318,117 @@ def _evaluate_strategy_network_with_diagnostics(
     device: torch.device | str,
     max_steps: int,
     encoding: EncodingConfig | None,
+    batch_size: int,
 ) -> dict[str, float | int]:
     if games <= 0:
         raise ValueError(f"games must be positive, got {games}")
     diagnostics = PolicyEvalDiagnostics()
+    policy = StrategyNetPolicy(
+        strategy_network,
+        device=device,
+        seed=seed * 2,
+        encoding=encoding,
+    )
     started = time.perf_counter()
+    active_games: list[_EvalGame] = []
     for index in range(games):
         game_seed = seed + index
         swap = index % 2 == 1
         policy_player = 1 if swap else 0
-        policy = StrategyNetPolicy(
-            strategy_network,
-            device=device,
-            seed=game_seed * 2 + policy_player,
-            encoding=encoding,
-        )
         opponent_policy = build_bot(opponent, seed=game_seed * 2 + (1 - policy_player))
         policies = [opponent_policy, policy] if swap else [policy, opponent_policy]
-        game_diag = _evaluate_one_game(
-            policies,
-            policy_player,
-            config,
-            seed=game_seed,
-            max_steps=max_steps,
+        active_games.append(
+            _EvalGame(
+                state=GameState.new_game(config, seed=game_seed),
+                policies=policies,
+                policy_player=policy_player,
+                diagnostics=PolicyEvalDiagnostics(games=1),
+                first_open_recoverable_by_color={},
+            )
         )
-        game_diag.runtime.accumulate(policy.runtime)
-        _accumulate_game_diagnostics(diagnostics, game_diag)
+
+    while active_games:
+        pending_policy_games: list[_EvalGame] = []
+        next_active_games: list[_EvalGame] = []
+        for game in active_games:
+            if _finalize_if_done(game, max_steps=max_steps):
+                _accumulate_game_diagnostics(diagnostics, game.diagnostics)
+                continue
+            state = game.state
+            if state.current_player == game.policy_player and isinstance(
+                game.policies[state.current_player], StrategyNetPolicy
+            ):
+                pending_policy_games.append(game)
+            else:
+                _advance_opponent_turn(game)
+                if _finalize_if_done(game, max_steps=max_steps):
+                    _accumulate_game_diagnostics(diagnostics, game.diagnostics)
+                else:
+                    next_active_games.append(game)
+
+        for start in range(0, len(pending_policy_games), max(1, int(batch_size))):
+            chunk = pending_policy_games[start : start + max(1, int(batch_size))]
+            actions = policy.select_actions_batch([game.state for game in chunk])
+            for game, (action, entropy) in zip(chunk, actions, strict=True):
+                _advance_policy_turn(game, action, entropy)
+                if _finalize_if_done(game, max_steps=max_steps):
+                    _accumulate_game_diagnostics(diagnostics, game.diagnostics)
+                else:
+                    next_active_games.append(game)
+
+        active_games = next_active_games
+    diagnostics.runtime.accumulate(policy.runtime)
     return diagnostics.to_dict(time.perf_counter() - started)
+
+
+def _finalize_if_done(game: _EvalGame, *, max_steps: int) -> bool:
+    if game.done:
+        return True
+    if not game.state.terminal and game.steps < max_steps:
+        return False
+    timed_out = not game.state.terminal
+    if timed_out:
+        game.steps = max_steps
+    final_started = time.perf_counter()
+    _record_final_game_state(
+        game.diagnostics,
+        game.state,
+        game.policy_player,
+        game.steps,
+        timed_out,
+        game.first_open_recoverable_by_color,
+    )
+    game.diagnostics.runtime.final_scoring_seconds += time.perf_counter() - final_started
+    game.done = True
+    return True
+
+
+def _advance_policy_turn(game: _EvalGame, action: int, entropy: float) -> None:
+    game.diagnostics.entropies.append(entropy)
+    diagnostics_started = time.perf_counter()
+    _record_policy_action(
+        game.diagnostics,
+        game.state,
+        action,
+        game.first_open_recoverable_by_color,
+    )
+    game.diagnostics.runtime.diagnostics_seconds += time.perf_counter() - diagnostics_started
+    apply_started = time.perf_counter()
+    game.state.apply_action(action)
+    game.diagnostics.runtime.apply_action_seconds += time.perf_counter() - apply_started
+    game.steps += 1
+
+
+def _advance_opponent_turn(game: _EvalGame) -> None:
+    state = game.state
+    game.diagnostics.runtime.opponent_turns += 1
+    opponent_started = time.perf_counter()
+    action = game.policies[state.current_player].act(state)
+    game.diagnostics.runtime.opponent_act_seconds += time.perf_counter() - opponent_started
+    apply_started = time.perf_counter()
+    state.apply_action(action)
+    game.diagnostics.runtime.apply_action_seconds += time.perf_counter() - apply_started
+    game.steps += 1
 
 
 def _evaluate_one_game(

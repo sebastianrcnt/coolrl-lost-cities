@@ -72,6 +72,9 @@ memory:
 evaluation:
   eval_every: 5
   games: 100
+  batch_size: 64
+  device: trainer
+  num_workers: 4
   max_steps: 1000
   on_max_steps: score_diff
   opponents:

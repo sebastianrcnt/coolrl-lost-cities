@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import multiprocessing as mp
 import time
@@ -15,7 +16,11 @@ from coolrl_lost_cities.games.classic.deep_cfr.checkpoints import (
     load_checkpoint,
     save_checkpoint,
 )
-from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig
+from coolrl_lost_cities.games.classic.deep_cfr.config import (
+    DeepCFRConfig,
+    EncodingConfig,
+    NetworkConfig,
+)
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import input_dim
 from coolrl_lost_cities.games.classic.deep_cfr.evaluate import evaluate_strategy_network
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
@@ -40,6 +45,44 @@ def _resolve_torch_device(device: str) -> torch.device:
     if token == "auto":
         token = "cuda" if torch.cuda.is_available() else "cpu"
     return torch.device(token)
+
+
+@dataclass(frozen=True)
+class EvaluationWorkerJob:
+    opponent: str
+    strategy_state_dict: dict[str, torch.Tensor]
+    game_config: dict
+    network_config: dict
+    encoding_config: dict
+    input_dim: int
+    action_size: int
+    games: int
+    seed: int
+    device: str
+    max_steps: int
+    batch_size: int
+
+
+def run_evaluation_worker(job: EvaluationWorkerJob) -> tuple[str, dict[str, float | int]]:
+    device = _resolve_torch_device(job.device)
+    game_config = LostCitiesConfig(**job.game_config)
+    network_config = NetworkConfig.model_validate(job.network_config)
+    encoding_config = EncodingConfig.model_validate(job.encoding_config)
+    network = DeepCFRMLP.from_config(job.input_dim, job.action_size, network_config).to(device)
+    network.load_state_dict(job.strategy_state_dict)
+    network.eval()
+    result = evaluate_strategy_network(
+        network,
+        game_config,
+        games=job.games,
+        seed=job.seed,
+        opponent=job.opponent,
+        device=device,
+        max_steps=job.max_steps,
+        encoding=encoding_config,
+        batch_size=job.batch_size,
+    )
+    return job.opponent, result
 
 
 @dataclass(frozen=True)
@@ -540,20 +583,87 @@ class DeepCFRTrainer:
         ):
             return {}
         results: dict[str, float | int] = {}
+        eval_device = self._evaluation_device()
+        if self.config.evaluation.resolved_num_workers(len(self.config.evaluation.opponents)) > 1:
+            return self._evaluate_parallel(iteration, eval_device)
+        eval_network = self._evaluation_network(eval_device)
         for opponent in self.config.evaluation.opponents:
             result = evaluate_strategy_network(
-                self.strategy_network,
+                eval_network,
                 self.game_config,
                 games=self.config.evaluation.games,
                 seed=self.config.run.seed + iteration * 1000,
                 opponent=opponent,
-                device=self.device,
+                device=eval_device,
                 max_steps=self.config.evaluation.max_steps,
                 encoding=self.config.encoding,
+                batch_size=self.config.evaluation.resolved_batch_size(),
             )
             for key, value in result.items():
                 results[f"eval_{opponent}_{key}"] = value
         return results
+
+    def _evaluate_parallel(
+        self,
+        iteration: int,
+        eval_device: torch.device,
+    ) -> dict[str, float | int]:
+        opponents = self.config.evaluation.opponents
+        max_workers = self.config.evaluation.resolved_num_workers(len(opponents))
+        self.tracker.log_event(
+            f"Evaluation multiprocessing enabled iteration={iteration} "
+            f"effective_workers={max_workers} opponents={len(opponents)} "
+            f"batch_size={self.config.evaluation.resolved_batch_size()} device={eval_device}"
+        )
+        state_dict = self._strategy_state_dict_cpu()
+        jobs = [
+            EvaluationWorkerJob(
+                opponent=opponent,
+                strategy_state_dict=state_dict,
+                game_config=self.game_config.to_snapshot(),
+                network_config=self.config.network.model_dump(mode="python"),
+                encoding_config=self.config.encoding.model_dump(mode="python"),
+                input_dim=self.input_dim,
+                action_size=self.action_size,
+                games=self.config.evaluation.games,
+                seed=self.config.run.seed + iteration * 1000,
+                device=str(eval_device),
+                max_steps=self.config.evaluation.max_steps,
+                batch_size=self.config.evaluation.resolved_batch_size(),
+            )
+            for opponent in opponents
+        ]
+        results: dict[str, float | int] = {}
+        with ProcessPoolExecutor(
+            max_workers=max_workers,
+            mp_context=mp.get_context("spawn"),
+        ) as executor:
+            futures = [executor.submit(run_evaluation_worker, job) for job in jobs]
+            for future in as_completed(futures):
+                opponent, result = future.result()
+                for key, value in result.items():
+                    results[f"eval_{opponent}_{key}"] = value
+        return results
+
+    def _evaluation_device(self) -> torch.device:
+        token = self.config.evaluation.device
+        if token == "trainer":
+            return self.device
+        if token == "auto":
+            return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if token == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("evaluation.device=cuda requested but CUDA is unavailable")
+        return torch.device(token)
+
+    def _evaluation_network(self, device: torch.device) -> torch.nn.Module:
+        if device == self.device:
+            return self.strategy_network
+        return copy.deepcopy(self.strategy_network).to(device).eval()
+
+    def _strategy_state_dict_cpu(self) -> dict[str, torch.Tensor]:
+        return {
+            key: value.detach().cpu() for key, value in self.strategy_network.state_dict().items()
+        }
 
     def _train_advantage_networks(self) -> float:
         losses: list[float] = []

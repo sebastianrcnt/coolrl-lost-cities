@@ -19,7 +19,9 @@ from coolrl_lost_cities.games.classic.deep_cfr.cli import (
     _with_overrides,
 )
 from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig, load_config
+from coolrl_lost_cities.games.classic.deep_cfr.evaluate import evaluate_strategy_network
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
+from coolrl_lost_cities.games.classic.deep_cfr.networks import DeepCFRMLP
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
 
 
@@ -59,6 +61,9 @@ def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
     assert config.optimization.weight_decay == 0.0001
     assert config.optimization.grad_clip == 1.0
     assert config.evaluation.on_max_steps == "score_diff"
+    assert config.evaluation.resolved_batch_size() == 64
+    assert config.evaluation.device == "trainer"
+    assert config.evaluation.resolved_num_workers() == 4
     assert config.checkpoint.save_iteration_interval == 10
     assert (
         config.checkpoint.directory == "runs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability"
@@ -126,6 +131,51 @@ def test_deep_cfr_train_cli_checkpoint_save_overrides() -> None:
     assert overridden.checkpoint.save_latest_only is True
     assert overridden.checkpoint.save_every_iteration is False
     assert overridden.checkpoint.save_iteration_interval == 1
+
+
+def test_deep_cfr_batched_evaluation_matches_batch_size_one() -> None:
+    config = _deep_cfr_config(
+        {
+            "network": {"hidden_size": 16},
+            "encoding": {"derived_playability": True, "slot_aware_playability": True},
+        }
+    )
+    game_config = LostCitiesConfig(seed=123)
+    state = GameState.new_game(game_config, seed=123)
+    network = DeepCFRMLP.from_config(
+        input_dim(state, config.encoding),
+        game_config.action_size,
+        config.network,
+    )
+    network.eval()
+    kwargs = {
+        "strategy_network": network,
+        "config": game_config,
+        "games": 8,
+        "seed": 55,
+        "opponent": "random",
+        "device": "cpu",
+        "max_steps": 200,
+        "encoding": config.encoding,
+    }
+
+    batch_one = evaluate_strategy_network(**kwargs, batch_size=1)
+    batched = evaluate_strategy_network(**kwargs, batch_size=64)
+
+    for key in [
+        "games",
+        "wins0",
+        "wins1",
+        "draws",
+        "avg_score0",
+        "avg_score1",
+        "avg_score_diff0",
+        "avg_game_length",
+        "max_step_timeouts",
+        "play_action_rate",
+    ]:
+        assert batched[key] == batch_one[key]
+    assert np.isclose(batched["policy_entropy"], batch_one["policy_entropy"])
 
 
 def test_deep_cfr_resume_latest_resolution_uses_config_checkpoint_dir(tmp_path) -> None:

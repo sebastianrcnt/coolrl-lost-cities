@@ -232,6 +232,9 @@ class EvaluationConfig(StrictModel):
     opponents: tuple[str, ...] = ("random",)
     max_steps: int = 10_000
     on_max_steps: str = "score_diff"
+    batch_size: int = 64
+    device: str = "trainer"
+    num_workers: int = 4
 
     @field_validator("on_max_steps")
     @classmethod
@@ -240,6 +243,23 @@ class EvaluationConfig(StrictModel):
         if token not in {"score_diff", "loss", "draw"}:
             raise ValueError("must be 'score_diff', 'loss', or 'draw'")
         return token
+
+    @field_validator("device")
+    @classmethod
+    def _validate_device(cls, value: str) -> str:
+        token = value.strip().lower()
+        if token not in {"trainer", "auto", "cpu", "cuda"}:
+            raise ValueError("must be 'trainer', 'auto', 'cpu', or 'cuda'")
+        return token
+
+    def resolved_batch_size(self) -> int:
+        return max(1, int(self.batch_size))
+
+    def resolved_num_workers(self, opponent_count: int | None = None) -> int:
+        workers = max(1, int(self.num_workers))
+        if opponent_count is not None:
+            workers = min(workers, max(1, int(opponent_count)))
+        return workers
 
 
 class DeepCFRConfig(StrictModel):
