@@ -1,5 +1,5 @@
 run:
-  experiment_name: lost_cities_deep_cfr_pure_self_play_zero_pit_poc_full_depth_slot_aware_playability
+  experiment_name: lost_cities_deep_cfr_selfplay_full_depth_slot_playability
   seed: 79
   max_iterations: null
   max_hours: 4
@@ -82,7 +82,7 @@ evaluation:
     - noisy_safe
 
 checkpoint:
-  directory: runs/deep_cfr/pure_self_play_zero_pit_poc_full_depth_slot_aware_playability
+  directory: runs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability
   save_every_iteration: false
   save_iteration_interval: 10
   save_latest_only: false

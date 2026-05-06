@@ -32,11 +32,9 @@ def test_deep_cfr_loads_smoke_yaml_config() -> None:
 
 
 def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
-    config = load_config(
-        "configs/deep_cfr/pure_self_play_zero_pit_poc_full_depth_slot_aware_playability.yaml"
-    )
+    config = load_config("configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml")
 
-    assert config.run.experiment_name.endswith("slot_aware_playability")
+    assert config.run.experiment_name.endswith("slot_playability")
     assert config.run.seed == 79
     assert config.run.max_iterations is None
     assert config.run.max_hours == 4
@@ -57,8 +55,7 @@ def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
     assert config.evaluation.on_max_steps == "score_diff"
     assert config.checkpoint.save_iteration_interval == 10
     assert (
-        config.checkpoint.directory
-        == "runs/deep_cfr/pure_self_play_zero_pit_poc_full_depth_slot_aware_playability"
+        config.checkpoint.directory == "runs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability"
     )
 
 
@@ -79,9 +76,7 @@ def test_deep_cfr_train_cli_count_overrides_disable_duration_limits() -> None:
             "no_save": True,
         },
     )()
-    config = load_config(
-        "configs/deep_cfr/pure_self_play_zero_pit_poc_full_depth_slot_aware_playability.yaml"
-    )
+    config = load_config("configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml")
 
     overridden = _with_overrides(config, _train_overrides_from_args(args))
 

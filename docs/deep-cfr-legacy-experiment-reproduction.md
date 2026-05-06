@@ -13,6 +13,10 @@ Exact legacy YAML compatibility is not required. It is acceptable to create a
 new config file under this repository as long as every relevant legacy
 hyperparameter is represented explicitly and the differences are documented.
 
+Mapped config in this repository:
+
+`configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml`
+
 ## Source Experiment
 
 Legacy config path:
