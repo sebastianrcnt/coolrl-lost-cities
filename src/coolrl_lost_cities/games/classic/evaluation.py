@@ -14,6 +14,7 @@ from .game import GameState, LostCitiesConfig, classic_config
 from .interfaces import LostCitiesBot
 
 BotFactory = Callable[[int | None], LostCitiesBot]
+MATCH_EVAL_RECORD_TYPE = "lost_cities.classic.eval.match.v1"
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,72 @@ class MatchResult:
             "elapsed_seconds": self.elapsed_seconds,
             "games_per_second": self.games_per_second,
             "steps_per_second": self.steps_per_second,
+        }
+
+    def result_dict(self) -> dict[str, float | int]:
+        return {
+            "games": self.games,
+            "wins0": self.wins0,
+            "wins1": self.wins1,
+            "draws": self.draws,
+            "win_rate0": self.win_rate0,
+            "win_rate1": self.win_rate1,
+            "avg_score0": self.avg_score0,
+            "avg_score1": self.avg_score1,
+            "avg_score_diff0": self.avg_score_diff0,
+            "avg_game_length": self.avg_game_length,
+            "max_step_timeouts": self.max_step_timeouts,
+        }
+
+    def timing(self) -> TimingResult:
+        return TimingResult(
+            elapsed_seconds=self.elapsed_seconds,
+            games_per_second=self.games_per_second,
+            steps_per_second=self.steps_per_second,
+        )
+
+
+@dataclass(frozen=True)
+class TimingResult:
+    elapsed_seconds: float
+    games_per_second: float
+    steps_per_second: float
+
+    def to_dict(self) -> dict[str, float]:
+        return {
+            "elapsed_seconds": self.elapsed_seconds,
+            "games_per_second": self.games_per_second,
+            "steps_per_second": self.steps_per_second,
+        }
+
+
+@dataclass(frozen=True)
+class MatchEvalRecord:
+    bot0: str
+    bot1: str
+    config: LostCitiesConfig
+    seed: int
+    alternate_seats: bool
+    max_steps: int
+    result: MatchResult
+    record_type: str = MATCH_EVAL_RECORD_TYPE
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "type": self.record_type,
+            "bots": {
+                "bot0": self.bot0,
+                "bot1": self.bot1,
+            },
+            "settings": {
+                "games": self.result.games,
+                "seed": self.seed,
+                "alternate_seats": self.alternate_seats,
+                "max_steps": self.max_steps,
+            },
+            "config": self.config.to_snapshot(),
+            "result": self.result.result_dict(),
+            "timing": self.result.timing().to_dict(),
         }
 
 
@@ -221,6 +288,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     config = classic_config()
+    alternate_seats = not args.no_alternate_seats
     result = play_match(
         make_bot_factory(args.bot0),
         make_bot_factory(args.bot1),
@@ -228,17 +296,20 @@ def main(argv: list[str] | None = None) -> None:
         games=args.games,
         seed=args.seed,
         max_steps=args.max_steps,
-        alternate_seats=not args.no_alternate_seats,
+        alternate_seats=alternate_seats,
+    )
+    record = MatchEvalRecord(
+        bot0=args.bot0,
+        bot1=args.bot1,
+        config=config,
+        seed=args.seed,
+        alternate_seats=alternate_seats,
+        max_steps=args.max_steps,
+        result=result,
     )
 
-    payload: dict[str, Any] = {
-        "bot0": args.bot0,
-        "bot1": args.bot1,
-        "benchmark": bool(args.benchmark),
-        **result.to_dict(),
-    }
     if args.json:
-        print(json.dumps(payload, indent=2, sort_keys=True))
+        print(json.dumps(record.to_dict(), indent=2, sort_keys=True))
         return
 
     print(f"{args.bot0} vs {args.bot1}: {result.games} games")

@@ -260,7 +260,6 @@ cdef class GameState:
         for _ in range(config.hand_size):
             for player in range(2):
                 state.hands[player].append(state.deck.pop())
-        state.sort_hands()
         state.validate_invariants()
         return state
 
@@ -550,6 +549,70 @@ cdef class GameState:
     cpdef apply_unified_action(self, int action_id):
         self.apply_action(self.from_unified_action(action_id))
 
+    cpdef object apply_action_with_undo(self, int action_id):
+        if self.terminal:
+            raise IllegalMoveError("game is already terminal")
+        cdef list mask = self.legal_mask()
+        if action_id < 0 or action_id >= len(mask) or not mask[action_id]:
+            raise IllegalMoveError(
+                f"illegal action {action_id} in phase {self.phase} "
+                f"for player {self.current_player}"
+            )
+        cdef object undo
+        if self.phase == "card":
+            undo = self._card_action_undo(action_id)
+            self._apply_card_action(action_id)
+        else:
+            undo = self._draw_action_undo(action_id)
+            self._apply_draw_action(action_id)
+        return undo
+
+    cpdef object apply_unified_action_with_undo(self, int action_id):
+        return self.apply_action_with_undo(self.from_unified_action(action_id))
+
+    cpdef undo_action(self, object undo):
+        cdef str phase = undo[0]
+        if phase == "card":
+            self._undo_card_action(undo)
+            return
+        if phase == "draw":
+            self._undo_draw_action(undo)
+            return
+        raise ValueError(f"invalid undo phase: {phase!r}")
+
+    cdef object _card_action_undo(self, int action_id):
+        cdef int slot = action_id // 2
+        cdef bint play = action_id % 2 == 0
+        cdef Card card = <Card>self.hands[self.current_player][slot]
+        return (
+            "card",
+            self.current_player,
+            action_id,
+            self.pending_discarded_color,
+            self.terminal,
+            slot,
+            play,
+            card,
+        )
+
+    cdef object _draw_action_undo(self, int action_id):
+        cdef Card card
+        cdef list source
+        if action_id == 0:
+            source = self.deck
+        else:
+            source = self.discards[action_id - 1]
+        card = <Card>source[len(source) - 1]
+        return (
+            "draw",
+            self.current_player,
+            action_id,
+            self.pending_discarded_color,
+            self.terminal,
+            self.turn_count,
+            card,
+        )
+
     cdef void _apply_card_action(self, int action_id) except *:
         cdef int slot = action_id // 2
         cdef bint play = action_id % 2 == 0
@@ -581,7 +644,6 @@ cdef class GameState:
             color = action_id - 1
             card = <Card>self.discards[color].pop()
         self.hands[self.current_player].append(card)
-        self.sort_hand(self.current_player)
         self.pending_discarded_color = None
         self.turn_count += 1
         if len(self.deck) == 0:
@@ -589,6 +651,46 @@ cdef class GameState:
             return
         self.current_player = 1 - self.current_player
         self.phase = "card"
+
+    cdef void _undo_card_action(self, object undo) except *:
+        cdef int player = <int>undo[1]
+        cdef object pending_before = undo[3]
+        cdef bint terminal_before = <bint>undo[4]
+        cdef int slot = <int>undo[5]
+        cdef bint play = <bint>undo[6]
+        cdef Card card = <Card>undo[7]
+        cdef Card moved
+        if play:
+            moved = <Card>self.expeditions[player][card.color].pop()
+        else:
+            moved = <Card>self.discards[card.color].pop()
+        if moved != card:
+            raise ValueError("undo card mismatch")
+        self.hands[player].insert(slot, card)
+        self.current_player = player
+        self.phase = "card"
+        self.pending_discarded_color = pending_before
+        self.terminal = terminal_before
+
+    cdef void _undo_draw_action(self, object undo) except *:
+        cdef int player = <int>undo[1]
+        cdef int action_id = <int>undo[2]
+        cdef object pending_before = undo[3]
+        cdef bint terminal_before = <bint>undo[4]
+        cdef int turn_count_before = <int>undo[5]
+        cdef Card card = <Card>undo[6]
+        cdef Card moved = <Card>self.hands[player].pop()
+        if moved != card:
+            raise ValueError("undo draw mismatch")
+        if action_id == 0:
+            self.deck.append(card)
+        else:
+            self.discards[action_id - 1].append(card)
+        self.current_player = player
+        self.phase = "draw"
+        self.pending_discarded_color = pending_before
+        self.turn_count = turn_count_before
+        self.terminal = terminal_before
 
     cpdef int expedition_score(self, int player, int color):
         return score_expedition(self.expeditions[player][color], self.config)
@@ -623,8 +725,6 @@ cdef class GameState:
         for player, hand in enumerate(self.hands):
             if len(hand) > self.config.hand_size:
                 raise ValueError(f"hand {player} exceeds hand_size")
-            if hand != sorted(hand, key=_card_sort_key):
-                raise ValueError(f"hand {player} is not sorted")
             all_cards.extend(hand)
 
         for player, expeditions in enumerate(self.expeditions):

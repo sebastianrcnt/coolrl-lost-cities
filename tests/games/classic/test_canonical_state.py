@@ -40,6 +40,35 @@ def test_new_game_from_deck_uses_explicit_internal_deck_order() -> None:
     state.validate_invariants()
 
 
+def test_new_game_preserves_dealt_hand_order() -> None:
+    config = LostCitiesConfig(
+        n_colors=2,
+        n_ranks=3,
+        min_rank=1,
+        n_handshakes=0,
+        hand_size=2,
+        expedition_penalty=0,
+        bonus_threshold=99,
+        bonus_amount=0,
+    )
+    state = GameState.new_game_from_deck(
+        [
+            Card(0, 1),
+            Card(0, 2),
+            Card(0, 3),
+            Card(1, 1),
+            Card(1, 2),
+            Card(1, 3),
+        ],
+        config,
+    )
+
+    assert state.hands[0] == [Card(1, 3), Card(1, 1)]
+    assert state.hands[1] == [Card(1, 2), Card(0, 3)]
+    assert state.deck == [Card(0, 1), Card(0, 2)]
+    state.validate_invariants()
+
+
 def test_snapshot_roundtrip_preserves_json_state() -> None:
     state = GameState.new_game(LostCitiesConfig(seed=5))
     first_action = next(index for index, legal in enumerate(state.unified_legal_mask()) if legal)
@@ -108,6 +137,60 @@ def test_random_games_preserve_python_core_invariants() -> None:
             steps += 1
             assert steps < 1000
         state.validate_invariants()
+
+
+def test_apply_action_with_undo_restores_every_legal_action() -> None:
+    config = LostCitiesConfig(
+        n_colors=3,
+        n_ranks=5,
+        min_rank=2,
+        n_handshakes=1,
+        hand_size=5,
+    )
+    for seed in range(32):
+        state = GameState.new_game(config, seed=seed)
+        rng = random.Random(seed ^ 0xA11CE)
+        steps = 0
+        while not state.terminal:
+            legal = [index for index, is_legal in enumerate(state.unified_legal_mask()) if is_legal]
+            for unified_action in legal:
+                candidate = state.clone()
+                before = candidate.to_snapshot()
+                undo = candidate.apply_unified_action_with_undo(unified_action)
+                candidate.undo_action(undo)
+                assert candidate.to_snapshot() == before
+                candidate.validate_invariants()
+
+            state.apply_unified_action(rng.choice(legal))
+            steps += 1
+            assert steps < 1000
+
+
+def test_apply_action_with_undo_matches_apply_action_result() -> None:
+    config = LostCitiesConfig(
+        n_colors=3,
+        n_ranks=5,
+        min_rank=2,
+        n_handshakes=1,
+        hand_size=5,
+    )
+    for seed in range(32):
+        state = GameState.new_game(config, seed=seed)
+        rng = random.Random(seed ^ 0xC0FFEE)
+        steps = 0
+        while not state.terminal:
+            legal = [index for index, is_legal in enumerate(state.unified_legal_mask()) if is_legal]
+            action = rng.choice(legal)
+            left = state.clone()
+            right = state.clone()
+
+            left.apply_unified_action(action)
+            right.apply_unified_action_with_undo(action)
+
+            assert right.to_snapshot() == left.to_snapshot()
+            state = left
+            steps += 1
+            assert steps < 1000
 
 
 def test_same_seed_and_action_sequence_are_deterministic() -> None:

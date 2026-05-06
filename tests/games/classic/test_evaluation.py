@@ -5,7 +5,7 @@ from coolrl_lost_cities.games.classic import (
     play_game_for_evaluation,
     play_match,
 )
-from coolrl_lost_cities.games.classic.evaluation import main
+from coolrl_lost_cities.games.classic.evaluation import MATCH_EVAL_RECORD_TYPE, main
 
 
 def test_play_game_for_evaluation_finishes_small_match() -> None:
@@ -60,5 +60,10 @@ def test_evaluation_cli_smoke_json(capsys) -> None:
     )
 
     captured = capsys.readouterr()
+    assert f'"type": "{MATCH_EVAL_RECORD_TYPE}"' in captured.out
+    assert '"bots": {' in captured.out
+    assert '"settings": {' in captured.out
+    assert '"result": {' in captured.out
+    assert '"timing": {' in captured.out
     assert '"games": 2' in captured.out
     assert '"win_rate0"' in captured.out

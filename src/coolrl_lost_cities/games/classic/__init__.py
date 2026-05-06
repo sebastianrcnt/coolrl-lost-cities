@@ -8,7 +8,9 @@ from .bots import (
 from .env import LostCitiesEnv
 from .evaluation import (
     GameResult,
+    MatchEvalRecord,
     MatchResult,
+    TimingResult,
     evaluate_bot,
     make_bot_factory,
     play_game_for_evaluation,
@@ -29,8 +31,10 @@ __all__ = [
     "LostCitiesBot",
     "LostCitiesConfig",
     "LostCitiesEnv",
+    "MatchEvalRecord",
     "MatchResult",
     "Snapshot",
+    "TimingResult",
     "available_bot_names",
     "build_bot",
     "classic_config",
