@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import numpy as np
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import encode_info_state, input_dim
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
@@ -46,6 +48,7 @@ def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
     assert config.traversal.max_depth is None
     assert config.traversal.resolved_max_nodes() == 1000
     assert config.traversal.resolved_worker_chunk_size() == 8
+    assert config.traversal.progress_every_traversals == 10
     assert config.optimization.resolved_advantage_batch_size() == 1024
     assert config.optimization.resolved_strategy_batch_size() == 1024
     assert config.optimization.resolved_advantage_train_steps() == 256
@@ -333,6 +336,8 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
     assert (checkpoint_dir / "metrics.jsonl").exists()
     assert (checkpoint_dir / "runtime_progress.json").exists()
     assert (checkpoint_dir / "train.log").exists()
+    train_log = (checkpoint_dir / "train.log").read_text(encoding="utf-8")
+    assert re.search(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", train_log)
     assert restored.iteration == 1
     assert "eval_random_games" in metrics[0].eval_metrics
     assert "eval_random_play_action_rate" in metrics[0].eval_metrics
@@ -353,11 +358,12 @@ def test_deep_cfr_trainer_multiprocessing_smoke_run(tmp_path) -> None:
                 "run": {"iterations": 1, "seed": 43},
                 "network": {"hidden_size": 16},
                 "traversal": {
-                    "traversals_per_iteration": 2,
+                    "traversals_per_iteration": 1,
                     "max_depth": 2,
                     "max_nodes": 32,
-                    "num_workers": 2,
+                    "num_workers": 8,
                     "worker_chunk_size": 1,
+                    "progress_every_traversals": 1,
                 },
                 "optimization": {"batch_size": 2},
                 "checkpoint": {
@@ -370,9 +376,13 @@ def test_deep_cfr_trainer_multiprocessing_smoke_run(tmp_path) -> None:
     )
 
     metrics = trainer.train()
+    train_log = (tmp_path / "mp" / "train.log").read_text(encoding="utf-8")
 
     assert metrics[0].traversal_nodes > 0
     assert metrics[0].advantage_samples > 0
+    assert "Traversal multiprocessing enabled" in train_log
+    assert "Traversal worker count capped" in train_log
+    assert "Traversal multiprocessing progress" in train_log
 
 
 def test_deep_cfr_traversal_benchmark_smoke() -> None:

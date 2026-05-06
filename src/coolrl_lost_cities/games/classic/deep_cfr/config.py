@@ -104,6 +104,7 @@ class TraversalConfig(StrictModel):
     num_workers: int | str = 0
     worker_chunk_size: int = 4
     traversal_worker_chunk_size: int | None = None
+    progress_every_traversals: int = 0
     endpoint_depth_bucket_width: int = 100
     endpoint_depth_bucket_max: int = 1000
 
@@ -141,8 +142,10 @@ class TraversalConfig(StrictModel):
             if token == "auto":
                 guess = max(1, (os.cpu_count() or 2) // 2)
                 return min(guess, batches) if batches is not None and batches > 0 else guess
-            return max(0, int(token))
-        return max(0, int(self.num_workers))
+            workers = max(0, int(token))
+        else:
+            workers = max(0, int(self.num_workers))
+        return min(workers, batches) if batches is not None and batches > 0 else workers
 
     def resolved_traversals_per_player(self) -> int:
         if self.traversals_per_player is not None:

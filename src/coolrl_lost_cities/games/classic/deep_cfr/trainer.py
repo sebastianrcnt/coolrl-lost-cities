@@ -20,6 +20,7 @@ from coolrl_lost_cities.games.classic.deep_cfr.encoding import input_dim
 from coolrl_lost_cities.games.classic.deep_cfr.evaluate import evaluate_strategy_network
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.networks import DeepCFRMLP
+from coolrl_lost_cities.games.classic.deep_cfr.run_logger import FileRunLogger, RunLogger
 from coolrl_lost_cities.games.classic.deep_cfr.traverser import DeepCFRTraverser, TraversalStats
 from coolrl_lost_cities.games.classic.deep_cfr.workers import (
     TraversalWorkerBatch,
@@ -84,6 +85,7 @@ class DeepCFRTrainer:
         game_config: LostCitiesConfig | None = None,
         *,
         device: str = "cpu",
+        run_logger: RunLogger | None = None,
     ) -> None:
         self.config = config or DeepCFRConfig()
         self.game_config = game_config or self.config.rules.to_lost_cities_config(
@@ -126,6 +128,7 @@ class DeepCFRTrainer:
         self.metrics_path = self.run_dir / "metrics.jsonl"
         self.progress_path = self.run_dir / "runtime_progress.json"
         self.log_path = self.run_dir / "train.log"
+        self.run_logger = run_logger or FileRunLogger(self.log_path)
         self.self_play_league_snapshots: list[list[dict]] = []
 
     def checkpoint_payload(self, metrics: IterationMetrics | None = None) -> dict:
@@ -228,12 +231,23 @@ class DeepCFRTrainer:
         )
         for network in self.advantage_networks:
             network.eval()
+        progress_every = int(self.config.traversal.progress_every_traversals)
+        completed = 0
+        progress_started = time.perf_counter()
         for traversal_index in range(self.config.traversal.resolved_traversals_per_player()):
             for player in range(2):
                 seed = self.config.run.seed + iteration * 10_000 + traversal_index * 10 + player
                 state = GameState.new_game(self.game_config, seed=seed)
                 _, stats = traverser.traverse(state, player, iteration)
                 total_stats.accumulate(stats)
+                completed += 1
+                if progress_every > 0 and completed % progress_every == 0:
+                    elapsed = time.perf_counter() - progress_started
+                    self.run_logger.info(
+                        f"Traversal progress iteration={iteration} completed={completed} "
+                        f"elapsed_seconds={elapsed:.2f} total_nodes={total_stats.nodes} "
+                        f"nodes_per_second={total_stats.nodes / max(elapsed, 1.0e-12):.1f}"
+                    )
         return total_stats
 
     def _run_traversals_parallel(self, iteration: int) -> TraversalStats:
@@ -241,17 +255,48 @@ class DeepCFRTrainer:
         total_stats = TraversalStats()
         if not batches:
             return total_stats
+        requested_workers = self.config.traversal.resolved_num_workers()
         max_workers = self.config.traversal.resolved_num_workers(len(batches))
+        self.run_logger.info(
+            f"Traversal multiprocessing enabled iteration={iteration} "
+            f"requested_workers={requested_workers} effective_workers={max_workers} "
+            f"batches={len(batches)} chunk_size={self.config.traversal.resolved_worker_chunk_size()}"
+        )
+        if max_workers < requested_workers:
+            self.run_logger.info(
+                f"Traversal worker count capped iteration={iteration} "
+                f"requested_workers={requested_workers} effective_workers={max_workers} "
+                f"available_batches={len(batches)}"
+            )
+        progress_every = int(self.config.traversal.progress_every_traversals)
+        next_progress_at = progress_every if progress_every > 0 else None
+        progress_nodes = 0
+        progress_traversals = 0
+        progress_started = time.perf_counter()
         with ProcessPoolExecutor(
             max_workers=max_workers,
             mp_context=mp.get_context("spawn"),
         ) as executor:
             futures = [executor.submit(run_traversal_worker_batch, batch) for batch in batches]
-            for future in as_completed(futures):
+            total_batches = len(futures)
+            for completed_batches, future in enumerate(as_completed(futures), start=1):
                 result = future.result()
                 total_stats.accumulate(result.stats)
                 self.advantage_memory.extend(result.advantage_samples, self.rng)
                 self.strategy_memory.extend(result.strategy_samples, self.rng)
+                progress_nodes += result.stats.nodes
+                progress_traversals += result.traversals
+                if next_progress_at is not None and progress_traversals >= next_progress_at:
+                    elapsed = time.perf_counter() - progress_started
+                    self.run_logger.info(
+                        f"Traversal multiprocessing progress iteration={iteration} "
+                        f"completed_batches={completed_batches}/{total_batches} "
+                        f"completed_traversals={progress_traversals} elapsed_seconds={elapsed:.2f} "
+                        f"total_nodes={progress_nodes} "
+                        f"nodes_per_second={progress_nodes / max(elapsed, 1.0e-12):.1f}"
+                    )
+                    while next_progress_at is not None and next_progress_at <= progress_traversals:
+                        next_progress_at += progress_every
         return total_stats
 
     def _worker_batches(self, iteration: int) -> list[TraversalWorkerBatch]:
@@ -378,10 +423,9 @@ class DeepCFRTrainer:
             )
         if self.iteration == 0 and self.metrics_path.exists():
             self.metrics_path.unlink()
-        with self.log_path.open("a", encoding="utf-8") as handle:
-            handle.write(
-                f"Deep CFR run start iteration={self.iteration} seed={self.config.run.seed}\n"
-            )
+        self.run_logger.info(
+            f"Deep CFR run start iteration={self.iteration} seed={self.config.run.seed}"
+        )
 
     def _append_metrics(self, metrics: IterationMetrics, iteration_seconds: float) -> None:
         data = metrics.to_dict()
@@ -390,11 +434,11 @@ class DeepCFRTrainer:
         with self.metrics_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(data, sort_keys=True) + "\n")
         self.progress_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
-        with self.log_path.open("a", encoding="utf-8") as handle:
-            handle.write(
-                f"iteration={metrics.iteration} nodes={metrics.traversal_nodes} adv_loss={metrics.advantage_loss:.6f} "
-                f"strategy_loss={metrics.strategy_loss:.6f} seconds={iteration_seconds:.3f}\n"
-            )
+        self.run_logger.info(
+            f"iteration={metrics.iteration} nodes={metrics.traversal_nodes} "
+            f"adv_loss={metrics.advantage_loss:.6f} "
+            f"strategy_loss={metrics.strategy_loss:.6f} seconds={iteration_seconds:.3f}"
+        )
 
     def _evaluate(self, iteration: int) -> dict[str, float | int]:
         if (

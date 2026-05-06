@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +12,23 @@ from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, Tr
 from coolrl_lost_cities.games.classic.deep_cfr.networks import DeepCFRMLP
 from coolrl_lost_cities.games.classic.deep_cfr.traverser import DeepCFRTraverser, TraversalStats
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
+
+_TORCH_THREADS_CONFIGURED = False
+
+
+def _configure_worker_torch_threads() -> None:
+    global _TORCH_THREADS_CONFIGURED
+    if _TORCH_THREADS_CONFIGURED:
+        return
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    torch.set_num_threads(1)
+    if hasattr(torch, "set_num_interop_threads"):
+        try:
+            torch.set_num_interop_threads(1)
+        except RuntimeError:
+            pass
+    _TORCH_THREADS_CONFIGURED = True
 
 
 @dataclass(frozen=True)
@@ -37,6 +55,8 @@ class TraversalWorkerResult:
 
 
 def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerResult:
+    _configure_worker_torch_threads()
+
     cfg = config_from_dict(batch.config)
     device = torch.device("cpu")
     networks = [
