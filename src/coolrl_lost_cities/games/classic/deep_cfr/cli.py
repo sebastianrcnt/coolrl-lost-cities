@@ -17,6 +17,9 @@ from coolrl_lost_cities.games.classic.deep_cfr.evaluate import (
 from coolrl_lost_cities.games.classic.deep_cfr.imitation import (
     new_pretrained_strategy_network,
 )
+from coolrl_lost_cities.games.classic.deep_cfr.policy_gradient import (
+    fine_tune_strategy_policy_gradient,
+)
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
 from coolrl_lost_cities.games.classic.game import classic_config
 
@@ -100,6 +103,28 @@ def pretrain_command(args: argparse.Namespace) -> None:
     print(json.dumps(metrics.__dict__, sort_keys=True))
 
 
+def policy_gradient_command(args: argparse.Namespace) -> None:
+    policy, game_config = load_strategy_policy_from_checkpoint(args.checkpoint, device=args.device)
+    metrics = fine_tune_strategy_policy_gradient(
+        policy.strategy_network,
+        game_config,
+        episodes=args.episodes,
+        seed=args.seed,
+        opponent=args.opponent,
+        learning_rate=args.learning_rate,
+        max_steps=args.max_steps,
+        device=args.device,
+    )
+    if args.output:
+        import torch
+
+        torch.save(
+            {"strategy_network": policy.strategy_network.state_dict(), "metrics": metrics.__dict__},
+            args.output,
+        )
+    print(json.dumps(metrics.__dict__, sort_keys=True))
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Lost Cities classic Deep CFR tools.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -141,6 +166,17 @@ def main(argv: list[str] | None = None) -> None:
     pretrain.add_argument("--seed", type=int, default=1)
     pretrain.add_argument("--output")
     pretrain.set_defaults(func=pretrain_command)
+
+    pg = subparsers.add_parser("policy-gradient")
+    pg.add_argument("--checkpoint", required=True)
+    pg.add_argument("--episodes", type=int, default=2)
+    pg.add_argument("--opponent", default="random")
+    pg.add_argument("--learning-rate", type=float, default=1.0e-4)
+    pg.add_argument("--max-steps", type=int, default=10_000)
+    pg.add_argument("--seed", type=int, default=1)
+    pg.add_argument("--device", default="cpu")
+    pg.add_argument("--output")
+    pg.set_defaults(func=policy_gradient_command)
 
     args = parser.parse_args(argv)
     args.func(args)
