@@ -691,7 +691,7 @@ class DeepCFRTrainer:
     def _batch_tensors(
         self,
         batch: list[TrainingSample],
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         started = time.perf_counter()
         x = torch.as_tensor(
             np.stack([sample.info_state for sample in batch]),
@@ -708,12 +708,24 @@ class DeepCFRTrainer:
             dtype=torch.bool,
             device=self.device,
         )
+        iterations = torch.as_tensor(
+            [sample.iteration for sample in batch],
+            dtype=torch.float32,
+            device=self.device,
+        )
         self._runtime_metrics["batch_tensor_seconds"] = (
             float(self._runtime_metrics.get("batch_tensor_seconds", 0.0))
             + time.perf_counter()
             - started
         )
-        return x, y, legal
+        return x, y, legal, iterations
+
+    def _iteration_weights(self, iterations: torch.Tensor, exponent: float) -> torch.Tensor:
+        if exponent == 0.0:
+            return torch.ones_like(iterations, dtype=torch.float32, device=self.device)
+        current = max(1, int(self.iteration))
+        relative = (iterations / float(current)).clamp(min=0.0, max=1.0)
+        return relative.pow(float(exponent))
 
     def _train_advantage(
         self,
@@ -734,10 +746,33 @@ class DeepCFRTrainer:
                 + time.perf_counter()
                 - sample_started
             )
-            x, y, legal = self._batch_tensors(batch)
+            x, y, legal, sample_iterations = self._batch_tensors(batch)
             pred = network(x)
             diff = (pred - y).masked_fill(~legal, 0.0)
-            loss = diff.square().sum() / legal.sum().clamp_min(1)
+            if self.config.training_weighting.mode == "none":
+                loss = diff.square().sum() / legal.sum().clamp_min(1)
+            elif self.config.training_weighting.mode == "lcfr":
+                sample_weights = self._iteration_weights(
+                    sample_iterations, self.config.training_weighting.lcfr_alpha
+                )
+                action_weights = sample_weights[:, None] * legal.float()
+                loss = (diff.square() * action_weights).sum() / action_weights.sum().clamp_min(
+                    1.0e-12
+                )
+            else:
+                positive_weights = self._iteration_weights(
+                    sample_iterations, self.config.training_weighting.dcfr_alpha
+                )
+                negative_weights = self._iteration_weights(
+                    sample_iterations, self.config.training_weighting.dcfr_beta
+                )
+                target_weights = torch.where(
+                    y >= 0.0, positive_weights[:, None], negative_weights[:, None]
+                )
+                action_weights = target_weights * legal.float()
+                loss = (diff.square() * action_weights).sum() / action_weights.sum().clamp_min(
+                    1.0e-12
+                )
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             if self.config.optimization.grad_clip > 0.0:
@@ -765,10 +800,26 @@ class DeepCFRTrainer:
                 + time.perf_counter()
                 - sample_started
             )
-            x, y, legal = self._batch_tensors(batch)
+            x, y, legal, sample_iterations = self._batch_tensors(batch)
             logits = network(x).masked_fill(~legal, torch.finfo(torch.float32).min)
             log_probs = nn.functional.log_softmax(logits, dim=-1).masked_fill(~legal, 0.0)
-            loss = -(y * log_probs).sum(dim=-1).mean()
+            per_sample_loss = -(y * log_probs).sum(dim=-1)
+            if self.config.training_weighting.mode == "none":
+                loss = per_sample_loss.mean()
+            elif self.config.training_weighting.mode == "lcfr":
+                sample_weights = self._iteration_weights(
+                    sample_iterations, self.config.training_weighting.lcfr_alpha
+                )
+                loss = (per_sample_loss * sample_weights).sum() / sample_weights.sum().clamp_min(
+                    1.0e-12
+                )
+            else:
+                sample_weights = self._iteration_weights(
+                    sample_iterations, self.config.training_weighting.dcfr_gamma
+                )
+                loss = (per_sample_loss * sample_weights).sum() / sample_weights.sum().clamp_min(
+                    1.0e-12
+                )
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             if self.config.optimization.grad_clip > 0.0:

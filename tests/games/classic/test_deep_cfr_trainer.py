@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 import numpy as np
+import torch
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import encode_info_state, input_dim
 from coolrl_lost_cities.games.classic.deep_cfr.traversal import CythonDeepCFRTraverser
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
@@ -65,6 +66,7 @@ def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
     assert config.evaluation.device == "trainer"
     assert config.evaluation.resolved_num_workers() == 4
     assert config.regret_matching.all_negative_fallback == "uniform"
+    assert config.training_weighting.mode == "none"
     assert config.checkpoint.save_iteration_interval == 10
     assert (
         config.checkpoint.directory == "runs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability"
@@ -86,6 +88,7 @@ def test_deep_cfr_train_cli_count_overrides_disable_duration_limits() -> None:
             "eval_every": None,
             "eval_games": None,
             "regret_fallback": "argmax_tiebreak",
+            "training_weighting": "lcfr",
             "no_save": True,
             "save_latest_only": False,
             "save_iteration_interval": None,
@@ -103,6 +106,7 @@ def test_deep_cfr_train_cli_count_overrides_disable_duration_limits() -> None:
     assert overridden.traversal.resolved_traversals_per_player() == 1
     assert overridden.traversal.resolved_num_workers() == 0
     assert overridden.regret_matching.all_negative_fallback == "argmax_tiebreak"
+    assert overridden.training_weighting.mode == "lcfr"
     assert overridden.checkpoint.save_every_iteration is False
     assert overridden.checkpoint.save_latest is False
 
@@ -122,6 +126,7 @@ def test_deep_cfr_train_cli_checkpoint_save_overrides() -> None:
             "eval_every": None,
             "eval_games": None,
             "regret_fallback": None,
+            "training_weighting": None,
             "no_save": False,
             "save_latest_only": True,
             "save_iteration_interval": 1,
@@ -135,6 +140,26 @@ def test_deep_cfr_train_cli_checkpoint_save_overrides() -> None:
     assert overridden.checkpoint.save_latest_only is True
     assert overridden.checkpoint.save_every_iteration is False
     assert overridden.checkpoint.save_iteration_interval == 1
+
+
+def test_deep_cfr_iteration_weights_use_sample_age() -> None:
+    trainer = DeepCFRTrainer(
+        _deep_cfr_config(
+            {
+                "run": {"iterations": 1, "seed": 12},
+                "network": {"hidden_size": 16},
+                "checkpoint": {"save_every_iteration": False},
+                "training_weighting": {"mode": "lcfr", "lcfr_alpha": 1.0},
+            }
+        ),
+        LostCitiesConfig(seed=12),
+    )
+    trainer.iteration = 10
+
+    weights = trainer._iteration_weights(torch.tensor([1.0, 5.0, 10.0], device=trainer.device), 1.0)
+
+    assert np.allclose(weights.detach().cpu().numpy(), np.asarray([0.1, 0.5, 1.0]))
+    assert trainer.config.training_weighting.mode == "lcfr"
 
 
 def test_deep_cfr_batched_evaluation_matches_batch_size_one() -> None:
@@ -291,6 +316,37 @@ def test_deep_cfr_trainer_smoke_run() -> None:
     assert metrics[0].traversal_avg_endpoint_depth >= 0.0
     assert metrics[0].advantage_loss >= 0.0
     assert metrics[0].strategy_loss >= 0.0
+
+
+def test_deep_cfr_trainer_supports_lcfr_and_dcfr_loss_weighting() -> None:
+    for mode in ("lcfr", "dcfr"):
+        trainer = DeepCFRTrainer(
+            _deep_cfr_config(
+                {
+                    "run": {"iterations": 1, "seed": 24},
+                    "network": {"hidden_size": 16},
+                    "traversal": {
+                        "traversals_per_iteration": 1,
+                        "max_depth": 2,
+                        "max_nodes": 32,
+                    },
+                    "optimization": {
+                        "advantage_train_steps": 1,
+                        "strategy_train_steps": 1,
+                        "batch_size": 2,
+                    },
+                    "training_weighting": {"mode": mode},
+                    "checkpoint": {"save_every_iteration": False},
+                }
+            ),
+            LostCitiesConfig(seed=24),
+        )
+
+        metrics = trainer.train()
+
+        assert len(metrics) == 1
+        assert metrics[0].advantage_loss >= 0.0
+        assert metrics[0].strategy_loss >= 0.0
 
 
 def test_deep_cfr_cython_traverser_restores_state_and_collects_samples() -> None:

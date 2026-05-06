@@ -175,6 +175,22 @@ class RegretMatchingConfig(StrictModel):
         return token
 
 
+class TrainingWeightingConfig(StrictModel):
+    mode: str = "none"
+    lcfr_alpha: float = 1.0
+    dcfr_alpha: float = 1.5
+    dcfr_beta: float = 0.0
+    dcfr_gamma: float = 2.0
+
+    @field_validator("mode")
+    @classmethod
+    def _validate_mode(cls, value: str) -> str:
+        token = value.strip().lower()
+        if token not in {"none", "lcfr", "dcfr"}:
+            raise ValueError("must be 'none', 'lcfr', or 'dcfr'")
+        return token
+
+
 class SelfPlayLeagueConfig(StrictModel):
     snapshot_every: int = 1
     max_snapshots: int = 20
@@ -281,6 +297,7 @@ class DeepCFRConfig(StrictModel):
     network: NetworkConfig = Field(default_factory=NetworkConfig)
     traversal: TraversalConfig = Field(default_factory=TraversalConfig)
     regret_matching: RegretMatchingConfig = Field(default_factory=RegretMatchingConfig)
+    training_weighting: TrainingWeightingConfig = Field(default_factory=TrainingWeightingConfig)
     self_play: SelfPlayLeagueConfig = Field(default_factory=SelfPlayLeagueConfig)
     optimization: OptimizationConfig = Field(default_factory=OptimizationConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)

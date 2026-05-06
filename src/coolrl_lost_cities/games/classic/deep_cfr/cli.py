@@ -88,6 +88,8 @@ def _train_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
         overrides.setdefault("evaluation", {})["games"] = args.eval_games
     if args.regret_fallback is not None:
         overrides.setdefault("regret_matching", {})["all_negative_fallback"] = args.regret_fallback
+    if args.training_weighting is not None:
+        overrides.setdefault("training_weighting", {})["mode"] = args.training_weighting
     if args.no_save:
         checkpoint_overrides = overrides.setdefault("checkpoint", {})
         checkpoint_overrides["save_latest"] = False
@@ -224,6 +226,11 @@ def main(argv: list[str] | None = None) -> None:
         "--regret-fallback",
         choices=("uniform", "argmax_tiebreak"),
         help="Override regret_matching.all_negative_fallback.",
+    )
+    train.add_argument(
+        "--training-weighting",
+        choices=("none", "lcfr", "dcfr"),
+        help="Override training_weighting.mode.",
     )
     train.add_argument("--seed", type=int)
     train.add_argument("--no-save", action="store_true")
