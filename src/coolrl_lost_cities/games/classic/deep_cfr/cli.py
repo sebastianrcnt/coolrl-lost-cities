@@ -86,6 +86,8 @@ def _train_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
         overrides.setdefault("evaluation", {})["eval_every"] = args.eval_every
     if args.eval_games is not None:
         overrides.setdefault("evaluation", {})["games"] = args.eval_games
+    if args.regret_fallback is not None:
+        overrides.setdefault("regret_matching", {})["all_negative_fallback"] = args.regret_fallback
     if args.no_save:
         checkpoint_overrides = overrides.setdefault("checkpoint", {})
         checkpoint_overrides["save_latest"] = False
@@ -218,6 +220,11 @@ def main(argv: list[str] | None = None) -> None:
     train.add_argument("--device")
     train.add_argument("--eval-every", type=int)
     train.add_argument("--eval-games", type=int)
+    train.add_argument(
+        "--regret-fallback",
+        choices=("uniform", "argmax_tiebreak"),
+        help="Override regret_matching.all_negative_fallback.",
+    )
     train.add_argument("--seed", type=int)
     train.add_argument("--no-save", action="store_true")
     train.add_argument("--save-latest-only", action="store_true")

@@ -294,6 +294,9 @@ class DeepCFRTrainer:
         for player, memory in enumerate(self.advantage_memories):
             self._runtime_metrics[f"advantage_player_{player}_memory_size"] = len(memory)
         self._runtime_metrics["strategy_memory_size"] = len(self.strategy_memory)
+        for key, value in total_stats.to_dict().items():
+            if key.startswith("traversal_regret_") or key == "traversal_sampled_actions":
+                self._runtime_metrics[key] = value
         return IterationMetrics(
             iteration=iteration,
             advantage_samples=self._advantage_memory_size(),
@@ -354,6 +357,7 @@ class DeepCFRTrainer:
                 cutoff_rollout_policy=self.config.traversal.cutoff_rollout_policy,
                 cutoff_rollout_max_steps=self.config.traversal.cutoff_rollout_max_steps,
                 opponent_policy=self.config.traversal.opponent_policy,
+                all_negative_fallback=self.config.regret_matching.all_negative_fallback,
                 league_advantage_networks=league_networks,
                 self_play_anchor_probability=self.config.self_play.anchor_probability,
                 self_play_current_weight=self.config.self_play.current_weight,

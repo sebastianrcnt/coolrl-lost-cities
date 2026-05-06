@@ -64,6 +64,7 @@ def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
     assert config.evaluation.resolved_batch_size() == 64
     assert config.evaluation.device == "trainer"
     assert config.evaluation.resolved_num_workers() == 4
+    assert config.regret_matching.all_negative_fallback == "uniform"
     assert config.checkpoint.save_iteration_interval == 10
     assert (
         config.checkpoint.directory == "runs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability"
@@ -84,6 +85,7 @@ def test_deep_cfr_train_cli_count_overrides_disable_duration_limits() -> None:
             "checkpoint_dir": None,
             "eval_every": None,
             "eval_games": None,
+            "regret_fallback": "argmax_tiebreak",
             "no_save": True,
             "save_latest_only": False,
             "save_iteration_interval": None,
@@ -100,6 +102,7 @@ def test_deep_cfr_train_cli_count_overrides_disable_duration_limits() -> None:
     assert overridden.traversal.traversals_per_player is None
     assert overridden.traversal.resolved_traversals_per_player() == 1
     assert overridden.traversal.resolved_num_workers() == 0
+    assert overridden.regret_matching.all_negative_fallback == "argmax_tiebreak"
     assert overridden.checkpoint.save_every_iteration is False
     assert overridden.checkpoint.save_latest is False
 
@@ -118,6 +121,7 @@ def test_deep_cfr_train_cli_checkpoint_save_overrides() -> None:
             "checkpoint_dir": None,
             "eval_every": None,
             "eval_games": None,
+            "regret_fallback": None,
             "no_save": False,
             "save_latest_only": True,
             "save_iteration_interval": 1,
@@ -386,6 +390,57 @@ def test_deep_cfr_cython_traverser_supports_outcome_sampling_and_rollout_cutoffs
     unsampled_legal = sample.legal_mask.copy()
     unsampled_legal[np.nonzero(sample.target)[0]] = False
     assert np.all(sample.target[unsampled_legal] == 0.0)
+
+
+def test_deep_cfr_cython_traverser_records_regret_fallback_metrics() -> None:
+    trainer = DeepCFRTrainer(
+        _deep_cfr_config(
+            {
+                "run": {"iterations": 1, "seed": 37},
+                "network": {"hidden_size": 16},
+                "traversal": {"traversals_per_iteration": 1, "max_depth": 1},
+                "optimization": {"batch_size": 2},
+                "checkpoint": {"save_every_iteration": False},
+                "regret_matching": {"all_negative_fallback": "argmax_tiebreak"},
+            }
+        ),
+        LostCitiesConfig(seed=37),
+    )
+    for network in trainer.advantage_networks:
+        for parameter in network.parameters():
+            parameter.data.zero_()
+    state = GameState.new_game(LostCitiesConfig(seed=37), seed=37)
+    traverser = CythonDeepCFRTraverser(
+        trainer.advantage_networks,
+        device=trainer.device,
+        action_size=trainer.action_size,
+        max_depth=1,
+        all_negative_fallback="argmax_tiebreak",
+        seed=37,
+    )
+
+    _, stats = traverser.traverse(state, traverser=0, iteration=1)
+    metrics = stats.to_dict()
+    action_count_sum = (
+        stats.regret_fallback_action_play_existing
+        + stats.regret_fallback_action_open_new
+        + stats.regret_fallback_action_discard
+        + stats.regret_fallback_action_draw_deck
+        + stats.regret_fallback_action_draw_pile
+    )
+
+    assert stats.regret_matching_decisions > 0
+    assert stats.regret_fallback_count > 0
+    assert action_count_sum == stats.regret_fallback_count
+    assert metrics["traversal_regret_fallback_rate"] > 0.0
+    assert "traversal_regret_fallback_open_new_selected_rate" in metrics
+    assert metrics["traversal_regret_fallback_legal_actions_mean"] > 0.0
+    assert "traversal_regret_fallback_open_new_available_rate" in metrics
+    assert "traversal_regret_fallback_open_new_selection_over_availability" in metrics
+    assert "traversal_regret_fallback_depth_bucket_0_49" in metrics
+    assert "traversal_regret_fallback_opened_colors_count_0" in metrics
+    assert metrics["traversal_regret_fallback_argmax_tie_rate"] > 0.0
+    assert metrics["traversal_regret_fallback_argmax_tie_size_mean"] > 0.0
 
 
 def test_reservoir_memory_caps_samples_and_filters_player_batches() -> None:

@@ -100,6 +100,7 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
         cutoff_rollout_policy=cfg.traversal.cutoff_rollout_policy,
         cutoff_rollout_max_steps=cfg.traversal.cutoff_rollout_max_steps,
         opponent_policy=cfg.traversal.opponent_policy,
+        all_negative_fallback=cfg.regret_matching.all_negative_fallback,
         league_advantage_networks=league_networks,
         self_play_anchor_probability=cfg.self_play.anchor_probability,
         self_play_current_weight=cfg.self_play.current_weight,

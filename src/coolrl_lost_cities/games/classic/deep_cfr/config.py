@@ -163,6 +163,18 @@ class TraversalConfig(StrictModel):
         return max(1, int(self.worker_chunk_size))
 
 
+class RegretMatchingConfig(StrictModel):
+    all_negative_fallback: str = "uniform"
+
+    @field_validator("all_negative_fallback")
+    @classmethod
+    def _validate_all_negative_fallback(cls, value: str) -> str:
+        token = value.strip().lower()
+        if token not in {"uniform", "argmax_tiebreak"}:
+            raise ValueError("must be 'uniform' or 'argmax_tiebreak'")
+        return token
+
+
 class SelfPlayLeagueConfig(StrictModel):
     snapshot_every: int = 1
     max_snapshots: int = 20
@@ -268,6 +280,7 @@ class DeepCFRConfig(StrictModel):
     encoding: EncodingConfig = Field(default_factory=EncodingConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)
     traversal: TraversalConfig = Field(default_factory=TraversalConfig)
+    regret_matching: RegretMatchingConfig = Field(default_factory=RegretMatchingConfig)
     self_play: SelfPlayLeagueConfig = Field(default_factory=SelfPlayLeagueConfig)
     optimization: OptimizationConfig = Field(default_factory=OptimizationConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)

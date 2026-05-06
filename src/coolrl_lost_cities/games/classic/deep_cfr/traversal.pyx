@@ -88,6 +88,10 @@ cdef class CythonDeepCFRTraverser:
     cdef int cutoff_rollouts
     cdef int cutoff_rollout_max_steps
     cdef int opponent_policy_id
+    cdef int all_negative_fallback_id
+    cdef bint last_policy_regret_fallback
+    cdef int last_policy_argmax_tie_size
+    cdef bint last_policy_argmax_full_tie
     cdef float self_play_anchor_probability
     cdef float self_play_current_weight
     cdef float self_play_recent_weight
@@ -123,6 +127,7 @@ cdef class CythonDeepCFRTraverser:
         str cutoff_rollout_policy="random",
         int cutoff_rollout_max_steps=10000,
         str opponent_policy="network",
+        str all_negative_fallback="uniform",
         object league_advantage_networks=None,
         float self_play_anchor_probability=0.0,
         float self_play_current_weight=0.5,
@@ -182,6 +187,15 @@ cdef class CythonDeepCFRTraverser:
             self.opponent_policy_id = 2
         else:
             raise ValueError("opponent_policy must be 'network', 'safe_heuristic', or 'self_play_league'")
+        if all_negative_fallback == "uniform":
+            self.all_negative_fallback_id = 0
+        elif all_negative_fallback == "argmax_tiebreak":
+            self.all_negative_fallback_id = 1
+        else:
+            raise ValueError("all_negative_fallback must be 'uniform' or 'argmax_tiebreak'")
+        self.last_policy_regret_fallback = False
+        self.last_policy_argmax_tie_size = 0
+        self.last_policy_argmax_full_tie = False
         self.league_advantage_networks = [] if league_advantage_networks is None else league_advantage_networks
         self.self_play_anchor_probability = min(1.0, max(0.0, self_play_anchor_probability))
         self.self_play_current_weight = max(0.0, self_play_current_weight)
@@ -247,6 +261,9 @@ cdef class CythonDeepCFRTraverser:
         cdef float sampling_policy[MAX_ACTIONS]
         cdef unsigned char legal[MAX_ACTIONS]
         cdef object info_state
+        cdef bint policy_regret_fallback
+        cdef int policy_argmax_tie_size
+        cdef bint policy_argmax_full_tie
 
         stats.nodes += 1
         if depth > stats.max_depth_reached:
@@ -266,7 +283,7 @@ cdef class CythonDeepCFRTraverser:
             return self._cutoff_value(state, traverser, stats)
 
         player = state.current_player
-        fixed_action = self._fixed_opponent_action(state, player, traverser)
+        fixed_action = self._fixed_opponent_action(state, player, traverser, depth, stats)
         if fixed_action >= 0:
             fixed_unified_action = self._to_unified_action_c(state, fixed_action)
             swapped_deck_index = self._sample_deck_draw_chance(state, fixed_unified_action)
@@ -279,6 +296,9 @@ cdef class CythonDeepCFRTraverser:
                     state._swap_deck_cards_c(swapped_deck_index, state.deck_len - 1)
 
         info_state = self._policy(state, player, legal, policy)
+        policy_regret_fallback = self.last_policy_regret_fallback
+        policy_argmax_tie_size = self.last_policy_argmax_tie_size
+        policy_argmax_full_tie = self.last_policy_argmax_full_tie
         self._record_strategy(info_state, legal, policy, player, traverser, iteration, depth, stats)
 
         legal_count = 0
@@ -304,6 +324,16 @@ cdef class CythonDeepCFRTraverser:
                 state._swap_deck_cards_c(swapped_deck_index, state.deck_len - 1)
 
         stats.sampled_actions += 1
+        self._record_regret_matching_decision(
+            stats,
+            state,
+            player,
+            action,
+            depth,
+            policy_regret_fallback,
+            policy_argmax_tie_size,
+            policy_argmax_full_tie,
+        )
         action_prob = sampling_policy[action]
         if action_prob < self.epsilon:
             action_prob = self.epsilon
@@ -350,6 +380,12 @@ cdef class CythonDeepCFRTraverser:
         cdef int actions[MAX_ACTIONS]
         cdef int action_count
         cdef int i
+        cdef int selected
+        cdef int tie_count
+        cdef int max_tie_count
+        cdef float positive
+        cdef float positive_sum = 0.0
+        cdef float best = 0.0
 
         info_state = np.empty(self.input_dim, dtype=np.float32)
         info_view = info_state
@@ -369,7 +405,46 @@ cdef class CythonDeepCFRTraverser:
             x = torch.as_tensor(info_state, dtype=torch.float32, device=self.device).unsqueeze(0)
             advantages = networks[player](x).squeeze(0).detach().cpu().numpy().astype(np.float32)
         adv_view = advantages
-        regret_matching_c(&adv_view[0], legal, self.action_size, self.epsilon, policy)
+        for i in range(self.action_size):
+            if legal[i] != 0:
+                positive = adv_view[i] if adv_view[i] > 0.0 else 0.0
+                positive_sum += positive
+        self.last_policy_regret_fallback = positive_sum <= self.epsilon
+        self.last_policy_argmax_tie_size = 0
+        self.last_policy_argmax_full_tie = False
+        if not self.last_policy_regret_fallback or self.all_negative_fallback_id == 0:
+            if self.last_policy_regret_fallback:
+                max_tie_count = 0
+                for i in range(self.action_size):
+                    if legal[i] == 0:
+                        continue
+                    if max_tie_count == 0 or adv_view[i] > best:
+                        best = adv_view[i]
+                        max_tie_count = 1
+                    elif adv_view[i] == best:
+                        max_tie_count += 1
+                self.last_policy_argmax_tie_size = max_tie_count
+                self.last_policy_argmax_full_tie = max_tie_count > 1 and max_tie_count == action_count
+            regret_matching_c(&adv_view[0], legal, self.action_size, self.epsilon, policy)
+        else:
+            selected = -1
+            tie_count = 0
+            for i in range(self.action_size):
+                policy[i] = 0.0
+                if legal[i] == 0:
+                    continue
+                if selected < 0 or adv_view[i] > best:
+                    selected = i
+                    best = adv_view[i]
+                    tie_count = 1
+                elif adv_view[i] == best:
+                    tie_count += 1
+                    if _next_u32(&self.rng) % <unsigned int>tie_count == 0:
+                        selected = i
+            self.last_policy_argmax_tie_size = tie_count
+            self.last_policy_argmax_full_tie = tie_count > 1 and tie_count == action_count
+            if selected >= 0:
+                policy[selected] = 1.0
         return info_state
 
     cdef void _sampling_policy(
@@ -402,7 +477,14 @@ cdef class CythonDeepCFRTraverser:
             else:
                 out_policy[i] = 0.0
 
-    cdef int _fixed_opponent_action(self, GameState state, int player, int traverser) except *:
+    cdef int _fixed_opponent_action(
+        self,
+        GameState state,
+        int player,
+        int traverser,
+        int depth,
+        object stats,
+    ) except *:
         cdef int bucket
         cdef object networks
         cdef unsigned char legal[MAX_ACTIONS]
@@ -435,7 +517,115 @@ cdef class CythonDeepCFRTraverser:
         if count <= 0:
             return -1
         unified_action = _sample_policy_from_actions_c(policy, actions, count, _next_double(&self.rng))
+        self._record_regret_matching_decision(
+            stats,
+            state,
+            player,
+            unified_action,
+            depth,
+            self.last_policy_regret_fallback,
+            self.last_policy_argmax_tie_size,
+            self.last_policy_argmax_full_tie,
+        )
         return self._from_unified_action_c(state, unified_action)
+
+    cdef void _record_regret_matching_decision(
+        self,
+        object stats,
+        GameState state,
+        int player,
+        int unified_action,
+        int depth,
+        bint fallback,
+        int argmax_tie_size,
+        bint argmax_full_tie,
+    ):
+        cdef int card_action_size = 2 * state.hand_size
+        cdef int actions[MAX_ACTIONS]
+        cdef int legal_count
+        cdef int legal_action
+        cdef int opened_colors
+        cdef int slot
+        cdef int card
+        cdef int color
+        stats.regret_matching_decisions += 1
+        if not fallback:
+            return
+        stats.regret_fallback_count += 1
+        stats.regret_fallback_depth_sum += depth
+        self._record_fallback_depth_bucket(stats, depth)
+        opened_colors = self._opened_color_count(state, player)
+        stats.regret_fallback_opened_colors_sum += opened_colors
+        stats.regret_fallback_opened_colors_buckets[opened_colors] = (
+            stats.regret_fallback_opened_colors_buckets.get(opened_colors, 0) + 1
+        )
+        if argmax_tie_size > 1:
+            stats.regret_fallback_argmax_tie_count += 1
+            stats.regret_fallback_argmax_tie_size_sum += argmax_tie_size
+        if argmax_full_tie:
+            stats.regret_fallback_argmax_full_tie_count += 1
+        legal_count = state._unified_legal_actions_c(actions)
+        stats.regret_fallback_legal_actions_sum += legal_count
+        for slot in range(legal_count):
+            legal_action = actions[slot]
+            if legal_action < card_action_size:
+                if legal_action % 2 == 1:
+                    stats.regret_fallback_legal_discard_sum += 1
+                    continue
+                card = state.hand_cards[state._hand_index(player, legal_action // 2)]
+                color = state._card_color(card)
+                if state.expedition_lens[state._expedition_len_index(player, color)] == 0:
+                    stats.regret_fallback_legal_open_new_sum += 1
+                    stats.regret_fallback_open_new_available_by_color[color] = (
+                        stats.regret_fallback_open_new_available_by_color.get(color, 0) + 1
+                    )
+                else:
+                    stats.regret_fallback_legal_play_existing_sum += 1
+                continue
+            if legal_action == card_action_size:
+                stats.regret_fallback_legal_draw_deck_sum += 1
+            else:
+                stats.regret_fallback_legal_draw_pile_sum += 1
+        if unified_action < card_action_size:
+            if unified_action % 2 == 1:
+                stats.regret_fallback_action_discard += 1
+                return
+            slot = unified_action // 2
+            card = state.hand_cards[state._hand_index(player, slot)]
+            color = state._card_color(card)
+            if state.expedition_lens[state._expedition_len_index(player, color)] == 0:
+                stats.regret_fallback_action_open_new += 1
+                stats.regret_fallback_open_new_selected_by_color[color] = (
+                    stats.regret_fallback_open_new_selected_by_color.get(color, 0) + 1
+                )
+            else:
+                stats.regret_fallback_action_play_existing += 1
+            return
+        if unified_action == card_action_size:
+            stats.regret_fallback_action_draw_deck += 1
+        else:
+            stats.regret_fallback_action_draw_pile += 1
+
+    cdef void _record_fallback_depth_bucket(self, object stats, int depth):
+        cdef int width = 50
+        cdef int max_depth = 400
+        cdef int start = (depth // width) * width
+        cdef str key
+        if start >= max_depth:
+            key = f"{max_depth}_plus"
+        else:
+            key = f"{start}_{start + width - 1}"
+        stats.regret_fallback_depth_buckets[key] = (
+            stats.regret_fallback_depth_buckets.get(key, 0) + 1
+        )
+
+    cdef int _opened_color_count(self, GameState state, int player) noexcept:
+        cdef int color
+        cdef int count = 0
+        for color in range(state.n_colors):
+            if state.expedition_lens[state._expedition_len_index(player, color)] > 0:
+                count += 1
+        return count
 
     cdef int _self_play_bucket(self) noexcept:
         cdef int recent_count
@@ -665,6 +855,7 @@ def run_cython_traversal_batch(
     str cutoff_rollout_policy="random",
     int cutoff_rollout_max_steps=10000,
     str opponent_policy="network",
+    str all_negative_fallback="uniform",
     object league_advantage_networks=None,
     float self_play_anchor_probability=0.0,
     float self_play_current_weight=0.5,
@@ -700,6 +891,7 @@ def run_cython_traversal_batch(
         cutoff_rollout_policy=cutoff_rollout_policy,
         cutoff_rollout_max_steps=cutoff_rollout_max_steps,
         opponent_policy=opponent_policy,
+        all_negative_fallback=all_negative_fallback,
         league_advantage_networks=league_advantage_networks,
         self_play_anchor_probability=self_play_anchor_probability,
         self_play_current_weight=self_play_current_weight,
