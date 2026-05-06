@@ -28,6 +28,17 @@ Implemented:
 15. Random and safe-heuristic cutoff rollout policies.
 16. Deck-draw chance sampling with state restoration.
 
+Important implementation note:
+
+- The active training path still uses the Python recursive implementation in
+  `deep_cfr/traverser.py`.
+- `deep_cfr/traversal.pyx` exists, but it currently provides Cython traversal
+  primitives for random rollouts and root action value smoke runs. It is not yet
+  the full Deep CFR traversal backend used by the trainer.
+- The rules engine (`game.pyx`), encoding (`encoding.pyx`), and regret-matching
+  math (`cfr_math.pyx`) are Cythonized, but the Deep CFR tree-walking hot loop is
+  still Python.
+
 ### Training And Memory
 
 Implemented:
@@ -108,9 +119,59 @@ Still smaller than legacy:
 
 These remaining items are not blockers for running and iterating on Deep CFR v0.
 
+## Performance-Critical Gap
+
+This repository was split out to pursue much higher Lost Cities training
+performance. From that perspective, the main remaining gap is not feature
+parity with legacy `../coolrl`; it is the traversal backend.
+
+Current state:
+
+1. `GameState` mutation, legal-action generation, apply/undo, and cached scoring
+   are implemented in Cython.
+2. Information-state encoding and regret matching have Cython modules.
+3. Full Deep CFR traversal is still Python recursive.
+4. The trainer calls `DeepCFRTraverser` from `deep_cfr/traverser.py`, not a full
+   Cython Deep CFR traversal backend.
+5. A recursion-limit guard is present so full-depth runs with node budgets can
+   execute, but this is an execution safety guard rather than a performance
+   solution.
+
+Recommended performance roadmap:
+
+1. Add `traversal.backend: python | cython` to config.
+2. Keep `traverser.py` as the reference/debug Python traversal.
+3. Implement a Cython Deep CFR traversal entrypoint in `traversal.pyx`.
+4. Move the tree-walking hot path to Cython:
+   - C-level legal action enumeration
+   - C-level push/pop undo
+   - terminal, depth cutoff, and node-budget cutoff
+   - traverser/opponent node handling
+   - outcome sampling
+   - sampled action value correction
+   - instantaneous regret calculation
+   - strategy sample collection
+   - traversal stats collection
+5. Initially allow Cython traversal to call Python/PyTorch policy callbacks and
+   Python reservoir memories.
+6. Then reduce Python boundary costs with batched memory writes.
+7. After that, evaluate batched network inference for policy calls.
+8. Consider an explicit Cython iterative stack only after the Cython recursive
+   backend is correct and benchmarked.
+
+Python iterative traversal is not the preferred performance path. It would
+remove Python recursion-limit risk, but it would keep most Python object and
+callback overhead in the hot loop. For performance, the next serious step is a
+Cython Deep CFR traversal backend.
+
 ## Suggested Next Steps
 
-1. Add W&B/JSONL tracker abstraction on top of the existing local run files.
-2. Add a status/plot command that reads `metrics.jsonl`.
-3. Add worker progress logging and hotspot timing profile.
-4. Add W&B checkpoint artifacts after checkpoint quality is stable.
+1. Add a Cython Deep CFR traversal backend behind a config switch.
+2. Add Python-vs-Cython traversal parity tests for state restoration and sample
+   shape/count invariants.
+3. Add benchmark output that directly compares Python and Cython traversal
+   throughput.
+4. Add batched memory writes after the Cython backend is correct.
+5. Add a status/plot command that reads `metrics.jsonl`.
+6. Add worker progress logging and hotspot timing profile.
+7. Add W&B checkpoint artifacts after checkpoint quality is stable.
