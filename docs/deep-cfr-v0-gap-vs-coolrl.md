@@ -84,6 +84,10 @@ Implemented:
 11. Self-play league snapshots.
 12. Self-play league opponent selection from stored snapshots.
 13. Safe-heuristic anchor opponent path.
+14. Weighted current/recent/older/anchor self-play league buckets.
+15. Safe-heuristic imitation pretraining.
+16. Policy-gradient fine-tuning.
+17. Single-vs-multiprocessing benchmark comparison.
 
 ## Remaining Differences From Legacy coolrl
 
@@ -96,19 +100,11 @@ Still smaller than legacy:
 1. Config is a single `DeepCFRConfig` dataclass rather than a deeply nested
    YAML-first config tree.
 2. Multiprocessing exists, but it is intentionally simple:
-   - no auto worker-count resolver
    - no progress callback per worker batch
    - no hotspot timing profile
 3. Metrics logging exists, but no plotting/status command exists yet.
 4. Checkpoint artifacts are local only; W&B artifact integration is not added.
-5. Self-play league is simpler than legacy:
-   - snapshot sampling exists
-   - safe anchor path exists
-   - weighted recent/older/current buckets are not implemented
-6. Legacy side experiments are not ported:
-   - imitation/pretraining commands
-   - policy-gradient fine-tuning commands
-   - legacy visualization helpers
+5. Legacy visualization helpers are not ported.
 
 These remaining items are not blockers for running and iterating on Deep CFR v0.
 
@@ -116,6 +112,5 @@ These remaining items are not blockers for running and iterating on Deep CFR v0.
 
 1. Add W&B/JSONL tracker abstraction on top of the existing local run files.
 2. Add a status/plot command that reads `metrics.jsonl`.
-3. Add richer benchmark output comparing single-process and multiprocessing.
-4. Add weighted self-play league bucket selection if experiments need it.
-5. Add W&B checkpoint artifacts after checkpoint quality is stable.
+3. Add worker progress logging and hotspot timing profile.
+4. Add W&B checkpoint artifacts after checkpoint quality is stable.
