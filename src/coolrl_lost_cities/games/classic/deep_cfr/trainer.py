@@ -20,7 +20,7 @@ from coolrl_lost_cities.games.classic.deep_cfr.encoding import input_dim
 from coolrl_lost_cities.games.classic.deep_cfr.evaluate import evaluate_strategy_network
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.networks import DeepCFRMLP
-from coolrl_lost_cities.games.classic.deep_cfr.run_logger import FileRunLogger, RunLogger
+from coolrl_lost_cities.games.classic.deep_cfr.tracking import FileRunTracker, RunTracker
 from coolrl_lost_cities.games.classic.deep_cfr.traverser import DeepCFRTraverser, TraversalStats
 from coolrl_lost_cities.games.classic.deep_cfr.workers import (
     TraversalWorkerBatch,
@@ -78,6 +78,28 @@ class IterationMetrics:
         return data
 
 
+def _format_iteration_summary(metrics: IterationMetrics, data: dict[str, float | int]) -> str:
+    parts = [
+        "Iteration complete:",
+        f"iteration={metrics.iteration}",
+        f"traversal_nodes={metrics.traversal_nodes}",
+        f"nodes_per_second={_format_summary_value(data['nodes_per_second'])}",
+        f"advantage_loss={_format_summary_value(metrics.advantage_loss)}",
+        f"strategy_loss={_format_summary_value(metrics.strategy_loss)}",
+        f"iteration_seconds={_format_summary_value(data['iteration_seconds'])}",
+    ]
+    for key in sorted(metrics.eval_metrics):
+        if key.endswith("_win_rate0") or key.endswith("_avg_score_diff0"):
+            parts.append(f"{key}={_format_summary_value(metrics.eval_metrics[key])}")
+    return " ".join(parts)
+
+
+def _format_summary_value(value: float | int) -> str:
+    if isinstance(value, float):
+        return f"{value:.6g}"
+    return str(value)
+
+
 class DeepCFRTrainer:
     def __init__(
         self,
@@ -85,7 +107,7 @@ class DeepCFRTrainer:
         game_config: LostCitiesConfig | None = None,
         *,
         device: str = "cpu",
-        run_logger: RunLogger | None = None,
+        tracker: RunTracker | None = None,
     ) -> None:
         self.config = config or DeepCFRConfig()
         self.game_config = game_config or self.config.rules.to_lost_cities_config(
@@ -128,7 +150,11 @@ class DeepCFRTrainer:
         self.metrics_path = self.run_dir / "metrics.jsonl"
         self.progress_path = self.run_dir / "runtime_progress.json"
         self.log_path = self.run_dir / "train.log"
-        self.run_logger = run_logger or FileRunLogger(self.log_path)
+        self.tracker = tracker or FileRunTracker(
+            log_path=self.log_path,
+            metrics_path=self.metrics_path,
+            progress_path=self.progress_path,
+        )
         self.self_play_league_snapshots: list[list[dict]] = []
 
     def checkpoint_payload(self, metrics: IterationMetrics | None = None) -> dict:
@@ -243,7 +269,7 @@ class DeepCFRTrainer:
                 completed += 1
                 if progress_every > 0 and completed % progress_every == 0:
                     elapsed = time.perf_counter() - progress_started
-                    self.run_logger.info(
+                    self.tracker.log_event(
                         f"Traversal progress iteration={iteration} completed={completed} "
                         f"elapsed_seconds={elapsed:.2f} total_nodes={total_stats.nodes} "
                         f"nodes_per_second={total_stats.nodes / max(elapsed, 1.0e-12):.1f}"
@@ -257,13 +283,13 @@ class DeepCFRTrainer:
             return total_stats
         requested_workers = self.config.traversal.resolved_num_workers()
         max_workers = self.config.traversal.resolved_num_workers(len(batches))
-        self.run_logger.info(
+        self.tracker.log_event(
             f"Traversal multiprocessing enabled iteration={iteration} "
             f"requested_workers={requested_workers} effective_workers={max_workers} "
             f"batches={len(batches)} chunk_size={self.config.traversal.resolved_worker_chunk_size()}"
         )
         if max_workers < requested_workers:
-            self.run_logger.info(
+            self.tracker.log_event(
                 f"Traversal worker count capped iteration={iteration} "
                 f"requested_workers={requested_workers} effective_workers={max_workers} "
                 f"available_batches={len(batches)}"
@@ -288,7 +314,7 @@ class DeepCFRTrainer:
                 progress_traversals += result.traversals
                 if next_progress_at is not None and progress_traversals >= next_progress_at:
                     elapsed = time.perf_counter() - progress_started
-                    self.run_logger.info(
+                    self.tracker.log_event(
                         f"Traversal multiprocessing progress iteration={iteration} "
                         f"completed_batches={completed_batches}/{total_batches} "
                         f"completed_traversals={progress_traversals} elapsed_seconds={elapsed:.2f} "
@@ -423,7 +449,7 @@ class DeepCFRTrainer:
             )
         if self.iteration == 0 and self.metrics_path.exists():
             self.metrics_path.unlink()
-        self.run_logger.info(
+        self.tracker.log_event(
             f"Deep CFR run start iteration={self.iteration} seed={self.config.run.seed}"
         )
 
@@ -431,14 +457,8 @@ class DeepCFRTrainer:
         data = metrics.to_dict()
         data["iteration_seconds"] = iteration_seconds
         data["nodes_per_second"] = metrics.traversal_nodes / max(iteration_seconds, 1.0e-12)
-        with self.metrics_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(data, sort_keys=True) + "\n")
-        self.progress_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
-        self.run_logger.info(
-            f"iteration={metrics.iteration} nodes={metrics.traversal_nodes} "
-            f"adv_loss={metrics.advantage_loss:.6f} "
-            f"strategy_loss={metrics.strategy_loss:.6f} seconds={iteration_seconds:.3f}"
-        )
+        self.tracker.log_metrics(data, step=metrics.iteration)
+        self.tracker.log_event(_format_iteration_summary(metrics, data))
 
     def _evaluate(self, iteration: int) -> dict[str, float | int]:
         if (
