@@ -27,6 +27,15 @@ For future GUI work, install the optional GUI dependencies:
 uv sync --extra gui
 ```
 
+Run the classic pygame GUI:
+
+```bash
+uv run lost-cities-classic-gui --mode pvc --bot safe-heuristic
+```
+
+The GUI currently uses the Python backend only. The Rust core remains covered by
+parity tests and is not exposed as a GUI backend.
+
 ## Basic Usage
 
 ```python

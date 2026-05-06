@@ -19,6 +19,7 @@ gui = [
 
 [project.scripts]
 lost-cities-classic = "coolrl_lost_cities.games.classic:main"
+lost-cities-classic-gui = "coolrl_lost_cities.games.classic.pygame_pvp:main"
 
 [dependency-groups]
 dev = [
