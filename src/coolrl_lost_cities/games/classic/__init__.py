@@ -4,8 +4,6 @@ from .bots import (
     LostCitiesBot,
     available_bot_names,
     build_bot,
-    play_game,
-    run_series,
 )
 from .env import LostCitiesEnv
 from .evaluation import (
@@ -38,10 +36,8 @@ __all__ = [
     "classic_config",
     "evaluate_bot",
     "make_bot_factory",
-    "play_game",
     "play_game_for_evaluation",
     "play_match",
-    "run_series",
 ]
 
 

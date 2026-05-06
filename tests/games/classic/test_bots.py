@@ -4,9 +4,9 @@ from coolrl_lost_cities.games.classic.bots import (
     LostCitiesBot,
     RandomBot,
     SafeHeuristicBot,
-    play_game,
 )
 from coolrl_lost_cities.games.classic.bots.heuristic import draw_from_discard_action
+from coolrl_lost_cities.games.classic.evaluation import play_game_for_evaluation
 
 
 def test_builtin_bots_implement_lost_cities_bot() -> None:
@@ -15,7 +15,7 @@ def test_builtin_bots_implement_lost_cities_bot() -> None:
 
 
 def test_safe_heuristic_mirror_match_finishes() -> None:
-    state = play_game(
+    state, result = play_game_for_evaluation(
         SafeHeuristicBot(),
         SafeHeuristicBot(),
         LostCitiesConfig(n_colors=3, n_ranks=5, n_handshakes=1, hand_size=5),
@@ -23,6 +23,7 @@ def test_safe_heuristic_mirror_match_finishes() -> None:
         max_steps=200,
     )
     assert state.terminal is True
+    assert result.timed_out is False
 
 
 def test_safe_heuristic_opponent_value_ignores_hidden_hand() -> None:
