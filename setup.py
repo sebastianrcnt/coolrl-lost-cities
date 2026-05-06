@@ -13,7 +13,11 @@ extensions = cythonize(
         Extension(
             "coolrl_lost_cities.games.classic.game",
             ["src/coolrl_lost_cities/games/classic/game.pyx"],
-        )
+        ),
+        Extension(
+            "coolrl_lost_cities.games.classic.engines.fast",
+            ["src/coolrl_lost_cities/games/classic/engines/fast.pyx"],
+        ),
     ],
     language_level=3,
     compiler_directives={

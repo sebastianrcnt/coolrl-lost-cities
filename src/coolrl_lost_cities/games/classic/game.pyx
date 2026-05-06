@@ -1,4 +1,11 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True, initializedcheck=False
+"""Deprecated compatibility rules engine for Lost Cities classic.
+
+This module remains the public engine while the replacement fast engine is
+developed under ``coolrl_lost_cities.games.classic.engines``. New traversal,
+simulation, and training work should target the fast engine once it exists.
+"""
+
 from collections import Counter
 from dataclasses import dataclass, fields
 import random
@@ -10,6 +17,7 @@ cimport cython
 
 
 Phase = Literal["card", "draw"]
+DEPRECATED_ENGINE = True
 
 
 class IllegalMoveError(ValueError):

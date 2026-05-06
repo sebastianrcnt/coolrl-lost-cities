@@ -44,6 +44,9 @@ include = ["coolrl_lost_cities*"]
     "fixtures/*.json",
     "docs/*.md",
 ]
+"coolrl_lost_cities.games.classic.engines" = [
+    "*.pyx",
+]
 
 [tool.ruff]
 line-length = 100
