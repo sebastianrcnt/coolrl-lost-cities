@@ -77,6 +77,13 @@ class DeepCFRTrainer:
             store_strategy_on_opponent_nodes=self.config.store_strategy_on_opponent_nodes,
             max_depth=self.config.max_traversal_depth,
             max_nodes=self.config.max_nodes_per_traversal,
+            outcome_sampling_epsilon=self.config.outcome_sampling_epsilon,
+            outcome_sampling_value_clip=self.config.outcome_sampling_value_clip,
+            outcome_unsampled_regret=self.config.outcome_unsampled_regret,
+            cutoff_value_mode=self.config.cutoff_value_mode,
+            cutoff_rollouts=self.config.cutoff_rollouts,
+            cutoff_rollout_policy=self.config.cutoff_rollout_policy,
+            cutoff_rollout_max_steps=self.config.cutoff_rollout_max_steps,
             rng=self.rng,
         )
         for network in self.advantage_networks:

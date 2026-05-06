@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
+from coolrl_lost_cities.games.classic.bots import SafeHeuristicBot
 from coolrl_lost_cities.games.classic.deep_cfr.cfr_math import regret_matching
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import encode_info_state
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
@@ -21,6 +22,9 @@ class TraversalStats:
     advantage_samples: int = 0
     strategy_samples: int = 0
     sampled_actions: int = 0
+    cutoff_rollouts: int = 0
+    cutoff_rollout_steps: int = 0
+    cutoff_rollout_timeouts: int = 0
     endpoint_depth_sum: int = 0
     endpoint_depth_buckets: dict[str, int] = field(default_factory=dict)
 
@@ -33,6 +37,9 @@ class TraversalStats:
         self.advantage_samples += other.advantage_samples
         self.strategy_samples += other.strategy_samples
         self.sampled_actions += other.sampled_actions
+        self.cutoff_rollouts += other.cutoff_rollouts
+        self.cutoff_rollout_steps += other.cutoff_rollout_steps
+        self.cutoff_rollout_timeouts += other.cutoff_rollout_timeouts
         self.endpoint_depth_sum += other.endpoint_depth_sum
         for key, value in other.endpoint_depth_buckets.items():
             self.endpoint_depth_buckets[key] = self.endpoint_depth_buckets.get(key, 0) + value
@@ -55,6 +62,9 @@ class TraversalStats:
             "traversal_advantage_samples": self.advantage_samples,
             "traversal_strategy_samples": self.strategy_samples,
             "traversal_sampled_actions": self.sampled_actions,
+            "traversal_cutoff_rollouts": self.cutoff_rollouts,
+            "traversal_cutoff_rollout_steps": self.cutoff_rollout_steps,
+            "traversal_cutoff_rollout_timeouts": self.cutoff_rollout_timeouts,
             "traversal_avg_endpoint_depth": self.avg_endpoint_depth,
             **{
                 f"traversal_endpoint_depth_bucket_{key}": value
@@ -78,6 +88,13 @@ class DeepCFRTraverser:
         store_strategy_on_opponent_nodes: bool = True,
         max_depth: int | None = None,
         max_nodes: int | None = None,
+        outcome_sampling_epsilon: float = 0.0,
+        outcome_sampling_value_clip: float | None = None,
+        outcome_unsampled_regret: str = "negative_node_value",
+        cutoff_value_mode: str = "score_diff",
+        cutoff_rollouts: int = 0,
+        cutoff_rollout_policy: str = "random",
+        cutoff_rollout_max_steps: int = 10_000,
         rng: np.random.Generator | None = None,
     ) -> None:
         self.advantage_networks = advantage_networks
@@ -91,7 +108,27 @@ class DeepCFRTraverser:
         self.store_strategy_on_opponent_nodes = store_strategy_on_opponent_nodes
         self.max_depth = max_depth
         self.max_nodes = max_nodes
+        self.outcome_sampling_epsilon = min(1.0, max(0.0, float(outcome_sampling_epsilon)))
+        self.outcome_sampling_value_clip = (
+            None
+            if outcome_sampling_value_clip is None
+            else max(1.0e-9, float(outcome_sampling_value_clip))
+        )
+        self.outcome_unsampled_regret = outcome_unsampled_regret
+        if self.outcome_unsampled_regret not in {"negative_node_value", "zero"}:
+            raise ValueError("outcome_unsampled_regret must be 'negative_node_value' or 'zero'")
+        self.cutoff_value_mode = cutoff_value_mode
+        if self.cutoff_value_mode not in {"score_diff", "random_rollout"}:
+            raise ValueError("cutoff_value_mode must be 'score_diff' or 'random_rollout'")
+        self.cutoff_rollouts = max(0, int(cutoff_rollouts))
+        self.cutoff_rollout_policy = cutoff_rollout_policy
+        if self.cutoff_rollout_policy not in {"random", "safe_heuristic"}:
+            raise ValueError("cutoff_rollout_policy must be 'random' or 'safe_heuristic'")
+        self.cutoff_rollout_max_steps = max(1, int(cutoff_rollout_max_steps))
         self.rng = rng or np.random.default_rng()
+        self._safe_heuristic_rollout_bot = (
+            SafeHeuristicBot() if self.cutoff_rollout_policy == "safe_heuristic" else None
+        )
 
     def traverse(
         self, state: GameState, traverser: int, iteration: int
@@ -115,7 +152,7 @@ class DeepCFRTraverser:
         if self.max_nodes is not None and stats.nodes >= self.max_nodes:
             stats.node_limit_cutoffs += 1
             self._record_endpoint(stats, depth)
-            return float(state.score_diff(traverser))
+            return self._cutoff_value(state, traverser, stats)
         if state.terminal:
             stats.terminals += 1
             self._record_endpoint(stats, depth)
@@ -123,7 +160,7 @@ class DeepCFRTraverser:
         if self.max_depth is not None and depth >= self.max_depth:
             stats.depth_cutoffs += 1
             self._record_endpoint(stats, depth)
-            return float(state.score_diff(traverser))
+            return self._cutoff_value(state, traverser, stats)
 
         player = state.current_player
         info_state, legal, policy = self._policy(state, player)
@@ -135,8 +172,10 @@ class DeepCFRTraverser:
             self._record_endpoint(stats, depth)
             return float(state.score_diff(traverser))
 
-        action = self._sample_action(policy, legal_actions)
+        sampling_policy = self._sampling_policy(policy, legal)
+        action = self._sample_action(sampling_policy, legal_actions)
         local_action = state.from_unified_action(int(action))
+        swapped_deck_index = self._sample_deck_draw_chance(state, int(action))
         state.push_action(local_action)
         try:
             child_value = self._traverse(
@@ -148,14 +187,27 @@ class DeepCFRTraverser:
             )
         finally:
             state.pop_action()
+            if swapped_deck_index is not None:
+                state.swap_deck_cards(swapped_deck_index, len(state.deck) - 1)
 
         stats.sampled_actions += 1
-        action_prob = max(float(policy[action]), self.epsilon)
+        action_prob = max(float(sampling_policy[action]), self.epsilon)
         sampled_action_value = child_value / action_prob
+        if self.outcome_sampling_value_clip is not None:
+            sampled_action_value = float(
+                np.clip(
+                    sampled_action_value,
+                    -self.outcome_sampling_value_clip,
+                    self.outcome_sampling_value_clip,
+                )
+            )
         node_value = float(policy[action]) * sampled_action_value
 
         if player == traverser:
-            regrets = np.where(legal, -node_value, 0.0).astype(np.float32)
+            if self.outcome_unsampled_regret == "zero":
+                regrets = np.zeros_like(policy, dtype=np.float32)
+            else:
+                regrets = np.where(legal, -node_value, 0.0).astype(np.float32)
             regrets[action] = np.float32(sampled_action_value - node_value)
             self.advantage_memory.add(
                 TrainingSample(
@@ -194,6 +246,62 @@ class DeepCFRTraverser:
         else:
             probs /= total
         return int(self.rng.choice(legal_actions, p=probs))
+
+    def _sampling_policy(self, policy: np.ndarray, legal: np.ndarray) -> np.ndarray:
+        legal_count = int(np.count_nonzero(legal))
+        if legal_count <= 0:
+            return np.zeros_like(policy, dtype=np.float32)
+        if self.outcome_sampling_epsilon <= 0.0:
+            return policy.astype(np.float32)
+        uniform = legal.astype(np.float32) / float(legal_count)
+        return (
+            (1.0 - self.outcome_sampling_epsilon) * policy + self.outcome_sampling_epsilon * uniform
+        ).astype(np.float32)
+
+    def _cutoff_value(self, state: GameState, traverser: int, stats: TraversalStats) -> float:
+        if self.cutoff_value_mode == "score_diff" or self.cutoff_rollouts <= 0:
+            return float(state.score_diff(traverser))
+        total = 0.0
+        for _ in range(self.cutoff_rollouts):
+            total += self._rollout_value(state, traverser, stats)
+        return total / float(self.cutoff_rollouts)
+
+    def _rollout_value(self, state: GameState, traverser: int, stats: TraversalStats) -> float:
+        rollout_state = state.clone()
+        steps = 0
+        while not rollout_state.terminal and steps < self.cutoff_rollout_max_steps:
+            action = self._rollout_action(rollout_state)
+            if action is None:
+                break
+            unified_action = rollout_state.to_unified_action(action)
+            self._sample_deck_draw_chance(rollout_state, unified_action)
+            rollout_state.apply_action(action)
+            steps += 1
+        stats.cutoff_rollouts += 1
+        stats.cutoff_rollout_steps += steps
+        if not rollout_state.terminal:
+            stats.cutoff_rollout_timeouts += 1
+        return float(rollout_state.score_diff(traverser))
+
+    def _rollout_action(self, state: GameState) -> int | None:
+        if self.cutoff_rollout_policy == "safe_heuristic":
+            if self._safe_heuristic_rollout_bot is None:
+                self._safe_heuristic_rollout_bot = SafeHeuristicBot()
+            return self._safe_heuristic_rollout_bot.act(state)
+        legal_actions = state.unified_legal_actions()
+        if not legal_actions:
+            return None
+        return state.from_unified_action(int(self.rng.choice(legal_actions)))
+
+    def _sample_deck_draw_chance(self, state: GameState, unified_action: int) -> int | None:
+        deck_draw_action = 2 * state.config.hand_size
+        if state.phase != "draw" or unified_action != deck_draw_action or len(state.deck) <= 1:
+            return None
+        sampled_index = int(self.rng.integers(0, len(state.deck)))
+        if sampled_index == len(state.deck) - 1:
+            return None
+        state.swap_deck_cards(sampled_index, len(state.deck) - 1)
+        return sampled_index
 
     def _record_strategy(
         self,

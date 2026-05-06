@@ -74,3 +74,55 @@ def test_deep_cfr_recursive_traverser_restores_state_and_collects_samples() -> N
     sample = trainer.advantage_memory.all()[0]
     assert sample.legal_mask.dtype == bool
     assert sample.target.shape == sample.legal_mask.shape
+
+
+def test_deep_cfr_traverser_supports_outcome_sampling_and_rollout_cutoffs() -> None:
+    trainer = DeepCFRTrainer(
+        DeepCFRConfig(
+            iterations=1,
+            traversals_per_iteration=1,
+            max_traversal_depth=1,
+            max_nodes_per_traversal=32,
+            outcome_sampling_epsilon=0.25,
+            outcome_sampling_value_clip=100.0,
+            outcome_unsampled_regret="zero",
+            cutoff_value_mode="random_rollout",
+            cutoff_rollouts=2,
+            cutoff_rollout_policy="random",
+            cutoff_rollout_max_steps=16,
+            batch_size=2,
+            hidden_size=16,
+            seed=31,
+        ),
+        LostCitiesConfig(seed=31),
+    )
+    state = GameState.new_game(LostCitiesConfig(seed=31), seed=31)
+    before = state.to_snapshot()
+    traverser = DeepCFRTraverser(
+        trainer.advantage_networks,
+        trainer.advantage_memory,
+        trainer.strategy_memory,
+        device=trainer.device,
+        action_size=trainer.action_size,
+        max_depth=1,
+        max_nodes=32,
+        outcome_sampling_epsilon=0.25,
+        outcome_sampling_value_clip=100.0,
+        outcome_unsampled_regret="zero",
+        cutoff_value_mode="random_rollout",
+        cutoff_rollouts=2,
+        cutoff_rollout_policy="random",
+        cutoff_rollout_max_steps=16,
+        rng=np.random.default_rng(31),
+    )
+
+    _, stats = traverser.traverse(state, traverser=0, iteration=1)
+
+    assert state.to_snapshot() == before
+    assert stats.depth_cutoffs > 0
+    assert stats.cutoff_rollouts == stats.depth_cutoffs * 2
+    assert stats.cutoff_rollout_steps > 0
+    sample = trainer.advantage_memory.all()[0]
+    unsampled_legal = sample.legal_mask.copy()
+    unsampled_legal[np.nonzero(sample.target)[0]] = False
+    assert np.all(sample.target[unsampled_legal] == 0.0)
