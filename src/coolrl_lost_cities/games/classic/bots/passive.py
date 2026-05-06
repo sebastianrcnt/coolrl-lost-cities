@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from ..game import GameState
-from ..policy import PolicyInput
+from ..policy import LostCitiesPolicy, PolicyInput
 from ..snapshots import Snapshot
 from .base import first_legal, legal_from_obs
 
 
-class PassiveDiscardBot:
+class PassiveDiscardBot(LostCitiesPolicy):
     """Baseline that avoids opening expeditions whenever discarding is legal."""
 
     def act(self, obs_or_state: PolicyInput) -> int:
