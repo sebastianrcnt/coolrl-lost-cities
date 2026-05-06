@@ -59,8 +59,8 @@ class DeepCFRTrainer:
         self.strategy_optimizer = torch.optim.Adam(
             self.strategy_network.parameters(), lr=self.config.learning_rate
         )
-        self.advantage_memory = ReservoirMemory()
-        self.strategy_memory = ReservoirMemory()
+        self.advantage_memory = ReservoirMemory(self.config.advantage_memory_capacity)
+        self.strategy_memory = ReservoirMemory(self.config.strategy_memory_capacity)
         self.rng = np.random.default_rng(self.config.seed + 101)
 
     def run_iteration(self, iteration: int) -> IterationMetrics:
@@ -119,9 +119,7 @@ class DeepCFRTrainer:
             samples = [sample for sample in self.advantage_memory.all() if sample.player == player]
             if not samples:
                 continue
-            losses.append(
-                self._train_advantage(network, self.advantage_optimizers[player], samples)
-            )
+            losses.append(self._train_advantage(player, network, self.advantage_optimizers[player]))
         return float(np.mean(losses)) if losses else 0.0
 
     def _train_strategy_network(self) -> float:
@@ -161,14 +159,16 @@ class DeepCFRTrainer:
 
     def _train_advantage(
         self,
+        player: int,
         network: nn.Module,
         optimizer: torch.optim.Optimizer,
-        samples: list[TrainingSample],
     ) -> float:
         last_loss = 0.0
         network.train()
-        for step in range(max(self.config.advantage_train_steps, 0)):
-            x, y, legal = self._batch_tensors(self._batch(samples, step))
+        for _step in range(max(self.config.advantage_train_steps, 0)):
+            x, y, legal = self._batch_tensors(
+                self.advantage_memory.sample(self.config.batch_size, self.rng, player=player)
+            )
             pred = network(x)
             diff = (pred - y).masked_fill(~legal, 0.0)
             loss = diff.square().sum() / legal.sum().clamp_min(1)
@@ -186,8 +186,10 @@ class DeepCFRTrainer:
     ) -> float:
         last_loss = 0.0
         network.train()
-        for step in range(max(self.config.strategy_train_steps, 0)):
-            x, y, legal = self._batch_tensors(self._batch(samples, step))
+        for _step in range(max(self.config.strategy_train_steps, 0)):
+            x, y, legal = self._batch_tensors(
+                self.strategy_memory.sample(self.config.batch_size, self.rng)
+            )
             logits = network(x).masked_fill(~legal, torch.finfo(torch.float32).min)
             log_probs = nn.functional.log_softmax(logits, dim=-1).masked_fill(~legal, 0.0)
             loss = -(y * log_probs).sum(dim=-1).mean()

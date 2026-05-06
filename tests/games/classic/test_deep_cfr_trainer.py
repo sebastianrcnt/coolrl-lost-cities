@@ -4,6 +4,7 @@ import numpy as np
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
 from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig
+from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
 from coolrl_lost_cities.games.classic.deep_cfr.traverser import DeepCFRTraverser
 
@@ -126,3 +127,25 @@ def test_deep_cfr_traverser_supports_outcome_sampling_and_rollout_cutoffs() -> N
     unsampled_legal = sample.legal_mask.copy()
     unsampled_legal[np.nonzero(sample.target)[0]] = False
     assert np.all(sample.target[unsampled_legal] == 0.0)
+
+
+def test_reservoir_memory_caps_samples_and_filters_player_batches() -> None:
+    memory = ReservoirMemory(capacity=3)
+    rng = np.random.default_rng(37)
+    for index in range(10):
+        memory.add(
+            TrainingSample(
+                info_state=np.asarray([index], dtype=np.float32),
+                target=np.asarray([index], dtype=np.float32),
+                legal_mask=np.asarray([True]),
+                iteration=index,
+                player=index % 2,
+            ),
+            rng,
+        )
+
+    assert len(memory) == 3
+    assert memory.seen == 10
+    player_one = memory.sample(8, rng, player=1)
+    assert player_one
+    assert all(sample.player == 1 for sample in player_one)

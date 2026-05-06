@@ -216,7 +216,8 @@ class DeepCFRTraverser:
                     legal_mask=legal,
                     iteration=iteration,
                     player=player,
-                )
+                ),
+                self.rng,
             )
             stats.advantage_samples += 1
 
@@ -328,7 +329,8 @@ class DeepCFRTraverser:
                 legal_mask=legal,
                 iteration=iteration,
                 player=player,
-            )
+            ),
+            self.rng,
         )
         stats.strategy_samples += 1
 

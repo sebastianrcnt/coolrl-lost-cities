@@ -18,14 +18,49 @@ class ReservoirMemory:
     def __init__(self, capacity: int | None = None) -> None:
         self.capacity = capacity
         self._samples: list[TrainingSample] = []
+        self.seen = 0
 
     def __len__(self) -> int:
         return len(self._samples)
 
-    def add(self, sample: TrainingSample) -> None:
-        self._samples.append(sample)
-        if self.capacity is not None and len(self._samples) > self.capacity:
-            del self._samples[0 : len(self._samples) - self.capacity]
+    def add(self, sample: TrainingSample, rng: np.random.Generator | None = None) -> None:
+        self.seen += 1
+        sample = TrainingSample(
+            info_state=np.asarray(sample.info_state, dtype=np.float32).copy(),
+            target=np.asarray(sample.target, dtype=np.float32).copy(),
+            legal_mask=np.asarray(sample.legal_mask, dtype=bool).copy(),
+            iteration=int(sample.iteration),
+            player=int(sample.player),
+        )
+        if self.capacity is None or len(self._samples) < self.capacity:
+            self._samples.append(sample)
+            return
+        rng = rng or np.random.default_rng()
+        index = int(rng.integers(0, self.seen))
+        if index < self.capacity:
+            self._samples[index] = sample
+
+    def extend(self, samples: list[TrainingSample], rng: np.random.Generator | None = None) -> None:
+        for sample in samples:
+            self.add(sample, rng)
 
     def all(self) -> list[TrainingSample]:
         return list(self._samples)
+
+    def sample(
+        self,
+        batch_size: int,
+        rng: np.random.Generator,
+        *,
+        player: int | None = None,
+    ) -> list[TrainingSample]:
+        candidates = (
+            self._samples
+            if player is None
+            else [sample for sample in self._samples if sample.player == player]
+        )
+        if not candidates:
+            raise ValueError("cannot sample from empty memory")
+        size = min(int(batch_size), len(candidates))
+        indices = rng.choice(len(candidates), size=size, replace=len(candidates) < size)
+        return [candidates[int(index)] for index in indices]

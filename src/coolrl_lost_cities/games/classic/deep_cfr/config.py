@@ -20,6 +20,8 @@ class DeepCFRConfig:
     strategy_sample_interval: int = 1
     store_strategy_on_traverser_nodes: bool = True
     store_strategy_on_opponent_nodes: bool = True
+    advantage_memory_capacity: int = 2_000_000
+    strategy_memory_capacity: int = 2_000_000
     advantage_train_steps: int = 1
     strategy_train_steps: int = 1
     batch_size: int = 32
