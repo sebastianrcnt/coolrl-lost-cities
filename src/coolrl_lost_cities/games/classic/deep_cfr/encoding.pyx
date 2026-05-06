@@ -236,6 +236,8 @@ cdef int _append_slot_aware_playability_features_c(GameState state, int player, 
 
     for slot in range(state.hand_size):
         if slot >= state.hand_lens[player]:
+            for color in range(SLOT_AWARE_PLAYABILITY_PER_SLOT):
+                out[idx + color] = 0.0
             idx += SLOT_AWARE_PLAYABILITY_PER_SLOT
             continue
         card = state.hand_cards[state._hand_index(player, slot)]

@@ -165,6 +165,20 @@ def test_deep_cfr_playability_encoding_extends_input_shape() -> None:
     assert encode_info_state(state, 0, slot_config.encoding).shape == (slot_dim,)
 
 
+def test_deep_cfr_slot_aware_playability_encoding_zero_fills_empty_hand_slots() -> None:
+    config = _deep_cfr_config(
+        {"encoding": {"derived_playability": True, "slot_aware_playability": True}}
+    )
+    state = GameState.new_game(LostCitiesConfig(seed=63), seed=63)
+    state.phase = "draw"
+    state.pending_discarded_color = -1
+    state.apply_action(0)
+
+    encoded = encode_info_state(state, 0, config.encoding)
+
+    assert np.isfinite(encoded).all()
+
+
 def test_deep_cfr_trainer_uses_playability_encoding() -> None:
     config = _deep_cfr_config(
         {
