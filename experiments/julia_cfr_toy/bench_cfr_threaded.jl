@@ -7,6 +7,7 @@ include("bench_cfr.jl")
 const THREAD_GRID = (1, 2, 4, 8)
 const RUNS_PER_CASE = 5
 const ROOT_ACTIONS = 4
+const HEAVY_WORK_MULTIPLIER = 50
 
 function iteration_ranges(chunks::Int)::Vector{UnitRange{Int}}
     ranges = Vector{UnitRange{Int}}(undef, chunks)
@@ -39,10 +40,19 @@ function reduce_root!(out::Vector{Float64}, trees::Vector{CFRTree}, chunks::Int)
     end
 end
 
-function run_chunk!(tree::CFRTree, range::UnitRange{Int})
+function run_iteration_with_traversals!(tree::CFRTree, iteration::Int, traversals_per_iter::Int)
+    base = (iteration - 1) * traversals_per_iter
+    value = 0.0
+    for offset in 1:traversals_per_iter
+        value += traverse!(tree, 1, 0, base + offset)
+    end
+    return value
+end
+
+function run_chunk!(tree::CFRTree, range::UnitRange{Int}, traversals_per_iter::Int)
     value = 0.0
     for iteration in range
-        value += run_iteration!(tree, iteration)
+        value += run_iteration_with_traversals!(tree, iteration, traversals_per_iter)
     end
     return value
 end
@@ -52,16 +62,17 @@ function run_case!(
     trees::Vector{CFRTree},
     ranges::Vector{UnitRange{Int}},
     chunks::Int;
+    traversals_per_iter::Int,
     threaded::Bool,
 )
     reset_trees!(trees, chunks)
     if threaded && chunks > 1
         @threads for chunk in 1:chunks
-            run_chunk!(trees[chunk], ranges[chunk])
+            run_chunk!(trees[chunk], ranges[chunk], traversals_per_iter)
         end
     else
         for chunk in 1:chunks
-            run_chunk!(trees[chunk], ranges[chunk])
+            run_chunk!(trees[chunk], ranges[chunk], traversals_per_iter)
         end
     end
     reduce_root!(out, trees, chunks)
@@ -74,15 +85,15 @@ function assert_close(label::AbstractString, actual::Vector{Float64}, expected::
     end
 end
 
-function measure_case(chunks::Int)
+function measure_case(chunks::Int, traversals_per_iter::Int)
     ranges = iteration_ranges(chunks)
     reference_trees = [CFRTree() for _ in 1:chunks]
     measured_trees = [CFRTree() for _ in 1:chunks]
     reference = zeros(Float64, ROOT_ACTIONS)
     actual = zeros(Float64, ROOT_ACTIONS)
 
-    run_case!(reference, reference_trees, ranges, chunks; threaded=false)
-    run_case!(actual, measured_trees, ranges, chunks; threaded=chunks > 1)
+    run_case!(reference, reference_trees, ranges, chunks; traversals_per_iter=traversals_per_iter, threaded=false)
+    run_case!(actual, measured_trees, ranges, chunks; traversals_per_iter=traversals_per_iter, threaded=chunks > 1)
     assert_close("warmup $(chunks)T", actual, reference)
 
     times = Vector{Float64}(undef, RUNS_PER_CASE)
@@ -94,7 +105,14 @@ function measure_case(chunks::Int)
         elapsed_ref = Ref(0.0)
         allocated = @allocated begin
             elapsed_ref[] = @elapsed begin
-                run_case!(actual, measured_trees, ranges, chunks; threaded=chunks > 1)
+                run_case!(
+                    actual,
+                    measured_trees,
+                    ranges,
+                    chunks;
+                    traversals_per_iter=traversals_per_iter,
+                    threaded=chunks > 1,
+                )
             end
         end
         after = Base.gc_num()
@@ -109,9 +127,10 @@ function measure_case(chunks::Int)
     gc_time_s = median(gc_times)
     return Dict(
         "threads" => chunks,
+        "traversals_per_iter" => traversals_per_iter,
         "total_s" => total_s,
         "iter_ms" => total_s * 1000.0 / MEASURE_ITERATIONS,
-        "traversal_us" => total_s * 1_000_000.0 / (MEASURE_ITERATIONS * TRAVERSALS_PER_ITER),
+        "traversal_us" => total_s * 1_000_000.0 / (MEASURE_ITERATIONS * traversals_per_iter),
         "alloc_mb" => alloc_mb,
         "gc_time_s" => gc_time_s,
         "gc_share" => total_s > 0.0 ? gc_time_s / total_s : 0.0,
@@ -128,30 +147,20 @@ function scaling_label(efficiency::Float64)::String
     return "contention"
 end
 
-function main()
-    available = Threads.nthreads()
-    grid = [threads for threads in THREAD_GRID if threads <= available]
-    if isempty(grid)
-        error("no thread counts available")
-    end
-
-    results = [measure_case(threads) for threads in grid]
+function run_suite(label::AbstractString, traversals_per_iter::Int, grid::Vector{Int})
+    results = [measure_case(threads, traversals_per_iter) for threads in grid]
     one_thread_s = results[1]["total_s"]
 
-    println("threads  iter_ms  total_s  μs/trav  alloc_MB  gc_s  gc_share  speedup  efficiency")
+    println("--- $(label) ---")
+    println("threads  iter_ms  speedup  efficiency")
     for result in results
         threads = result["threads"]
         speedup = one_thread_s / result["total_s"]
         efficiency = speedup / threads
         @printf(
-            "%-7d %8.3f %8.4f %8.3f %9.3f %5.3f %8.1f%% %8.2f× %9.0f%%\n",
+            "%-7d %8.3f %8.2f× %9.0f%%\n",
             threads,
             result["iter_ms"],
-            result["total_s"],
-            result["traversal_us"],
-            result["alloc_mb"],
-            result["gc_time_s"],
-            result["gc_share"] * 100.0,
             speedup,
             efficiency * 100.0,
         )
@@ -161,6 +170,29 @@ function main()
     speedup = one_thread_s / last["total_s"]
     efficiency = speedup / last["threads"]
     @printf("%dT efficiency %.0f%% — %s\n", last["threads"], efficiency * 100.0, scaling_label(efficiency))
+    return results
+end
+
+function heavy_requested()::Bool
+    return "--heavy" in ARGS || get(ENV, "HEAVY", "0") == "1"
+end
+
+function main()
+    available = Threads.nthreads()
+    grid = [threads for threads in THREAD_GRID if threads <= available]
+    if isempty(grid)
+        error("no thread counts available")
+    end
+
+    run_suite("Light mode (existing)", TRAVERSALS_PER_ITER, grid)
+    if heavy_requested()
+        println()
+        run_suite(
+            "Heavy mode ($(HEAVY_WORK_MULTIPLIER)× work)",
+            TRAVERSALS_PER_ITER * HEAVY_WORK_MULTIPLIER,
+            grid,
+        )
+    end
 end
 
 main()

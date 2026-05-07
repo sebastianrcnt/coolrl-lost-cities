@@ -19,7 +19,7 @@ uv run python experiments/julia_cfr_toy/bench_cfr_runner.py
 Run Julia thread-local scaling:
 
 ```bash
-tools/julia/current/bin/julia --threads=8 experiments/julia_cfr_toy/bench_cfr_threaded.jl
+tools/julia/current/bin/julia --threads=8 experiments/julia_cfr_toy/bench_cfr_threaded.jl --heavy
 ```
 
 The Python runner builds `bench_cfr.pyx` in place when needed, runs the Julia
@@ -66,14 +66,27 @@ Thread-local trees, same 100 iterations × 1000 traversals total work. Each
 thread processes its own chunk, then root regrets are reduced. Each threaded
 case is checked against a sequential run with the same chunking.
 
-| threads | iter ms | total s | μs/trav | alloc MB | gc s | gc share | speedup | efficiency |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 0.219 | 0.0219 | 0.219 | 0.000 | 0.000 | 0.0% | 1.00× | 100% |
-| 2 | 0.129 | 0.0129 | 0.129 | 0.004 | 0.000 | 0.0% | 1.69× | 85% |
-| 4 | 0.096 | 0.0096 | 0.096 | 0.004 | 0.000 | 0.0% | 2.28× | 57% |
-| 8 | 0.090 | 0.0090 | 0.090 | 0.004 | 0.000 | 0.0% | 2.44× | 31% |
+Light mode:
 
-**Interpretation:** 8T efficiency 31% — contention/dispatch overhead dominates
-at this tiny per-thread workload. Julia still improves absolute throughput, but
-this is not near-linear scaling. The next scaling test should increase per-thread
-work before treating this as a hard limit.
+| threads | iter ms | speedup | efficiency |
+| ---: | ---: | ---: | ---: |
+| 1 | 0.223 | 1.00× | 100% |
+| 2 | 0.130 | 1.71× | 85% |
+| 4 | 0.097 | 2.29× | 57% |
+| 8 | 0.093 | 2.40× | 30% |
+
+Heavy mode increases traversal count from 1000 to 50000 per iteration
+without changing tree shape or algorithm. This raises 1T iter time from
+~0.2 ms to ~8 ms, enough to amortize more thread dispatch overhead.
+
+| threads | iter ms | speedup | efficiency |
+| ---: | ---: | ---: | ---: |
+| 1 | 8.272 | 1.00× | 100% |
+| 2 | 5.058 | 1.64× | 82% |
+| 4 | 2.602 | 3.18× | 79% |
+| 8 | 1.739 | 4.76× | 59% |
+
+**Interpretation:** heavy 8T efficiency 59% — PARTIAL. The 31% light result
+was partly a toy-size artifact, but the heavier workload still does not reach
+near-linear scaling. Julia delivers useful throughput scaling, not decisive
+8-thread linearity.

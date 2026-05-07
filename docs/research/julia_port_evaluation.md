@@ -66,26 +66,33 @@ local trees, root regrets reduced at the end.
 
 | threads | iter ms | speedup | efficiency |
 | ---:    | ---:    | ---:    | ---:       |
-| 1       | 0.219   | 1.00×   | 100%       |
-| 2       | 0.129   | 1.69×   | 85%        |
-| 4       | 0.096   | 2.28×   | 57%        |
-| 8       | 0.090   | 2.44×   | 31%        |
+| 1       | 0.223   | 1.00×   | 100%       |
+| 2       | 0.130   | 1.71×   | 85%        |
+| 4       | 0.097   | 2.29×   | 57%        |
+| 8       | 0.093   | 2.40×   | 30%        |
 
-**Verdict on criterion 3:** Partial / inconclusive. 8T efficiency is
-31% — contention or dispatch overhead dominates at this toy's small
-per-thread workload. Julia does improve absolute throughput (2.44×
-wall-clock at 8T vs 1T), but not near-linearly. The next scaling test
-must increase per-thread work (larger tree or more traversals per
-chunk) before a hard conclusion can be drawn. Do not treat this as a
-hard ceiling — the toy may simply be too small for 8 threads to amortize
-dispatch cost.
+The light workload is too small to settle the question: 1T iter time is
+only ~0.2 ms, so thread dispatch overhead can dominate.
 
-## Open evidence (criteria 3, 4, 5)
+Heavy mode keeps the same tree and algorithm but increases traversals
+per iteration from 1000 to 50000 (50× work). This raises 1T iter time
+to 8.272 ms.
 
-- **Multi-thread scaling with heavier per-thread work.** Increase tree
-  depth or traversals-per-chunk and re-run the 1/2/4/8 thread sweep.
-  Current 31% at 8T is likely a toy-size artifact, not a Julia limit.
-  This remains the decisive test for the porting decision.
+| threads | iter ms | speedup | efficiency |
+| ---:    | ---:    | ---:    | ---:       |
+| 1       | 8.272   | 1.00×   | 100%       |
+| 2       | 5.058   | 1.64×   | 82%        |
+| 4       | 2.602   | 3.18×   | 79%        |
+| 8       | 1.739   | 4.76×   | 59%        |
+
+**Verdict on criterion 3:** PARTIAL. Heavy 8T efficiency is 59%.
+Dispatch overhead was a significant part of the light-mode result, but
+the heavier workload still does not reach near-linear 8-thread scaling.
+Julia delivers useful throughput scaling (4.76× at 8T), but this is not
+the decisive PASS threshold for the threading criterion.
+
+## Open evidence (criteria 4, 5)
+
 - **Flux.jl + CUDA.jl MLP forward at bs={1, 64, 256}.** Compare to
   PyTorch numbers in `docs/performance.md`. Criterion 4. Not started.
 - **Real-game-state slice port.** Port `play_card` + scoring, run on a
@@ -94,15 +101,16 @@ dispatch cost.
 
 ## Decision posture
 
-Strong but not yet sufficient. The three completed benchmarks remove the
-main risk (GC under recursion) and confirm compute parity. Multi-thread
-scaling shows 2.44× wall-clock at 8T but only 31% efficiency — the toy
-workload is likely too small per thread to amortize dispatch costs, so
-the result is inconclusive rather than negative. A heavier per-thread
-workload must be tested before criterion 3 can be marked pass or fail.
+Promising but not enough to justify a port yet. The completed benchmarks
+remove the main risk (GC under recursion) and confirm compute parity.
+Heavy thread scaling upgrades criterion 3 from inconclusive to PARTIAL:
+8T is 4.76× faster than 1T, but 59% efficiency is below the near-linear
+PASS threshold.
 
-After criterion 3 is settled, ML-stack and game-state evidence (criteria
-4, 5) determine whether to start a serious port plan.
+This means Julia remains a credible option, but not a slam dunk. ML-stack
+and game-state evidence (criteria 4, 5) must be positive before starting
+a serious port plan. If those are positive, criterion 3 should be revisited
+on a real traversal slice where each thread has substantially more work
+than this toy benchmark.
 
-Do not commit to porting until criterion 3 is conclusively settled with
-appropriate per-thread workload.
+Do not commit to porting on the current evidence alone.
