@@ -71,6 +71,7 @@ class WandbRunTracker:
         mode: str | None = None,
         config: dict[str, Any] | None = None,
         tags: list[str] | None = None,
+        notes: str | None = None,
     ):
         try:
             import wandb
@@ -88,6 +89,7 @@ class WandbRunTracker:
             config=config or {},
             dir=str(run_dir_path),
             tags=tags,
+            notes=notes,
             reinit=True,
         )
 

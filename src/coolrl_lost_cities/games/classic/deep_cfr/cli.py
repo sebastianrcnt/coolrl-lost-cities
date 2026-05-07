@@ -106,6 +106,7 @@ def train_command(args: argparse.Namespace) -> None:
                 config=config.to_dict(),
                 run_dir=str(run_dir),
                 tags=list(args.wandb_tag) if args.wandb_tag else None,
+                notes=args.wandb_notes,
             )
         )
     trainer = DeepCFRTrainer(
@@ -250,6 +251,10 @@ def main(argv: list[str] | None = None) -> None:
         action="append",
         default=[],
         help="Tag to attach to the W&B run (repeatable).",
+    )
+    train.add_argument(
+        "--wandb-notes",
+        help="Free-form note describing this run's purpose (shown on the W&B run page).",
     )
     train.set_defaults(func=train_command)
 
