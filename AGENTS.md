@@ -325,6 +325,21 @@ keywords, repeatable). Otherwise use them however you like. Just avoid:
 to compare against). Long analyses go in `docs/` and are linked from
 notes; don't paste them in.
 
+### Comparing two runs
+
+Default is **sequential, single seed**. Run baseline first, then the
+treatment with exactly one config change, both with the same `run.seed`.
+Tag both with a shared hypothesis tag (e.g. `--wandb-tag lr-bump`) so
+they show up together in W&B's Compare Runs view.
+
+Do **not** run multiple seeds per condition unless explicitly asked —
+that doubles or quintuples wall-clock and isn't the default protocol.
+Single-seed comparison is enough to surface a signal; multi-seed is a
+follow-up to confirm it.
+
+Do **not** run two trainings in parallel on the same GPU — VRAM/SM
+contention slows both unevenly and breaks the comparison.
+
 ## Notes For Future Agents
 
 - Prefer `rg`/`rg --files` for search.
