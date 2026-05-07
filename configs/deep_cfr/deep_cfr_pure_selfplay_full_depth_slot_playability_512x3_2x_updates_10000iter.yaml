@@ -1,9 +1,8 @@
 run:
   experiment_name: lost_cities_deep_cfr_pure_selfplay_full_depth_slot_playability_512x3_2x_updates_10000iter
-  iterations: null
   seed: 79
   max_iterations: 10000
-  max_hours: null
+  max_minutes: null
   device: cuda
   use_amp: false
 
@@ -27,10 +26,10 @@ network:
   activation: relu
 
 traversal:
-  traversals_per_iteration: 2
+  traversals_per_player: 2
   traversals_per_player: 70
   max_depth: null
-  max_nodes: 10000
+  max_nodes_per_traversal: 10000
   max_nodes_per_traversal: 1000
   regret_matching_epsilon: 0.0001
   outcome_sampling_epsilon: 0.2
@@ -46,7 +45,7 @@ traversal:
   store_strategy_on_opponent_nodes: false
   num_workers: 8
   worker_chunk_size: 4
-  traversal_worker_chunk_size: 8
+  worker_chunk_size: 8
   progress_every_traversals: 10
   endpoint_depth_bucket_width: 100
   endpoint_depth_bucket_max: 1000
@@ -68,9 +67,8 @@ self_play:
   recent_window: 5
 
 optimization:
-  advantage_train_steps: 1
-  strategy_train_steps: 1
-  batch_size: 32
+  advantage_updates_per_iteration: 1
+  strategy_updates_per_iteration: 1
   advantage_batch_size: 1024
   strategy_batch_size: 1024
   advantage_updates_per_iteration: 512
@@ -86,9 +84,7 @@ memory:
 checkpoint:
   directory: runs/deep_cfr/deep_cfr_pure_selfplay_full_depth_slot_playability_512x3_2x_updates_10000iter
   save_latest: true
-  save_every_iteration: false
-  save_iteration_interval: 100
-  save_latest_only: false
+  save_every: 100
   progress_interval_seconds: 20.0
   exact_resume: false
 

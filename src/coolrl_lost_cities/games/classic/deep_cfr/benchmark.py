@@ -13,14 +13,15 @@ def benchmark_traversal(
 ) -> dict[str, float | int]:
     base = config or DeepCFRConfig.model_validate(
         {
-            "run": {"iterations": 1},
-            "traversal": {"traversals_per_iteration": 8, "max_depth": 4},
-            "checkpoint": {"save_every_iteration": False},
+            "run": {"max_iterations": 1},
+            "traversal": {"traversals_per_player": 8, "max_depth": 4},
+            "checkpoint": {"save_every": 0, "save_latest": False},
         }
     )
     data = base.model_dump(mode="python")
     data["traversal"]["num_workers"] = num_workers
-    data["checkpoint"]["save_every_iteration"] = False
+    data["checkpoint"]["save_every"] = 0
+    data["checkpoint"]["save_latest"] = False
     data["evaluation"]["eval_every"] = 0
     cfg = DeepCFRConfig.model_validate(data)
     trainer = DeepCFRTrainer(cfg, cfg.rules.to_lost_cities_config(seed=cfg.run.seed))

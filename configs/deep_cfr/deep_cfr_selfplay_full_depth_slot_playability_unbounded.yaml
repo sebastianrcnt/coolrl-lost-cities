@@ -1,9 +1,8 @@
 run:
   experiment_name: lost_cities_deep_cfr_selfplay_full_depth_slot_playability_unbounded
-  iterations: null
   seed: 79
   max_iterations: null
-  max_hours: null
+  max_minutes: null
   device: cuda
   use_amp: false
 
@@ -40,7 +39,7 @@ traversal:
   cutoff_rollout_max_steps: 300
   progress_every_traversals: 10
   num_workers: 8
-  traversal_worker_chunk_size: 8
+  worker_chunk_size: 8
   regret_matching_epsilon: 0.0001
   outcome_sampling_epsilon: 0.2
   outcome_sampling_value_clip: 500
@@ -88,7 +87,5 @@ evaluation:
 
 checkpoint:
   directory: runs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability_unbounded
-  save_every_iteration: false
-  save_iteration_interval: 100
-  save_latest_only: false
+  save_every: 100
   progress_interval_seconds: 20.0

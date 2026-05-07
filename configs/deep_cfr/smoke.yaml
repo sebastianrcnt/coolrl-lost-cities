@@ -1,5 +1,5 @@
 run:
-  iterations: 1
+  max_iterations: 1
   seed: 1
   device: cpu
 
@@ -7,16 +7,17 @@ network:
   hidden_size: 16
 
 traversal:
-  traversals_per_iteration: 1
+  traversals_per_player: 1
   max_depth: 2
-  max_nodes: 64
+  max_nodes_per_traversal: 64
   num_workers: 0
   worker_chunk_size: 1
 
 optimization:
-  advantage_train_steps: 1
-  strategy_train_steps: 1
-  batch_size: 2
+  advantage_batch_size: 2
+  strategy_batch_size: 2
+  advantage_updates_per_iteration: 1
+  strategy_updates_per_iteration: 1
   learning_rate: 0.001
 
 memory:
@@ -25,7 +26,8 @@ memory:
 
 checkpoint:
   directory: runs/deep_cfr/smoke
-  save_every_iteration: false
+  save_every: 0
+  save_latest: false
 
 evaluation:
   eval_every: 0

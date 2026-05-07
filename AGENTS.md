@@ -66,11 +66,9 @@ Short fixed-iteration run:
 ```bash
 uv run lost-cities-deep-cfr train \
   --config configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml \
-  --set run.iterations=100 \
-  --set run.max_hours=null \
-  --set run.max_iterations=null \
-  --set checkpoint.save_latest_only=true \
-  --set checkpoint.save_every_iteration=false
+  --set run.max_iterations=100 \
+  --set run.max_minutes=null \
+  --set checkpoint.save_every=0
 ```
 
 Use explicit run directories for experiments. Put Deep CFR runs under
@@ -95,17 +93,16 @@ Useful train controls:
 - `--resume PATH`: resume from a specific checkpoint.
 - `--set PATH=VALUE`: override config fields. It is repeatable and parses
   values as YAML, e.g. `--set traversal.num_workers=4` or
-  `--set run.max_hours=null`.
+  `--set run.max_minutes=null`.
 
 Common `--set` overrides:
 
 - `--set run.device=cuda`: set the trainer device.
 - `--set checkpoint.exact_resume=true`: require checkpoint config compatibility.
-- `--set checkpoint.save_latest=false --set checkpoint.save_every_iteration=false
-  --set checkpoint.save_iteration_interval=0`: disable checkpoint writes.
-- `--set checkpoint.save_latest_only=true --set checkpoint.save_every_iteration=false`:
-  keep only `latest.pt`.
-- `--set checkpoint.save_iteration_interval=N`: archive every N iterations.
+- `--set checkpoint.save_latest=false --set checkpoint.save_every=0`:
+  disable checkpoint writes.
+- `--set checkpoint.save_every=0`: keep only `latest.pt` (no archives).
+- `--set checkpoint.save_every=N`: archive every N iterations.
 
 ## Long Runs
 
@@ -149,16 +146,15 @@ The unbounded config intentionally has:
 
 ```yaml
 run:
-  iterations: null
   max_iterations: null
-  max_hours: null
+  max_minutes: null
 checkpoint:
-  save_iteration_interval: 100
+  save_every: 100
 ```
 
 `latest.pt` is updated continuously; archive checkpoints are written every 100
-iterations. If disk is tight, prefer `--set checkpoint.save_latest_only=true` or
-increase `save_iteration_interval`.
+iterations. If disk is tight, set `--set checkpoint.save_every=0` (keep only
+`latest.pt`) or increase `save_every`.
 
 ## Evaluation And Analysis
 

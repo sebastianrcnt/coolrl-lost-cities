@@ -329,7 +329,7 @@ class DeepCFRTrainer:
         progress_every = int(self.config.traversal.progress_every_traversals)
         completed = 0
         progress_started = time.perf_counter()
-        traversals_per_player = self.config.traversal.resolved_traversals_per_player()
+        traversals_per_player = self.config.traversal.traversals_per_player
         for player in range(2):
             seeds = [
                 self.config.run.seed + iteration * 10_000 + traversal_index * 10 + player
@@ -358,7 +358,7 @@ class DeepCFRTrainer:
                     self.config.traversal.store_strategy_on_opponent_nodes
                 ),
                 max_depth=self.config.traversal.max_depth,
-                max_nodes=self.config.traversal.resolved_max_nodes(),
+                max_nodes=self.config.traversal.max_nodes_per_traversal,
                 sampling_mode=self.config.traversal.sampling_mode,
                 outcome_sampling_epsilon=self.config.traversal.outcome_sampling_epsilon,
                 outcome_sampling_value_clip=self.config.traversal.outcome_sampling_value_clip,
@@ -409,7 +409,7 @@ class DeepCFRTrainer:
         self.tracker.log_event(
             f"Traversal multiprocessing enabled iteration={iteration} "
             f"requested_workers={requested_workers} effective_workers={max_workers} "
-            f"batches={len(batches)} chunk_size={self.config.traversal.resolved_worker_chunk_size()}"
+            f"batches={len(batches)} chunk_size={self.config.traversal.worker_chunk_size}"
         )
         if max_workers < requested_workers:
             self.tracker.log_event(
@@ -481,12 +481,12 @@ class DeepCFRTrainer:
                 name: value.detach().cpu()
                 for name, value in self.strategy_network.state_dict().items()
             }
-        chunk_size = self.config.traversal.resolved_worker_chunk_size()
+        chunk_size = self.config.traversal.worker_chunk_size
         batch_index = 0
         for player in range(2):
             seeds = [
                 self.config.run.seed + iteration * 10_000 + index * 10 + player
-                for index in range(self.config.traversal.resolved_traversals_per_player())
+                for index in range(self.config.traversal.traversals_per_player)
             ]
             for start in range(0, len(seeds), chunk_size):
                 chunk = seeds[start : start + chunk_size]
@@ -574,27 +574,21 @@ class DeepCFRTrainer:
     def _stop_iteration(self) -> int:
         if self.config.run.max_iterations is not None:
             return max(self.iteration, int(self.config.run.max_iterations))
-        if self.config.run.max_hours is not None:
-            return 2**31 - 1
-        if self.config.run.iterations is None:
-            return 2**31 - 1
-        return self.iteration + self.config.run.iterations
+        return 2**31 - 1
 
     def _time_limit_reached(self, run_started: float) -> bool:
-        if self.config.run.max_hours is None:
+        if self.config.run.max_minutes is None:
             return False
-        elapsed_hours = (time.perf_counter() - run_started) / 3600.0
-        return elapsed_hours >= self.config.run.max_hours
+        elapsed_minutes = (time.perf_counter() - run_started) / 60.0
+        return elapsed_minutes >= self.config.run.max_minutes
 
     def _should_save_iteration(self, iteration: int) -> bool:
-        if self.config.checkpoint.save_every_iteration:
-            return True
-        interval = int(self.config.checkpoint.save_iteration_interval)
+        interval = int(self.config.checkpoint.save_every)
         return interval > 0 and iteration % interval == 0
 
     def _save_iteration_checkpoints(self, iteration: int, item: IterationMetrics) -> None:
         checkpoint_dir = self.run_dir
-        if self._should_save_iteration(iteration) and not self.config.checkpoint.save_latest_only:
+        if self._should_save_iteration(iteration):
             self.save_checkpoint(checkpoint_dir / f"iteration_{iteration:05d}.pt", item)
         if self.config.checkpoint.save_latest:
             self.save_checkpoint(checkpoint_dir / "latest.pt", item)
@@ -641,7 +635,7 @@ class DeepCFRTrainer:
                 device=eval_device,
                 max_steps=self.config.evaluation.max_steps,
                 encoding=self.config.encoding,
-                batch_size=self.config.evaluation.resolved_batch_size(),
+                batch_size=self.config.evaluation.batch_size,
             )
             for key, value in result.items():
                 results[f"eval_{opponent}_{key}"] = value
@@ -657,7 +651,7 @@ class DeepCFRTrainer:
         self.tracker.log_event(
             f"Evaluation multiprocessing enabled iteration={iteration} "
             f"effective_workers={max_workers} opponents={len(opponents)} "
-            f"batch_size={self.config.evaluation.resolved_batch_size()} device={eval_device}"
+            f"batch_size={self.config.evaluation.batch_size} device={eval_device}"
         )
         state_dict = self._strategy_state_dict_cpu()
         jobs = [
@@ -673,7 +667,7 @@ class DeepCFRTrainer:
                 seed=self.config.run.seed + iteration * 1000,
                 device=str(eval_device),
                 max_steps=self.config.evaluation.max_steps,
-                batch_size=self.config.evaluation.resolved_batch_size(),
+                batch_size=self.config.evaluation.batch_size,
             )
             for opponent in opponents
         ]
@@ -773,10 +767,10 @@ class DeepCFRTrainer:
     ) -> float:
         losses: list[float] = []
         network.train()
-        for _step in range(self.config.optimization.resolved_advantage_train_steps()):
+        for _step in range(self.config.optimization.advantage_updates_per_iteration):
             sample_started = time.perf_counter()
             batch = self.advantage_memories[player].sample(
-                self.config.optimization.resolved_advantage_batch_size(),
+                self.config.optimization.advantage_batch_size,
                 self.rng,
             )
             self._runtime_metrics[f"advantage_player_{player}_sample_seconds"] = (
@@ -828,10 +822,10 @@ class DeepCFRTrainer:
     ) -> float:
         last_loss = 0.0
         network.train()
-        for _step in range(self.config.optimization.resolved_strategy_train_steps()):
+        for _step in range(self.config.optimization.strategy_updates_per_iteration):
             sample_started = time.perf_counter()
             batch = self.strategy_memory.sample(
-                self.config.optimization.resolved_strategy_batch_size(), self.rng
+                self.config.optimization.strategy_batch_size, self.rng
             )
             self._runtime_metrics["strategy_sample_seconds"] = (
                 float(self._runtime_metrics.get("strategy_sample_seconds", 0.0))

@@ -33,9 +33,9 @@ def _deep_cfr_config(data: dict) -> DeepCFRConfig:
 def test_deep_cfr_loads_smoke_yaml_config() -> None:
     config = load_config("configs/deep_cfr/smoke.yaml")
 
-    assert config.run.iterations == 1
+    assert config.run.max_iterations == 1
     assert config.network.hidden_size == 16
-    assert config.traversal.traversals_per_iteration == 1
+    assert config.traversal.traversals_per_player == 1
     assert config.checkpoint.directory == "runs/deep_cfr/smoke"
 
 
@@ -45,30 +45,30 @@ def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
     assert config.run.experiment_name.endswith("slot_playability")
     assert config.run.seed == 79
     assert config.run.max_iterations is None
-    assert config.run.max_hours == 4
+    assert config.run.max_minutes == 240
     assert config.encoding.derived_playability is True
     assert config.encoding.slot_aware_playability is True
     assert config.network.hidden_size == 256
     assert config.network.num_layers == 3
-    assert config.traversal.resolved_traversals_per_player() == 70
+    assert config.traversal.traversals_per_player == 70
     assert config.traversal.sampling_mode == "outcome"
     assert config.traversal.max_depth is None
-    assert config.traversal.resolved_max_nodes() == 1000
-    assert config.traversal.resolved_worker_chunk_size() == 8
+    assert config.traversal.max_nodes_per_traversal == 1000
+    assert config.traversal.worker_chunk_size == 8
     assert config.traversal.progress_every_traversals == 10
-    assert config.optimization.resolved_advantage_batch_size() == 1024
-    assert config.optimization.resolved_strategy_batch_size() == 1024
-    assert config.optimization.resolved_advantage_train_steps() == 256
-    assert config.optimization.resolved_strategy_train_steps() == 256
+    assert config.optimization.advantage_batch_size == 1024
+    assert config.optimization.strategy_batch_size == 1024
+    assert config.optimization.advantage_updates_per_iteration == 256
+    assert config.optimization.strategy_updates_per_iteration == 256
     assert config.optimization.weight_decay == 0.0001
     assert config.optimization.grad_clip == 1.0
     assert config.evaluation.on_max_steps == "score_diff"
-    assert config.evaluation.resolved_batch_size() == 64
+    assert config.evaluation.batch_size == 64
     assert config.evaluation.device == "trainer"
     assert config.evaluation.resolved_num_workers() == 4
     assert config.regret_matching.all_negative_fallback == "uniform"
     assert config.training_weighting.mode == "none"
-    assert config.checkpoint.save_iteration_interval == 10
+    assert config.checkpoint.save_every == 10
     assert (
         config.checkpoint.directory == "runs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability"
     )
@@ -80,17 +80,14 @@ def test_deep_cfr_train_cli_accepts_run_and_traversal_config_overrides() -> None
         (),
         {
             "config_overrides": [
-                "run.iterations=1",
-                "run.max_hours=null",
-                "run.max_iterations=null",
-                "traversal.traversals_per_iteration=1",
-                "traversal.traversals_per_player=null",
+                "run.max_iterations=1",
+                "run.max_minutes=null",
+                "traversal.traversals_per_player=1",
                 "traversal.num_workers=0",
                 "regret_matching.all_negative_fallback=argmax_tiebreak",
                 "training_weighting.mode=lcfr",
                 "checkpoint.save_latest=false",
-                "checkpoint.save_every_iteration=false",
-                "checkpoint.save_iteration_interval=0",
+                "checkpoint.save_every=0",
             ],
         },
     )()
@@ -98,15 +95,13 @@ def test_deep_cfr_train_cli_accepts_run_and_traversal_config_overrides() -> None
 
     overridden = _with_overrides(config, _train_overrides_from_args(args))
 
-    assert overridden.run.iterations == 1
-    assert overridden.run.max_hours is None
-    assert overridden.run.max_iterations is None
-    assert overridden.traversal.traversals_per_player is None
-    assert overridden.traversal.resolved_traversals_per_player() == 1
+    assert overridden.run.max_iterations == 1
+    assert overridden.run.max_minutes is None
+    assert overridden.traversal.traversals_per_player == 1
     assert overridden.traversal.resolved_num_workers() == 0
     assert overridden.regret_matching.all_negative_fallback == "argmax_tiebreak"
     assert overridden.training_weighting.mode == "lcfr"
-    assert overridden.checkpoint.save_every_iteration is False
+    assert overridden.checkpoint.save_every == 0
     assert overridden.checkpoint.save_latest is False
 
 
@@ -123,9 +118,7 @@ def test_deep_cfr_train_cli_checkpoint_save_overrides() -> None:
         {
             "config_overrides": [
                 "checkpoint.save_latest=true",
-                "checkpoint.save_latest_only=true",
-                "checkpoint.save_every_iteration=false",
-                "checkpoint.save_iteration_interval=1",
+                "checkpoint.save_every=1",
             ],
         },
     )()
@@ -133,9 +126,7 @@ def test_deep_cfr_train_cli_checkpoint_save_overrides() -> None:
     overridden = _with_overrides(DeepCFRConfig(), _train_overrides_from_args(args))
 
     assert overridden.checkpoint.save_latest is True
-    assert overridden.checkpoint.save_latest_only is True
-    assert overridden.checkpoint.save_every_iteration is False
-    assert overridden.checkpoint.save_iteration_interval == 1
+    assert overridden.checkpoint.save_every == 1
 
 
 def test_deep_cfr_train_cli_accepts_generic_config_overrides() -> None:
@@ -146,8 +137,8 @@ def test_deep_cfr_train_cli_accepts_generic_config_overrides() -> None:
             "config_overrides": [
                 "traversal.sampling_mode=external",
                 "traversal.max_depth=null",
-                "optimization.batch_size=64",
-                "checkpoint.save_latest_only=true",
+                "optimization.advantage_batch_size=64",
+                "checkpoint.save_latest=true",
             ],
         },
     )()
@@ -156,17 +147,17 @@ def test_deep_cfr_train_cli_accepts_generic_config_overrides() -> None:
 
     assert overridden.traversal.sampling_mode == "external"
     assert overridden.traversal.max_depth is None
-    assert overridden.optimization.batch_size == 64
-    assert overridden.checkpoint.save_latest_only is True
+    assert overridden.optimization.advantage_batch_size == 64
+    assert overridden.checkpoint.save_latest is True
 
 
 def test_deep_cfr_iteration_weights_use_sample_age() -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
-                "run": {"iterations": 1, "seed": 12},
+                "run": {"max_iterations": 1, "seed": 12},
                 "network": {"hidden_size": 16},
-                "checkpoint": {"save_every_iteration": False},
+                "checkpoint": {"save_every": 0},
                 "training_weighting": {"mode": "lcfr", "lcfr_alpha": 1.0},
             }
         ),
@@ -279,16 +270,21 @@ def test_deep_cfr_slot_aware_playability_encoding_zero_fills_empty_hand_slots() 
 def test_deep_cfr_trainer_uses_playability_encoding() -> None:
     config = _deep_cfr_config(
         {
-            "run": {"iterations": 1, "seed": 62},
+            "run": {"max_iterations": 1, "seed": 62},
             "encoding": {"derived_playability": True, "slot_aware_playability": True},
             "network": {"hidden_size": 16},
-            "traversal": {"traversals_per_iteration": 1, "max_depth": 1, "max_nodes": 16},
-            "optimization": {
-                "advantage_train_steps": 1,
-                "strategy_train_steps": 1,
-                "batch_size": 2,
+            "traversal": {
+                "traversals_per_player": 1,
+                "max_depth": 1,
+                "max_nodes_per_traversal": 16,
             },
-            "checkpoint": {"save_every_iteration": False},
+            "optimization": {
+                "advantage_updates_per_iteration": 1,
+                "strategy_updates_per_iteration": 1,
+                "advantage_batch_size": 2,
+                "strategy_batch_size": 2,
+            },
+            "checkpoint": {"save_every": 0},
         }
     )
     game_config = LostCitiesConfig(seed=62)
@@ -317,17 +313,17 @@ def test_deep_cfr_trainer_forwards_metrics_to_extra_trackers(tmp_path) -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
-                "run": {"iterations": 1, "seed": 71},
+                "run": {"max_iterations": 1, "seed": 71},
                 "network": {"hidden_size": 16},
                 "traversal": {
-                    "traversals_per_iteration": 1,
+                    "traversals_per_player": 1,
                     "max_depth": 2,
-                    "max_nodes": 16,
+                    "max_nodes_per_traversal": 16,
                 },
-                "optimization": {"batch_size": 2},
+                "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
                 "checkpoint": {
                     "directory": str(tmp_path / "extra-tracker"),
-                    "save_every_iteration": False,
+                    "save_every": 0,
                 },
             }
         ),
@@ -347,19 +343,20 @@ def test_deep_cfr_trainer_smoke_run() -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
-                "run": {"iterations": 1, "seed": 23},
+                "run": {"max_iterations": 1, "seed": 23},
                 "network": {"hidden_size": 16},
                 "traversal": {
-                    "traversals_per_iteration": 1,
+                    "traversals_per_player": 1,
                     "max_depth": 3,
-                    "max_nodes": 64,
+                    "max_nodes_per_traversal": 64,
                 },
                 "optimization": {
-                    "advantage_train_steps": 1,
-                    "strategy_train_steps": 1,
-                    "batch_size": 2,
+                    "advantage_updates_per_iteration": 1,
+                    "strategy_updates_per_iteration": 1,
+                    "advantage_batch_size": 2,
+                    "strategy_batch_size": 2,
                 },
-                "checkpoint": {"save_every_iteration": False},
+                "checkpoint": {"save_every": 0},
             }
         ),
         LostCitiesConfig(seed=23),
@@ -383,20 +380,21 @@ def test_deep_cfr_trainer_supports_lcfr_and_dcfr_loss_weighting() -> None:
         trainer = DeepCFRTrainer(
             _deep_cfr_config(
                 {
-                    "run": {"iterations": 1, "seed": 24},
+                    "run": {"max_iterations": 1, "seed": 24},
                     "network": {"hidden_size": 16},
                     "traversal": {
-                        "traversals_per_iteration": 1,
+                        "traversals_per_player": 1,
                         "max_depth": 2,
-                        "max_nodes": 32,
+                        "max_nodes_per_traversal": 32,
                     },
                     "optimization": {
-                        "advantage_train_steps": 1,
-                        "strategy_train_steps": 1,
-                        "batch_size": 2,
+                        "advantage_updates_per_iteration": 1,
+                        "strategy_updates_per_iteration": 1,
+                        "advantage_batch_size": 2,
+                        "strategy_batch_size": 2,
                     },
                     "training_weighting": {"mode": mode},
-                    "checkpoint": {"save_every_iteration": False},
+                    "checkpoint": {"save_every": 0},
                 }
             ),
             LostCitiesConfig(seed=24),
@@ -413,15 +411,15 @@ def test_deep_cfr_cython_traverser_restores_state_and_collects_samples() -> None
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
-                "run": {"iterations": 1, "seed": 29},
+                "run": {"max_iterations": 1, "seed": 29},
                 "network": {"hidden_size": 16},
                 "traversal": {
-                    "traversals_per_iteration": 1,
+                    "traversals_per_player": 1,
                     "max_depth": 2,
-                    "max_nodes": 32,
+                    "max_nodes_per_traversal": 32,
                 },
-                "optimization": {"batch_size": 2},
-                "checkpoint": {"save_every_iteration": False},
+                "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
+                "checkpoint": {"save_every": 0},
             }
         ),
         LostCitiesConfig(seed=29),
@@ -457,12 +455,12 @@ def test_deep_cfr_cython_traverser_supports_outcome_sampling_and_rollout_cutoffs
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
-                "run": {"iterations": 1, "seed": 31},
+                "run": {"max_iterations": 1, "seed": 31},
                 "network": {"hidden_size": 16},
                 "traversal": {
-                    "traversals_per_iteration": 1,
+                    "traversals_per_player": 1,
                     "max_depth": 1,
-                    "max_nodes": 32,
+                    "max_nodes_per_traversal": 32,
                     "outcome_sampling_epsilon": 0.25,
                     "outcome_sampling_value_clip": 100.0,
                     "outcome_unsampled_regret": "zero",
@@ -471,8 +469,8 @@ def test_deep_cfr_cython_traverser_supports_outcome_sampling_and_rollout_cutoffs
                     "cutoff_rollout_policy": "random",
                     "cutoff_rollout_max_steps": 16,
                 },
-                "optimization": {"batch_size": 2},
-                "checkpoint": {"save_every_iteration": False},
+                "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
+                "checkpoint": {"save_every": 0},
             }
         ),
         LostCitiesConfig(seed=31),
@@ -512,16 +510,16 @@ def test_deep_cfr_cython_traverser_supports_external_sampling() -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
-                "run": {"iterations": 1, "seed": 33},
+                "run": {"max_iterations": 1, "seed": 33},
                 "network": {"hidden_size": 16},
                 "traversal": {
-                    "traversals_per_iteration": 1,
+                    "traversals_per_player": 1,
                     "sampling_mode": "external",
                     "max_depth": 1,
-                    "max_nodes": 64,
+                    "max_nodes_per_traversal": 64,
                 },
-                "optimization": {"batch_size": 2},
-                "checkpoint": {"save_every_iteration": False},
+                "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
+                "checkpoint": {"save_every": 0},
             }
         ),
         LostCitiesConfig(seed=33),
@@ -563,11 +561,11 @@ def test_deep_cfr_cython_traverser_records_regret_fallback_metrics() -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
-                "run": {"iterations": 1, "seed": 37},
+                "run": {"max_iterations": 1, "seed": 37},
                 "network": {"hidden_size": 16},
-                "traversal": {"traversals_per_iteration": 1, "max_depth": 1},
-                "optimization": {"batch_size": 2},
-                "checkpoint": {"save_every_iteration": False},
+                "traversal": {"traversals_per_player": 1, "max_depth": 1},
+                "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
+                "checkpoint": {"save_every": 0},
                 "regret_matching": {"all_negative_fallback": "argmax_tiebreak"},
             }
         ),
@@ -637,17 +635,17 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
-                "run": {"iterations": 1, "seed": 41},
+                "run": {"max_iterations": 1, "seed": 41},
                 "network": {"hidden_size": 16},
                 "traversal": {
-                    "traversals_per_iteration": 1,
+                    "traversals_per_player": 1,
                     "max_depth": 2,
-                    "max_nodes": 32,
+                    "max_nodes_per_traversal": 32,
                 },
-                "optimization": {"batch_size": 2},
+                "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
                 "checkpoint": {
                     "directory": str(checkpoint_dir),
-                    "save_every_iteration": True,
+                    "save_every": 1,
                 },
                 "evaluation": {"eval_every": 1, "games": 2, "opponents": ("random",)},
             }
@@ -664,7 +662,7 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
                 "network": {"hidden_size": 16},
                 "checkpoint": {
                     "directory": str(checkpoint_dir),
-                    "save_every_iteration": False,
+                    "save_every": 0,
                 },
             }
         ),
@@ -700,13 +698,12 @@ def test_deep_cfr_trainer_always_saves_latest_checkpoint(tmp_path) -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
-                "run": {"iterations": 1, "seed": 42},
+                "run": {"max_iterations": 1, "seed": 42},
                 "network": {"hidden_size": 16},
-                "traversal": {"traversals_per_iteration": 1, "max_depth": 1},
+                "traversal": {"traversals_per_player": 1, "max_depth": 1},
                 "checkpoint": {
                     "directory": str(checkpoint_dir),
-                    "save_every_iteration": False,
-                    "save_iteration_interval": 10,
+                    "save_every": 10,
                 },
             }
         ),
@@ -724,10 +721,10 @@ def test_deep_cfr_exact_resume_is_explicitly_not_implemented(tmp_path) -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
-                "run": {"iterations": 1, "seed": 44},
+                "run": {"max_iterations": 1, "seed": 44},
                 "network": {"hidden_size": 16},
-                "traversal": {"traversals_per_iteration": 1, "max_depth": 1},
-                "checkpoint": {"directory": str(checkpoint_dir), "save_every_iteration": True},
+                "traversal": {"traversals_per_player": 1, "max_depth": 1},
+                "checkpoint": {"directory": str(checkpoint_dir), "save_every": 1},
             }
         ),
         LostCitiesConfig(seed=44),
@@ -755,20 +752,20 @@ def test_deep_cfr_trainer_multiprocessing_smoke_run(tmp_path) -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
-                "run": {"iterations": 1, "seed": 43},
+                "run": {"max_iterations": 1, "seed": 43},
                 "network": {"hidden_size": 16},
                 "traversal": {
-                    "traversals_per_iteration": 1,
+                    "traversals_per_player": 1,
                     "max_depth": 2,
-                    "max_nodes": 32,
+                    "max_nodes_per_traversal": 32,
                     "num_workers": 8,
                     "worker_chunk_size": 1,
                     "progress_every_traversals": 1,
                 },
-                "optimization": {"batch_size": 2},
+                "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
                 "checkpoint": {
                     "directory": str(tmp_path / "mp"),
-                    "save_every_iteration": False,
+                    "save_every": 0,
                 },
             }
         ),
@@ -791,8 +788,8 @@ def test_deep_cfr_traversal_benchmark_smoke() -> None:
             {
                 "run": {"seed": 47},
                 "network": {"hidden_size": 16},
-                "traversal": {"traversals_per_iteration": 1, "max_depth": 2},
-                "checkpoint": {"save_every_iteration": False},
+                "traversal": {"traversals_per_player": 1, "max_depth": 2},
+                "checkpoint": {"save_every": 0},
             }
         )
     )
@@ -804,8 +801,8 @@ def test_deep_cfr_traversal_benchmark_smoke() -> None:
             {
                 "run": {"seed": 48},
                 "network": {"hidden_size": 16},
-                "traversal": {"traversals_per_iteration": 1, "max_depth": 2},
-                "checkpoint": {"save_every_iteration": False},
+                "traversal": {"traversals_per_player": 1, "max_depth": 2},
+                "checkpoint": {"save_every": 0},
             }
         )
     )
@@ -816,12 +813,12 @@ def test_deep_cfr_self_play_league_records_snapshots(tmp_path) -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
-                "run": {"iterations": 2, "seed": 53},
+                "run": {"max_iterations": 2, "seed": 53},
                 "network": {"hidden_size": 16},
                 "traversal": {
-                    "traversals_per_iteration": 1,
+                    "traversals_per_player": 1,
                     "max_depth": 2,
-                    "max_nodes": 32,
+                    "max_nodes_per_traversal": 32,
                     "opponent_policy": "self_play_league",
                 },
                 "self_play": {
@@ -829,10 +826,10 @@ def test_deep_cfr_self_play_league_records_snapshots(tmp_path) -> None:
                     "max_snapshots": 1,
                     "anchor_probability": 1.0,
                 },
-                "optimization": {"batch_size": 2},
+                "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
                 "checkpoint": {
                     "directory": str(tmp_path / "league"),
-                    "save_every_iteration": False,
+                    "save_every": 0,
                 },
             }
         ),
@@ -849,12 +846,12 @@ def test_deep_cfr_weighted_self_play_league_uses_snapshot_bucket(tmp_path) -> No
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
             {
-                "run": {"iterations": 2, "seed": 59},
+                "run": {"max_iterations": 2, "seed": 59},
                 "network": {"hidden_size": 16},
                 "traversal": {
-                    "traversals_per_iteration": 1,
+                    "traversals_per_player": 1,
                     "max_depth": 2,
-                    "max_nodes": 32,
+                    "max_nodes_per_traversal": 32,
                     "opponent_policy": "self_play_league",
                 },
                 "self_play": {
@@ -866,10 +863,10 @@ def test_deep_cfr_weighted_self_play_league_uses_snapshot_bucket(tmp_path) -> No
                     "anchor_weight": 0.0,
                     "recent_window": 1,
                 },
-                "optimization": {"batch_size": 2},
+                "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
                 "checkpoint": {
                     "directory": str(tmp_path / "weighted-league"),
-                    "save_every_iteration": False,
+                    "save_every": 0,
                 },
             }
         ),

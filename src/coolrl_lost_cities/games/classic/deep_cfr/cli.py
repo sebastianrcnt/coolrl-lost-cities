@@ -136,10 +136,10 @@ def benchmark_command(args: argparse.Namespace) -> None:
         {
             "run": {"seed": args.seed},
             "traversal": {
-                "traversals_per_iteration": args.traversals,
+                "traversals_per_player": args.traversals,
                 "max_depth": args.depth,
             },
-            "checkpoint": {"save_every_iteration": False},
+            "checkpoint": {"save_every": 0},
         }
     )
     if args.compare:
@@ -212,7 +212,7 @@ def main(argv: list[str] | None = None) -> None:
         metavar="PATH=VALUE",
         help=(
             "Override config fields using dotted paths. Repeatable. VALUE is parsed as "
-            "YAML, e.g. --set traversal.num_workers=4 --set run.max_hours=null."
+            "YAML, e.g. --set traversal.num_workers=4 --set run.max_minutes=null."
         ),
     )
     train.add_argument(

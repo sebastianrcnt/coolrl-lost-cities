@@ -18,23 +18,18 @@ class StrictModel(BaseModel):
 
 class RunConfig(StrictModel):
     experiment_name: str = "deep_cfr"
-    iterations: int | None = 1
     max_iterations: int | None = None
-    max_hours: float | None = None
+    max_minutes: float | None = None
     seed: int = 1
-    device: str = "cpu"
+    device: str = "auto"
     use_amp: bool = False
 
     @field_validator("device")
     @classmethod
     def _normalize_device(cls, value: str) -> str:
         token = value.strip().lower()
-        if token == "cuda":
-            return "cuda"
-        if token == "cpu":
-            return "cpu"
-        if token == "auto":
-            return "auto"
+        if token in {"cuda", "cpu", "auto"}:
+            return token
         return token
 
 
@@ -95,12 +90,10 @@ class NetworkConfig(StrictModel):
 
 
 class TraversalConfig(StrictModel):
-    traversals_per_iteration: int = 2
-    traversals_per_player: int | None = None
+    traversals_per_player: int = 8
     sampling_mode: str = "outcome"
-    max_depth: int | None = 8
-    max_nodes: int | None = 10_000
-    max_nodes_per_traversal: int | None = None
+    max_depth: int | None = None
+    max_nodes_per_traversal: int | None = 10_000
     regret_matching_epsilon: float = 1.0e-8
     outcome_sampling_epsilon: float = 0.0
     outcome_sampling_value_clip: float | None = None
@@ -109,13 +102,12 @@ class TraversalConfig(StrictModel):
     cutoff_rollouts: int = 0
     cutoff_rollout_policy: str = "random"
     cutoff_rollout_max_steps: int = 10_000
-    opponent_policy: str = "network"
+    opponent_policy: str = "self_play_league"
     strategy_sample_interval: int = 1
     store_strategy_on_traverser_nodes: bool = True
     store_strategy_on_opponent_nodes: bool = True
     num_workers: int | str = 0
     worker_chunk_size: int = 4
-    traversal_worker_chunk_size: int | None = None
     progress_every_traversals: int = 0
     endpoint_depth_bucket_width: int = 100
     endpoint_depth_bucket_max: int = 1000
@@ -169,21 +161,6 @@ class TraversalConfig(StrictModel):
             workers = max(0, int(self.num_workers))
         return min(workers, batches) if batches is not None and batches > 0 else workers
 
-    def resolved_traversals_per_player(self) -> int:
-        if self.traversals_per_player is not None:
-            return max(0, int(self.traversals_per_player))
-        return max(0, int(self.traversals_per_iteration))
-
-    def resolved_max_nodes(self) -> int | None:
-        if self.max_nodes_per_traversal is not None:
-            return self.max_nodes_per_traversal
-        return self.max_nodes
-
-    def resolved_worker_chunk_size(self) -> int:
-        if self.traversal_worker_chunk_size is not None:
-            return max(1, int(self.traversal_worker_chunk_size))
-        return max(1, int(self.worker_chunk_size))
-
 
 class RegretMatchingConfig(StrictModel):
     all_negative_fallback: str = "uniform"
@@ -225,36 +202,13 @@ class SelfPlayLeagueConfig(StrictModel):
 
 
 class OptimizationConfig(StrictModel):
-    advantage_train_steps: int = 1
-    strategy_train_steps: int = 1
-    batch_size: int = 32
-    advantage_batch_size: int | None = None
-    strategy_batch_size: int | None = None
-    advantage_updates_per_iteration: int | None = None
-    strategy_updates_per_iteration: int | None = None
+    advantage_batch_size: int = 256
+    strategy_batch_size: int = 256
+    advantage_updates_per_iteration: int = 64
+    strategy_updates_per_iteration: int = 64
     learning_rate: float = 1.0e-3
     weight_decay: float = 0.0
     grad_clip: float = 0.0
-
-    def resolved_advantage_batch_size(self) -> int:
-        if self.advantage_batch_size is not None:
-            return max(1, int(self.advantage_batch_size))
-        return max(1, int(self.batch_size))
-
-    def resolved_strategy_batch_size(self) -> int:
-        if self.strategy_batch_size is not None:
-            return max(1, int(self.strategy_batch_size))
-        return max(1, int(self.batch_size))
-
-    def resolved_advantage_train_steps(self) -> int:
-        if self.advantage_updates_per_iteration is not None:
-            return max(0, int(self.advantage_updates_per_iteration))
-        return max(0, int(self.advantage_train_steps))
-
-    def resolved_strategy_train_steps(self) -> int:
-        if self.strategy_updates_per_iteration is not None:
-            return max(0, int(self.strategy_updates_per_iteration))
-        return max(0, int(self.strategy_train_steps))
 
 
 class MemoryConfig(StrictModel):
@@ -264,10 +218,8 @@ class MemoryConfig(StrictModel):
 
 class CheckpointConfig(StrictModel):
     directory: str = "runs/deep_cfr/default"
+    save_every: int = 1
     save_latest: bool = True
-    save_every_iteration: bool = True
-    save_iteration_interval: int = 0
-    save_latest_only: bool = False
     progress_interval_seconds: float = 20.0
     exact_resume: bool = False
 
@@ -277,9 +229,9 @@ class CheckpointConfig(StrictModel):
 
 
 class EvaluationConfig(StrictModel):
-    eval_every: int = 0
+    eval_every: int = 50
     games: int = 10
-    opponents: tuple[str, ...] = ("random",)
+    opponents: tuple[str, ...] = ("random", "safe_heuristic")
     max_steps: int = 10_000
     on_max_steps: str = "score_diff"
     batch_size: int = 64
@@ -301,9 +253,6 @@ class EvaluationConfig(StrictModel):
         if token not in {"trainer", "auto", "cpu", "cuda"}:
             raise ValueError("must be 'trainer', 'auto', 'cpu', or 'cuda'")
         return token
-
-    def resolved_batch_size(self) -> int:
-        return max(1, int(self.batch_size))
 
     def resolved_num_workers(self, opponent_count: int | None = None) -> int:
         workers = max(1, int(self.num_workers))
