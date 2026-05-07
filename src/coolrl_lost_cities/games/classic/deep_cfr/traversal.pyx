@@ -1,6 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True, initializedcheck=False
 """Cython traversal engine and rollout primitives for Deep CFR."""
 
+from libc.math cimport exp
 from libc.stdlib cimport free, malloc
 
 import numpy as np
@@ -63,6 +64,7 @@ cdef int _depth_bucket_start(int depth, int width, int max_depth) noexcept:
 
 cdef class CythonDeepCFRTraverser:
     cdef object advantage_networks
+    cdef object strategy_network
     cdef object advantage_samples
     cdef object strategy_samples
     cdef object device
@@ -111,6 +113,7 @@ cdef class CythonDeepCFRTraverser:
         object advantage_networks,
         *,
         object device,
+        object strategy_network=None,
         int action_size,
         object encoding=None,
         float epsilon=1.0e-8,
@@ -140,6 +143,7 @@ cdef class CythonDeepCFRTraverser:
         unsigned int seed=1,
     ):
         self.advantage_networks = advantage_networks
+        self.strategy_network = strategy_network
         self.advantage_samples = []
         self.strategy_samples = []
         self.device = device
@@ -185,8 +189,16 @@ cdef class CythonDeepCFRTraverser:
             self.opponent_policy_id = 1
         elif opponent_policy == "self_play_league":
             self.opponent_policy_id = 2
+        elif opponent_policy == "average_strategy":
+            self.opponent_policy_id = 3
+            if strategy_network is None:
+                raise ValueError(
+                    "opponent_policy='average_strategy' requires strategy_network"
+                )
         else:
-            raise ValueError("opponent_policy must be 'network', 'safe_heuristic', or 'self_play_league'")
+            raise ValueError(
+                "opponent_policy must be 'network', 'safe_heuristic', 'self_play_league', or 'average_strategy'"
+            )
         if all_negative_fallback == "uniform":
             self.all_negative_fallback_id = 0
         elif all_negative_fallback == "argmax_tiebreak":
@@ -447,6 +459,69 @@ cdef class CythonDeepCFRTraverser:
                 policy[selected] = 1.0
         return info_state
 
+    cdef void _policy_from_strategy_network(
+        self,
+        GameState state,
+        int player,
+        unsigned char* legal,
+        float* policy,
+    ):
+        cdef float[::1] info_view
+        cdef float[::1] logits_view
+        cdef int actions[MAX_ACTIONS]
+        cdef int action_count
+        cdef int i
+        cdef float max_legal_logit
+        cdef float total
+        cdef float value
+        cdef bint any_legal
+
+        info_state = np.empty(self.input_dim, dtype=np.float32)
+        info_view = info_state
+        _encode_info_state_with_flags_c(
+            state,
+            player,
+            &info_view[0],
+            self.derived_playability,
+            self.slot_aware_playability,
+        )
+        for i in range(self.action_size):
+            legal[i] = 0
+        action_count = state._unified_legal_actions_c(actions)
+        for i in range(action_count):
+            legal[actions[i]] = 1
+        with torch.inference_mode():
+            x = torch.as_tensor(info_state, dtype=torch.float32, device=self.device).unsqueeze(0)
+            logits = self.strategy_network(x).squeeze(0).detach().cpu().numpy().astype(np.float32)
+        logits_view = logits
+        max_legal_logit = 0.0
+        any_legal = False
+        for i in range(self.action_size):
+            if legal[i] != 0:
+                if not any_legal or logits_view[i] > max_legal_logit:
+                    max_legal_logit = logits_view[i]
+                    any_legal = True
+        if not any_legal:
+            for i in range(self.action_size):
+                policy[i] = 0.0
+            return
+        total = 0.0
+        for i in range(self.action_size):
+            if legal[i] != 0:
+                value = logits_view[i] - max_legal_logit
+                policy[i] = exp(value)
+                total += policy[i]
+            else:
+                policy[i] = 0.0
+        if total <= 0.0:
+            value = 1.0 / <float>action_count
+            for i in range(self.action_size):
+                policy[i] = value if legal[i] != 0 else 0.0
+            return
+        for i in range(self.action_size):
+            if legal[i] != 0:
+                policy[i] = policy[i] / total
+
     cdef void _sampling_policy(
         self,
         const float* policy,
@@ -499,6 +574,18 @@ cdef class CythonDeepCFRTraverser:
             if self.safe_heuristic_opponent_bot is None:
                 self.safe_heuristic_opponent_bot = SafeHeuristicBot()
             return int(self.safe_heuristic_opponent_bot.act(state))
+        if self.opponent_policy_id == 3:
+            self._policy_from_strategy_network(state, player, legal, policy)
+            for i in range(self.action_size):
+                if legal[i] != 0:
+                    actions[count] = i
+                    count += 1
+            if count <= 0:
+                return -1
+            unified_action = _sample_policy_from_actions_c(
+                policy, actions, count, _next_double(&self.rng)
+            )
+            return self._from_unified_action_c(state, unified_action)
         bucket = self.active_self_play_bucket
         if bucket == 0:
             return -1
@@ -840,6 +927,7 @@ def run_cython_traversal_batch(
     *,
     object device,
     int action_size,
+    object strategy_network=None,
     object encoding=None,
     float epsilon=1.0e-8,
     int strategy_sample_interval=1,
@@ -875,6 +963,7 @@ def run_cython_traversal_batch(
     traverser = CythonDeepCFRTraverser(
         advantage_networks,
         device=device,
+        strategy_network=strategy_network,
         action_size=action_size,
         encoding=encoding,
         epsilon=epsilon,

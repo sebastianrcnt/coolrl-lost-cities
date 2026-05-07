@@ -337,6 +337,11 @@ class DeepCFRTrainer:
                 player,
                 iteration,
                 device=self.device,
+                strategy_network=(
+                    self.strategy_network
+                    if self.config.traversal.opponent_policy == "average_strategy"
+                    else None
+                ),
                 action_size=self.action_size,
                 encoding=self.config.encoding,
                 epsilon=self.config.traversal.regret_matching_epsilon,
@@ -464,6 +469,12 @@ class DeepCFRTrainer:
             {name: value.detach().cpu() for name, value in network.state_dict().items()}
             for network in self.advantage_networks
         ]
+        strategy_payload: dict | None = None
+        if self.config.traversal.opponent_policy == "average_strategy":
+            strategy_payload = {
+                name: value.detach().cpu()
+                for name, value in self.strategy_network.state_dict().items()
+            }
         chunk_size = self.config.traversal.resolved_worker_chunk_size()
         batch_index = 0
         for player in range(2):
@@ -485,6 +496,7 @@ class DeepCFRTrainer:
                         advantage_networks=network_payloads,
                         league_advantage_networks=self._league_payloads(),
                         worker_seed=self.config.run.seed + iteration * 1_000_003 + batch_index,
+                        strategy_network=strategy_payload,
                     )
                 )
                 batch_index += 1

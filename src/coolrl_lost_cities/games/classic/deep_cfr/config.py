@@ -143,8 +143,10 @@ class TraversalConfig(StrictModel):
     @field_validator("opponent_policy")
     @classmethod
     def _validate_opponent_policy(cls, value: str) -> str:
-        if value not in {"network", "safe_heuristic", "self_play_league"}:
-            raise ValueError("must be 'network', 'safe_heuristic', or 'self_play_league'")
+        if value not in {"network", "safe_heuristic", "self_play_league", "average_strategy"}:
+            raise ValueError(
+                "must be 'network', 'safe_heuristic', 'self_play_league', or 'average_strategy'"
+            )
         return value
 
     def resolved_num_workers(self, batches: int | None = None) -> int:

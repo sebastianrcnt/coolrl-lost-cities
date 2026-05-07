@@ -43,6 +43,7 @@ class TraversalWorkerBatch:
     advantage_networks: list[dict[str, Any]]
     league_advantage_networks: list[list[dict[str, Any]]]
     worker_seed: int
+    strategy_network: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,13 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
             network.load_state_dict(state_dict)
             network.eval()
         league_networks.append(snapshot_networks)
+    strategy_network: torch.nn.Module | None = None
+    if batch.strategy_network is not None:
+        strategy_network = DeepCFRMLP.from_config(
+            batch.input_dim, batch.action_size, cfg.network
+        ).to(device)
+        strategy_network.load_state_dict(batch.strategy_network)
+        strategy_network.eval()
     game_config = LostCitiesConfig(**batch.game_config)
     total_stats, advantage_samples, strategy_samples = run_cython_traversal_batch(
         networks,
@@ -84,6 +92,7 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
         batch.player,
         batch.iteration,
         device=device,
+        strategy_network=strategy_network,
         action_size=batch.action_size,
         encoding=cfg.encoding,
         epsilon=cfg.traversal.regret_matching_epsilon,
