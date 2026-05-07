@@ -226,6 +226,9 @@ Recommended next path: stay on Python/Cython and pursue Option B
 Julia experiment could still be considered later for traversal-only
 logic, but it would need an explicit hybrid plan that keeps PyTorch for
 networks and separately proves PythonCall/PyCall overhead is acceptable.
+For the traversal bottleneck clarification and Option B speedup envelope,
+see `docs/performance.md` "Clarifying the traversal bottleneck: sync
+policy boundary, not SIMD."
 
 Criterion 5 remains unrun because criterion 4 already blocks the full
 port decision.

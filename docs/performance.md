@@ -700,6 +700,56 @@ either:
 Both require restructuring traversal. Option A's "additive, no traversal
 changes" property turned out to also mean "cannot drive the batch size up."
 
+### Clarifying the traversal bottleneck: sync policy boundary, not SIMD
+
+The tempting shorthand is "Python/GIL prevents traversal from using SIMD or
+threads." The more precise diagnosis is narrower:
+
+- Lost Cities game mechanics are already mostly Cython C-level operations.
+  `legal_actions`, action push/pop, and cached scoring are not Python list
+  walks on the hot path.
+- The traversal recursion is Cython, but it synchronously crosses back into
+  Python/PyTorch at every policy-needed state: encode a single info state,
+  run one-row PyTorch forward, copy logits back to CPU/Numpy, then continue
+  recursion.
+- This boundary makes every traversal worker **sync-blocking**. With
+  `num_workers=8`, the inference server can see at most eight in-flight
+  requests before per-network splitting, no matter how large `max_batch` is.
+- GIL-free threading would help only after the same path is made
+  `nogil`-clean or after traversal is restructured so policy calls can be
+  batched. Simply "using SIMD" does not address the one-row policy boundary.
+
+So the actionable bottleneck is **policy-call scheduling shape**, not scalar
+game-rule arithmetic. The highest-leverage experiment is Option B:
+per-worker interleaved traversal, where one worker advances many traversals,
+suspends each at a policy request, batches those requests, and resumes the
+corresponding continuations.
+
+Microbench evidence (2026-05-07, `configs/deep_cfr/default.yaml`,
+`experiments/traversal_policy_boundary/bench_policy_boundary.py`):
+
+| Device | Component | median μs/call | p95 μs/call |
+| --- | --- | ---: | ---: |
+| CPU | encode + legal | 3.10 | 3.81 |
+| CPU | push + pop | 0.15 | 0.22 |
+| CPU | policy boundary bs=1 | 111.50 | 125.46 |
+| CPU | torch forward bs=64 | 12.84 | 13.14 |
+| CUDA | policy boundary bs=1 | 181.30 | 194.77 |
+| CUDA | torch forward bs=64 | 2.55 | 2.75 |
+
+This confirms the bottleneck is not Cython game-rule scalar work. The
+single-request policy boundary is ~36× larger than encode+legal on CPU, while
+CUDA bs=64 forward is ~71× cheaper than the current CUDA bs=1 boundary.
+
+Expected upside is bounded by the fraction of traversal currently spent at
+policy calls. Moving realized GPU forward from the current ~4-8 row regime
+(~12-20μs/state) to bs=64 (~1.46μs/state) is an ~8-14× improvement on the
+forward component, but not on game recursion, sample creation, or replay
+writes. For the observed `local` traversal around 10-13s/iter, a realistic
+first target is roughly **1.5-3× traversal speedup** if Option B reaches the
+bs=64 regime without adding comparable scheduler overhead. Larger claims need
+a prototype because traversal has substantial non-forward work.
+
 ### Why deferring A (not deleting) is the right call
 
 - The plumbing (server process, shared-memory client, weight sync, config
