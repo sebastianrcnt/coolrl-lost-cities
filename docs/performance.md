@@ -357,3 +357,32 @@ revisiting if the trainer model grows substantially or after the
 batched-traversal-inference work in Optimization Priorities #5 lands —
 that is the change that would put compile on the dominant phase, not
 just on the trainer's optimization steps. Not enabled on `main`.
+
+### GPU forward profiling for batched traversal (2026-05-07, decision support)
+
+To decide whether Optimization Priorities #5 (batched traversal inference) is
+worth implementing, profiled `DeepCFRMLP` from `default.yaml`
+(input_dim=365, output_dim=22, hidden=512, 3 layers, ReLU) on an RTX 3090 in
+`eval()` + `inference_mode`, with 10-iter warm-up and 1000-iter measurement
+per batch size. Script: `scripts/profile_gpu_forward.py`.
+
+| Batch size | μs/call | μs/state | Speedup vs bs=1 |
+| ---: | ---: | ---: | ---: |
+| 1 | 80.07 | 80.074 | 1.00× |
+| 4 | 81.20 | 20.299 | 3.94× |
+| 16 | 91.30 | 5.706 | 14.03× |
+| 64 | 93.61 | 1.463 | 54.75× |
+| 256 | 88.34 | 0.345 | 232.03× |
+| 1024 | 161.95 | 0.158 | 506.30× |
+
+Policy-call supply from
+`runs/tmp/2026-05-07_181155_deep-cfr-default/metrics.jsonl`: mean
+`traversal/nodes` ≈ 205,810 over 280 traversals/player → ~368 policy calls per
+traversal (rough upper bound on batchable states), ~200k per iteration across
+560 traversals.
+
+Verdict: **Priority #5 is worth pursuing.** Per-state cost drops from 80 μs at
+bs=1 to 0.34 μs at bs=256 (>230×). The available supply of ~368 states per
+traversal sits comfortably in the bs=64–256 range where μs/call plateaus near
+90 μs. End-to-end gain will be bounded by encoding and worker-GPU coordination
+overhead, but the GPU forward is not the limiter once batching is in place.
