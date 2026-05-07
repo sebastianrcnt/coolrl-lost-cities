@@ -27,6 +27,18 @@ if ! uv run python scripts/librarian_check_oversize.py; then
 fi
 echo
 
+echo "→ Stale plans (no commit in 60 days)"
+if ! uv run python scripts/librarian_check_stale_plans.py; then
+    overall=1
+fi
+echo
+
+echo "→ MEMORY.md drift (index vs frontmatter)"
+if ! uv run python scripts/librarian_check_memory_drift.py; then
+    overall=1
+fi
+echo
+
 if [ "$overall" -eq 0 ]; then
     echo "All Stage 1 checks passed."
 else

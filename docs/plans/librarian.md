@@ -141,18 +141,35 @@ operator applies the patch.
   in AGENTS.md. Caught one real finding on first run:
   `docs/performance.md` at 914 lines — split into sub-topics deferred
   as a separate task.
+- ✅ Stage 1, piece 4: `scripts/librarian_check_stale_plans.py`. Uses
+  `git log -1 --format=%cs` per plan file; flags plans whose last
+  commit is older than 60 days. Clean on first run (all four plans
+  committed 2026-05-07).
+- ✅ Stage 1, piece 5: `scripts/librarian_check_memory_drift.py`.
+  Validates that every MEMORY.md index line points to a real file
+  with required frontmatter fields (`name`, `description`, `type` ∈
+  {user, feedback, project, reference}) and that no memory file is
+  orphaned from the index. Memory dir derived from repo root, so the
+  script is portable. Clean on first run.
 
-## Stage 1 Remaining Checks
+## Stage 1 Status: Complete
 
-- Stale plans (mtime + git-log staleness heuristic).
-- Promotable archive entries (deferred to Stage 2 — heuristic vs LLM
-  judgment is the open question).
-- MEMORY.md drift (index lines vs target file `description:` frontmatter).
-- Duplicate prose (high-overlap pairs across archive vs research).
+All deterministic checks land. Two remaining concepts intentionally
+moved out of Stage 1 because they require LLM judgment, not
+deterministic detection:
+
+- **Promotable archive entries** → Stage 2. "Durable conclusion"
+  detection is judgment, not pattern matching.
+- **Duplicate prose** → Stage 2. Shingled-overlap heuristics produce
+  too many false positives in this repo's mix of archive snapshots
+  and derived research notes; LLM should decide whether two passages
+  are the *same idea* vs the *same evidence*.
+
+Open Stage 1 finding to address: `docs/performance.md` at 914 lines.
 
 ## Next Concrete Step
 
-Stale plan check (`scripts/librarian_check_stale_plans.py`). Walks
-`docs/plans/*.md` and flags files whose mtime is older than N days
-AND whose path hasn't appeared in `git log` over the same window.
-This catches plans that drift out of mind without being archived.
+Address the open Stage 1 finding by splitting `docs/performance.md`
+into sub-topic notes under `docs/research/` (and dated archive
+entries where appropriate). Sketch the split as a 1-page sub-plan
+before doing the actual move so we don't shred a useful document.
