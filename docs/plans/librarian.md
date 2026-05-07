@@ -183,11 +183,40 @@ routing the dated experiments and design analysis out of the file:
 extracts via a "See Also" section. AGENTS.md soft-cap rule reworded
 to clarify it is a *routing trigger*, not a split mandate.
 
+## Stage 2 v1: promote dispatcher
+
+✅ `scripts/librarian_promote.py`. Takes a `docs/archive/*.md` path,
+stitches `scripts/librarian-prompt.md` (system prompt) onto the
+archive body with a "draft a research note" task instruction, then
+shells out to the LLM CLI selected by `LIBRARIAN_LLM`
+(claude / codex / gemini; default claude). Output is captured to
+`runs/tmp/librarian-promote-<timestamp>-draft.md` for human review;
+the script never writes into `docs/research/` itself. `--show-prompt`
+prints the assembled prompt for inspection without calling the LLM.
+
+Refuses to run if:
+- the path is not under `docs/archive/`,
+- the implied target `docs/research/<stem>.md` already exists, or
+- the file is missing.
+
+If the LLM judges the archive non-promotable, it is instructed to
+return a single line `SKIP: <reason>` instead of a draft.
+
+## Stage 2 remaining
+
+- MEMORY.md drift fixup mode (read drift report, propose one-line
+  diffs).
+- Duplicate-doc merge proposal mode.
+- Survey mode: scan all archive entries lacking a research
+  counterpart and run `librarian_promote` on each, accumulating
+  drafts under one timestamped directory.
+
 ## Next Concrete Step
 
-Stage 2 — LLM judgment dispatcher. Read `librarian-<timestamp>.json`
-+ relevant doc bodies, route to `LIBRARIAN_LLM={claude|codex|gemini}`
-with `scripts/librarian-prompt.md` as system prompt, emit a unified
-diff under `runs/tmp/librarian-<timestamp>.patch`. Initial use cases:
-research-note drafts for promotable archive entries, MEMORY.md drift
-fixups, duplicate-doc merge proposals.
+Smoke-test `librarian_promote.py` against one real archive entry
+(`docs/archive/option-a-bench-result-2026-05-07.md` is a good
+candidate — durable architecture content). Run with the default
+claude backend, review the draft, and either accept it as
+`docs/research/option-a-bench-result.md` or note specific
+edit-distance from what we'd want. The result drives whether the
+prompt template needs tightening before adding survey mode.

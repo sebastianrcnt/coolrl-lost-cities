@@ -18,3 +18,8 @@ scripts/run_model_size_experiment.sh
 
 # Future config described in docs/plans/torch_compile.md
 configs/deep_cfr/default_compile.yaml
+
+# Hypothetical accept target named in docs/plans/librarian.md as a
+# smoke-test illustration; resolves naturally if Stage 2 promote is
+# accepted, otherwise stays a forward reference.
+docs/research/option-a-bench-result.md
