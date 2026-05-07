@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import encode_info_state, input_dim
 from coolrl_lost_cities.games.classic.deep_cfr.traversal import CythonDeepCFRTraverser
@@ -397,6 +398,76 @@ def test_deep_cfr_trainer_supports_lcfr_and_dcfr_loss_weighting() -> None:
         assert len(metrics) == 1
         assert metrics[0].advantage_loss >= 0.0
         assert metrics[0].strategy_loss >= 0.0
+
+
+def test_deep_cfr_trainer_amp_cpu_falls_back_to_fp32() -> None:
+    trainer = DeepCFRTrainer(
+        _deep_cfr_config(
+            {
+                "run": {"max_iterations": 1, "seed": 25, "device": "cpu", "use_amp": True},
+                "network": {"hidden_size": 16},
+                "traversal": {
+                    "traversals_per_player": 1,
+                    "max_depth": 2,
+                    "max_nodes_per_traversal": 32,
+                },
+                "optimization": {
+                    "advantage_updates_per_iteration": 1,
+                    "strategy_updates_per_iteration": 1,
+                    "advantage_batch_size": 2,
+                    "strategy_batch_size": 2,
+                },
+                "checkpoint": {"save_every": 0},
+                "evaluation": {"eval_every": 0},
+            }
+        ),
+        LostCitiesConfig(seed=25),
+        device="cpu",
+    )
+
+    metrics = trainer.train()
+
+    assert len(metrics) == 1
+    assert metrics[0].runtime_metrics["amp/grad_scale"] == 1.0
+    assert metrics[0].runtime_metrics["amp/nonfinite_loss_count"] == 0
+    assert metrics[0].advantage_loss >= 0.0
+    assert metrics[0].strategy_loss >= 0.0
+
+
+def test_deep_cfr_trainer_amp_cuda_smoke() -> None:
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    trainer = DeepCFRTrainer(
+        _deep_cfr_config(
+            {
+                "run": {"max_iterations": 1, "seed": 26, "device": "cuda", "use_amp": True},
+                "network": {"hidden_size": 16},
+                "traversal": {
+                    "traversals_per_player": 1,
+                    "max_depth": 2,
+                    "max_nodes_per_traversal": 32,
+                },
+                "optimization": {
+                    "advantage_updates_per_iteration": 1,
+                    "strategy_updates_per_iteration": 1,
+                    "advantage_batch_size": 2,
+                    "strategy_batch_size": 2,
+                },
+                "checkpoint": {"save_every": 0},
+                "evaluation": {"eval_every": 0},
+            }
+        ),
+        LostCitiesConfig(seed=26),
+        device="cuda",
+    )
+
+    metrics = trainer.train()
+
+    assert len(metrics) == 1
+    assert metrics[0].runtime_metrics["amp/grad_scale"] > 0.0
+    assert metrics[0].runtime_metrics["amp/nonfinite_loss_count"] == 0
+    assert np.isfinite(metrics[0].advantage_loss)
+    assert np.isfinite(metrics[0].strategy_loss)
 
 
 def test_deep_cfr_cython_traverser_restores_state_and_collects_samples() -> None:

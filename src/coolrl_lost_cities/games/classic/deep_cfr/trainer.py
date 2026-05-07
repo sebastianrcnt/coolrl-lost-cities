@@ -230,6 +230,9 @@ class DeepCFRTrainer:
             lr=self.config.optimization.learning_rate,
             weight_decay=self.config.optimization.weight_decay,
         )
+        self._amp_enabled = bool(self.config.run.use_amp) and self.device.type == "cuda"
+        self._amp_dtype = torch.float16
+        self._scaler = torch.amp.GradScaler("cuda", enabled=self._amp_enabled)
         self.advantage_memories = [
             ReservoirMemory(self.config.memory.advantage_capacity) for _ in range(2)
         ]
@@ -258,6 +261,8 @@ class DeepCFRTrainer:
         self._runtime_metrics: dict[str, float | int] = {}
         self._inference_server: InferenceServerController | None = None
         self._last_inference_weight_sync_iteration: int | None = None
+        if self.config.run.use_amp and not self._amp_enabled:
+            self.tracker.log_event("AMP requested but trainer device is not CUDA; running fp32.")
 
     def checkpoint_payload(self, metrics: IterationMetrics | None = None) -> dict:
         return {
@@ -339,6 +344,9 @@ class DeepCFRTrainer:
         self._runtime_metrics["time/strategy_train_seconds"] = (
             time.perf_counter() - strategy_started
         )
+        if self.config.run.use_amp:
+            self._runtime_metrics["amp/grad_scale"] = float(self._scaler.get_scale())
+            self._runtime_metrics.setdefault("amp/nonfinite_loss_count", 0)
 
         eval_started = time.perf_counter()
         eval_metrics = self._evaluate(iteration)
@@ -953,40 +961,52 @@ class DeepCFRTrainer:
                 - sample_started
             )
             x, y, legal, sample_iterations = self._batch_tensors(batch)
-            pred = network(x)
-            diff = (pred - y).masked_fill(~legal, 0.0)
-            if self.config.training_weighting.mode == "none":
-                loss = diff.square().sum() / legal.sum().clamp_min(1)
-            elif self.config.training_weighting.mode == "lcfr":
-                sample_weights = self._iteration_weights(
-                    sample_iterations, self.config.training_weighting.lcfr_alpha
-                )
-                action_weights = sample_weights[:, None] * legal.float()
-                loss = (diff.square() * action_weights).sum() / action_weights.sum().clamp_min(
-                    1.0e-12
-                )
-            else:
-                positive_weights = self._iteration_weights(
-                    sample_iterations, self.config.training_weighting.dcfr_alpha
-                )
-                negative_weights = self._iteration_weights(
-                    sample_iterations, self.config.training_weighting.dcfr_beta
-                )
-                target_weights = torch.where(
-                    y >= 0.0, positive_weights[:, None], negative_weights[:, None]
-                )
-                action_weights = target_weights * legal.float()
-                loss = (diff.square() * action_weights).sum() / action_weights.sum().clamp_min(
-                    1.0e-12
-                )
+            with torch.autocast(
+                device_type="cuda",
+                dtype=self._amp_dtype,
+                enabled=self._amp_enabled,
+            ):
+                pred = network(x)
+                diff = (pred - y).masked_fill(~legal, 0.0).float()
+                squared = diff.square()
+                if self.config.training_weighting.mode == "none":
+                    loss = squared.sum() / legal.sum().clamp_min(1)
+                elif self.config.training_weighting.mode == "lcfr":
+                    sample_weights = self._iteration_weights(
+                        sample_iterations, self.config.training_weighting.lcfr_alpha
+                    )
+                    action_weights = sample_weights[:, None] * legal.float()
+                    loss = (squared * action_weights).sum() / action_weights.sum().clamp_min(
+                        1.0e-12
+                    )
+                else:
+                    positive_weights = self._iteration_weights(
+                        sample_iterations, self.config.training_weighting.dcfr_alpha
+                    )
+                    negative_weights = self._iteration_weights(
+                        sample_iterations, self.config.training_weighting.dcfr_beta
+                    )
+                    target_weights = torch.where(
+                        y >= 0.0, positive_weights[:, None], negative_weights[:, None]
+                    )
+                    action_weights = target_weights * legal.float()
+                    loss = (squared * action_weights).sum() / action_weights.sum().clamp_min(
+                        1.0e-12
+                    )
+            if not torch.isfinite(loss):
+                self._record_nonfinite_loss()
+                optimizer.zero_grad(set_to_none=True)
+                continue
             optimizer.zero_grad(set_to_none=True)
-            loss.backward()
+            self._scaler.scale(loss).backward()
             if self.config.optimization.grad_clip > 0.0:
+                self._scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(
                     network.parameters(), self.config.optimization.grad_clip
                 )
-            optimizer.step()
-            losses.append(float(loss.detach().cpu()))
+            self._scaler.step(optimizer)
+            self._scaler.update()
+            losses.append(float(loss.detach().float().cpu()))
         return float(np.mean(losses)) if losses else 0.0
 
     def _train_strategy(
@@ -1007,7 +1027,13 @@ class DeepCFRTrainer:
                 - sample_started
             )
             x, y, legal, sample_iterations = self._batch_tensors(batch)
-            logits = network(x).masked_fill(~legal, torch.finfo(torch.float32).min)
+            with torch.autocast(
+                device_type="cuda",
+                dtype=self._amp_dtype,
+                enabled=self._amp_enabled,
+            ):
+                logits = network(x)
+            logits = logits.float().masked_fill(~legal, torch.finfo(torch.float32).min)
             log_probs = nn.functional.log_softmax(logits, dim=-1).masked_fill(~legal, 0.0)
             per_sample_loss = -(y * log_probs).sum(dim=-1)
             if self.config.training_weighting.mode == "none":
@@ -1026,12 +1052,23 @@ class DeepCFRTrainer:
                 loss = (per_sample_loss * sample_weights).sum() / sample_weights.sum().clamp_min(
                     1.0e-12
                 )
+            if not torch.isfinite(loss):
+                self._record_nonfinite_loss()
+                optimizer.zero_grad(set_to_none=True)
+                continue
             optimizer.zero_grad(set_to_none=True)
-            loss.backward()
+            self._scaler.scale(loss).backward()
             if self.config.optimization.grad_clip > 0.0:
+                self._scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(
                     network.parameters(), self.config.optimization.grad_clip
                 )
-            optimizer.step()
-            last_loss = float(loss.detach().cpu())
+            self._scaler.step(optimizer)
+            self._scaler.update()
+            last_loss = float(loss.detach().float().cpu())
         return last_loss
+
+    def _record_nonfinite_loss(self) -> None:
+        self._runtime_metrics["amp/nonfinite_loss_count"] = (
+            int(self._runtime_metrics.get("amp/nonfinite_loss_count", 0)) + 1
+        )

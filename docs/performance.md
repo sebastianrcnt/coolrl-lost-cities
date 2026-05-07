@@ -358,6 +358,59 @@ batched-traversal-inference work in Optimization Priorities #5 lands —
 that is the change that would put compile on the dominant phase, not
 just on the trainer's optimization steps. Not enabled on `main`.
 
+### AMP on trainer networks (2026-05-07, regression)
+
+Wrapped the trainer optimization phases with `torch.autocast(fp16)` and
+`torch.amp.GradScaler`: `_train_advantage` and `_train_strategy` now run
+their network forward/backward/optimizer step through the AMP path when
+`run.use_amp=true` and the trainer device is CUDA.
+
+Safety mitigations included in the implementation:
+
+- `GradScaler.unscale_(optimizer)` is called before `clip_grad_norm_`.
+- Non-finite loss guard increments `amp/nonfinite_loss_count` and skips the
+  bad step instead of applying it.
+- Advantage squared loss computes `diff.float().square()` so the loss
+  reduction is fp32 even when the forward path is autocast to fp16.
+- Strategy logits are cast back to fp32 before `masked_fill` and
+  `log_softmax`.
+- Metrics now expose `amp/grad_scale` and `amp/nonfinite_loss_count`.
+
+Measurement used the small `smoke.yaml` config with synthetic replay-memory
+samples via:
+
+```bash
+uv run python scripts/bench_amp_trainer.py \
+  --config configs/deep_cfr/smoke.yaml \
+  --runs 3 \
+  --warmup 1 \
+  --device cuda
+```
+
+| | mean ms/call | speedup vs fp32 |
+| --- | ---: | ---: |
+| fp32 | 3.22 | 1.00× |
+| AMP (fp16) | 3.92 | 0.82× |
+
+Net result: regression. This matches the same dispatch-overhead-vs-kernel
+benefit dynamic as the `torch.compile` regression above: the current trainer
+model and smoke workload are too small for AMP's lower-precision kernels to
+pay back autocast and scaler bookkeeping overhead.
+
+The full `default.yaml` 100-iteration A/B was intentionally skipped. Given
+the small-model regression and the matching `torch.compile` precedent on the
+same model family, there is no current evidence that spending GPU time on the
+longer A/B would produce a different decision. The infrastructure is kept
+merged but default-off: `run.use_amp=false` remains the default, and
+re-enabling is a one-field config flip.
+
+Re-measure AMP only after the model grows to at least `hidden_size >= 1024`
+or `num_layers >= 6`. At that point run both the fast
+`scripts/bench_amp_trainer.py` micro-bench and the formal 100-iteration
+fp32-vs-AMP A/B. If AMP still provides less than 5% speedup at that larger
+model size, keep it default-off and raise the next re-measure trigger to an
+even larger model.
+
 ### GPU forward profiling for batched traversal (2026-05-07, decision support)
 
 To decide whether Optimization Priorities #5 (batched traversal inference) is
@@ -556,6 +609,8 @@ Do this in order. Skipping ahead is the failure mode that creates misleading
 2. **Next**: experiment with a larger network config. Measure compute vs
    learning-curve trade-off with the existing toolchain (no compile/TRT yet).
    This step decides the model size that future optimizations target.
+   It is also the prerequisite for revisiting AMP, `torch.compile`, and
+   TensorRT: all three are dispatch-overhead-bound on the current small model.
 3. **Then**: re-measure `torch.compile` on the trainer at the chosen model
    size. The earlier regression was size-bound; expect a different result.
 4. **Then**: integrate TensorRT into the inference server (covers traversal
