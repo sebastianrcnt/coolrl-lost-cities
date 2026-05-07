@@ -99,6 +99,74 @@ the decisive PASS threshold for the threading criterion.
   fixed corpus of game states, compare to current Cython. Criterion 5.
   Not started.
 
+## Pass/fail thresholds (decided in advance)
+
+These are explicit so that the moment a measurement lands, the decision
+is automatic. No re-deliberation, no "let's discuss it." If a result
+sits on a boundary, treat it as the pessimistic side.
+
+**Criterion 3 (multi-thread scaling)** — already measured on the toy:
+
+- PASS: 8T efficiency ≥ 80%.
+- PARTIAL: 50–80%. (Current toy result: 59%.)
+- FAIL: < 50%.
+
+Re-measure on the real-game-state slice (criterion 5) when that lands.
+The toy figure is informative but not authoritative; real workloads have
+more compute per traversal and may scale better.
+
+**Criterion 4 (Flux.jl + CUDA.jl MLP forward)**:
+
+- PASS: bs=64 forward time within ±20% of PyTorch on the same GPU and
+  same `DeepCFRMLP` shape (input_dim=365, hidden=512, layers=3,
+  output_dim=22). Both bs=1 and bs=256 must also be within ±30% (single-
+  state and large-batch matter for traversal-time and eval-time
+  respectively).
+- FAIL: any of the three batch sizes regresses by more than the band
+  above. Single PASS at one batch size is not sufficient.
+
+Methodology: 100-iter timing with 10-iter warm-up, `inference_mode`
+equivalent on both sides. Identical weights (export from PyTorch, load
+into Flux). Compare per-state latency (μs/state).
+
+**Criterion 5 (real-game-state slice)**:
+
+- Scope: a Julia port of a single representative slice of the Lost
+  Cities engine — at minimum `legal_actions` + `apply_action` + scoring
+  for end-of-game, against a fixed corpus of ≥1000 game states exported
+  from the current Cython engine.
+- Action-equivalence requirement: byte-identical `legal_actions` set
+  and post-action state for every corpus entry. ε = 0; this is a
+  correctness gate, not a numerical one.
+- PASS: single-thread per-state cost within ±25% of current Cython, AND
+  re-running the heavy threaded benchmark on this slice (1/2/4/8T)
+  yields 8T efficiency ≥ 75%. Both conditions required.
+- FAIL: single-thread regresses > 50% vs Cython, OR 8T efficiency
+  < 60% on the real slice.
+- BORDERLINE: between FAIL and PASS — flag in the doc, do not start a
+  port; consider whether a different scoping (port traversal recursion
+  only, leave game engine in Cython) clears the threshold instead.
+
+## Decision rule
+
+After all of criteria 3 (re-measured on real slice), 4, 5 land:
+
+- All three PASS → start a port plan. Deferred Option A re-enable, AMP,
+  compile, TensorRT all get re-evaluated under the new runtime.
+- Criterion 5 PASS but criterion 4 FAIL → consider a hybrid: keep
+  PyTorch for networks via PythonCall.jl/PyCall, port traversal to
+  Julia. Re-evaluate IPC/FFI cost separately.
+- Any criterion FAIL beyond the borderline → **stay on Python/Cython,
+  pursue Option B (per-worker interleaved traversal)** as the
+  GIL-escape path instead. Document the FAIL result, close this thread.
+- Criterion 5 BORDERLINE → reduce port scope (recursion-only) and
+  re-test.
+
+Cost-of-being-wrong asymmetry: a port is months of work; staying is
+zero work but caps us at the current ceiling. So the bar to GO is
+deliberately set above 50%; the bar to STAY is permissive. This is on
+purpose.
+
 ## Decision posture
 
 Promising but not enough to justify a port yet. The completed benchmarks
