@@ -348,6 +348,27 @@ follow-up to confirm it.
 Do **not** run two trainings in parallel on the same GPU — VRAM/SM
 contention slows both unevenly and breaks the comparison.
 
+## Docs & Experiment Workflow
+
+### Where to write what
+
+| 기록 내용 | 쓸 곳 |
+| --- | --- |
+| 진행 중인 계획/가설 | `docs/plans/<topic>.md` (1 주제 1 파일) |
+| 끝난 계획 | `docs/plans/archive/` (수동 `mv`) |
+| 날짜 박힌 실험 기록 | `docs/archive/<name>-YYYY-MM-DD.md` (immutable) |
+| 항구적 알고리즘 노트 | `docs/research/<name>.md` (`Last verified:` 헤더) |
+| 비용/프로파일 | `docs/reports/<name>-YYYY-MM-DD.md` (dated) |
+| 스크래치 / 연구 스레드 인덱스 | `ideas.md` |
+
+### Rules
+
+- `docs/archive/`, `runs/archive/`는 read-only.
+- archive 본문 복붙 금지 — 대신 `Source:` 링크 + distill.
+- `file.py:NN` 인용은 작성 시점에 `rg`로 검증.
+- 한 주제 한 파일 — `foo-v2.md` 만들지 말 것.
+- 파일당 ~500줄 soft cap.
+
 ## Notes For Future Agents
 
 - Prefer `rg`/`rg --files` for search.
