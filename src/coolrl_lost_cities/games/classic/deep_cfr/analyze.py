@@ -523,26 +523,49 @@ def analyze_run(
     output_dir: Path | None = None,
     *,
     smoothing_window: int = DEFAULT_SMOOTHING_WINDOW,
+    max_iteration: int | None = None,
 ) -> list[Path]:
     metrics_path = run_dir / "metrics.jsonl"
     rows = load_metrics(metrics_path)
+    if max_iteration is not None:
+        rows = [
+            row for row in rows if "iteration" in row and int(row["iteration"]) <= max_iteration
+        ]
     output_dir = output_dir or run_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
+    filename_suffix = _iteration_filename_suffix(max_iteration)
 
     for section in SECTIONS:
-        path = output_dir / section.filename
+        path = output_dir / _with_filename_suffix(section.filename, filename_suffix)
         if plot_section(rows, section, path, smoothing_window=smoothing_window):
             written.append(path)
 
-    selectivity_path = output_dir / "analysis_09_selectivity.png"
+    selectivity_path = output_dir / _with_filename_suffix(
+        "analysis_09_selectivity.png", filename_suffix
+    )
     if plot_selectivity(rows, selectivity_path, smoothing_window=smoothing_window):
         written.append(selectivity_path)
 
-    final_eval_path = output_dir / "analysis_final_eval_summary.png"
+    final_eval_path = output_dir / _with_filename_suffix(
+        "analysis_final_eval_summary.png", filename_suffix
+    )
     if plot_final_eval_summary(rows, final_eval_path):
         written.append(final_eval_path)
     return written
+
+
+def _iteration_filename_suffix(max_iteration: int | None) -> str:
+    if max_iteration is None:
+        return ""
+    return f"_upto_{max_iteration:05d}"
+
+
+def _with_filename_suffix(filename: str, suffix: str) -> str:
+    if not suffix:
+        return filename
+    path = Path(filename)
+    return f"{path.stem}{suffix}{path.suffix}"
 
 
 def plot_selectivity(
@@ -979,9 +1002,19 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Disable moving-average smoothing.",
     )
+    parser.add_argument(
+        "--max-iteration",
+        type=int,
+        help="Only plot metrics up to and including this iteration.",
+    )
     args = parser.parse_args(argv)
     smoothing_window = 1 if args.no_smoothing else max(1, args.smoothing_window)
-    written = analyze_run(args.run, args.output_dir, smoothing_window=smoothing_window)
+    written = analyze_run(
+        args.run,
+        args.output_dir,
+        smoothing_window=smoothing_window,
+        max_iteration=args.max_iteration,
+    )
     for path in written:
         print(path)
 

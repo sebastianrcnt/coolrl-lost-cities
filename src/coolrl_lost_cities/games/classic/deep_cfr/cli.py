@@ -200,7 +200,7 @@ def policy_gradient_command(args: argparse.Namespace) -> None:
 
 
 def analyze_command(args: argparse.Namespace) -> None:
-    written = analyze_run(args.run, args.output_dir)
+    written = analyze_run(args.run, args.output_dir, max_iteration=args.max_iteration)
     for path in written:
         print(path)
 
@@ -277,6 +277,11 @@ def main(argv: list[str] | None = None) -> None:
     analyze = subparsers.add_parser("analyze")
     analyze.add_argument("--run", required=True, type=Path)
     analyze.add_argument("--output-dir", type=Path)
+    analyze.add_argument(
+        "--max-iteration",
+        type=int,
+        help="Only plot metrics up to and including this iteration.",
+    )
     analyze.set_defaults(func=analyze_command)
 
     args = parser.parse_args(argv)
