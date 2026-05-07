@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -32,7 +33,7 @@ from pathlib import Path
 LLM_COMMANDS = {
     "claude": ["claude", "-p"],
     "codex": ["codex", "exec"],
-    "gemini": ["gemini", "-p"],
+    "gemini": ["gemini", "-p", ""],
 }
 
 DATE_SUFFIX = re.compile(r"-\d{4}-\d{2}-\d{2}$")
@@ -84,6 +85,16 @@ def main() -> int:
         "--show-prompt",
         action="store_true",
         help="Print the assembled prompt to stdout and exit; do not call the LLM.",
+    )
+    parser.add_argument(
+        "--accept",
+        action="store_true",
+        help=(
+            "After the draft lands in runs/tmp/, also copy it verbatim to the "
+            "suggested docs/research/ target. Explicit per-invocation opt-in: "
+            "still propose-only by design (you are choosing acceptance "
+            "knowingly), not auto-apply."
+        ),
     )
     args = parser.parse_args()
 
@@ -145,7 +156,8 @@ def main() -> int:
         file=sys.stderr,
     )
     result = subprocess.run(
-        cmd + [prompt],
+        cmd,
+        input=prompt,
         capture_output=True,
         text=True,
         check=False,
@@ -157,10 +169,23 @@ def main() -> int:
 
     draft_path.write_text(result.stdout, encoding="utf-8")
     print(f"Draft written to: {draft_path.relative_to(root)}")
-    print(f"Suggested target on accept: {rel_target}")
-    print()
-    print("Next: review the draft. To accept verbatim:")
-    print(f"  cp {draft_path.relative_to(root)} {rel_target}")
+
+    if args.accept:
+        if target.exists():
+            print(
+                f"Refusing --accept: {rel_target} appeared while the LLM ran.",
+                file=sys.stderr,
+            )
+            return 1
+        shutil.copyfile(draft_path, target)
+        print(f"Copied to: {rel_target}")
+        print("Next: review the diff and `git add` + commit if you're satisfied.")
+    else:
+        print(f"Suggested target on accept: {rel_target}")
+        print()
+        print("Next: review the draft. To accept verbatim:")
+        print(f"  cp {draft_path.relative_to(root)} {rel_target}")
+        print("Or rerun with --accept to copy in the same step.")
     return 0
 
 

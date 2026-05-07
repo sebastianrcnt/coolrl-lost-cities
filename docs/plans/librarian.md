@@ -193,6 +193,10 @@ shells out to the LLM CLI selected by `LIBRARIAN_LLM`
 `runs/tmp/librarian-promote-<timestamp>-draft.md` for human review;
 the script never writes into `docs/research/` itself. `--show-prompt`
 prints the assembled prompt for inspection without calling the LLM.
+`--accept` is an explicit per-invocation opt-in that copies the draft
+to the suggested target as part of the same command — still
+propose-only by design (the operator chooses acceptance knowingly,
+not auto-applied).
 
 Refuses to run if:
 - the path is not under `docs/archive/`,
@@ -201,6 +205,20 @@ Refuses to run if:
 
 If the LLM judges the archive non-promotable, it is instructed to
 return a single line `SKIP: <reason>` instead of a draft.
+
+### First successful round-trip (2026-05-08)
+
+Smoke test against `docs/archive/option-a-bench-result-2026-05-07.md`
+with `LIBRARIAN_LLM=gemini` produced a draft that passed spot-check:
+`Last verified` header used today's date and the current commit
+(`8bbed31`); cited file paths and line numbers were verified as
+real (`traversal.pyx:473-475`, `inference_server.py:226-228`); code
+snippets matched current source; durable conclusion (sync-blocking
+policy boundary as the structural ceiling) preserved; ~60 lines of
+prose, no bullet soup. Accepted verbatim as
+`docs/research/option-a-bench-result.md`. The whole loop —
+oversize finding → extracted archive → LLM draft → human accept —
+closed without touching the LLM's output.
 
 ## Stage 2 remaining
 
