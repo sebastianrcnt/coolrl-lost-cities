@@ -134,6 +134,13 @@ operator applies the patch.
 - ✅ Stage 1 orchestrator: `scripts/librarian.sh`. Runs every Stage 1
   check in order, aggregates exit code, prints findings inline. Single
   entry point for users and (future) cron.
+- ✅ AGENTS.md mentions `scripts/librarian.sh` as the doc-lint entry
+  point in "Notes For Future Agents" (commit `0b363b5`).
+- ✅ Stage 1, piece 3: `scripts/librarian_check_oversize.py`. Flags
+  any non-archive markdown file over the 500-line soft cap declared
+  in AGENTS.md. Caught one real finding on first run:
+  `docs/performance.md` at 914 lines — split into sub-topics deferred
+  as a separate task.
 
 ## Stage 1 Remaining Checks
 
@@ -142,11 +149,10 @@ operator applies the patch.
   judgment is the open question).
 - MEMORY.md drift (index lines vs target file `description:` frontmatter).
 - Duplicate prose (high-overlap pairs across archive vs research).
-- Oversize files (>500-line soft cap from AGENTS.md).
 
 ## Next Concrete Step
 
-Mention `scripts/librarian.sh` in AGENTS.md so agents and humans know
-it exists as the canonical Stage 1 entry point. After that, pick one
-of the remaining checks above to add as the next checker (oversize
-files is the cheapest; stale plans is the most useful).
+Stale plan check (`scripts/librarian_check_stale_plans.py`). Walks
+`docs/plans/*.md` and flags files whose mtime is older than N days
+AND whose path hasn't appeared in `git log` over the same window.
+This catches plans that drift out of mind without being archived.

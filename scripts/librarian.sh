@@ -21,6 +21,12 @@ if ! uv run python scripts/librarian_check_citations.py; then
 fi
 echo
 
+echo "→ File size (500-line soft cap from AGENTS.md)"
+if ! uv run python scripts/librarian_check_oversize.py; then
+    overall=1
+fi
+echo
+
 if [ "$overall" -eq 0 ]; then
     echo "All Stage 1 checks passed."
 else
