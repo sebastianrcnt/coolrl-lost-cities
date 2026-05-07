@@ -440,6 +440,101 @@ traversal sits comfortably in the bs=64–256 range where μs/call plateaus near
 90 μs. End-to-end gain will be bounded by encoding and worker-GPU coordination
 overhead, but the GPU forward is not the limiter once batching is in place.
 
+### Option B interleaved traversal (2026-05-07, pass)
+
+Implemented a non-default interleaved traversal scheduler behind:
+
+```yaml
+traversal:
+  scheduler: interleaved
+```
+
+The recursive Cython path remains the default. The current interleaved path is
+a Python explicit-stack production prototype, guarded to the narrow case
+`sampling_mode=outcome`, `opponent_policy=network`,
+`cutoff_value_mode=score_diff`, `cutoff_rollouts=0`, and
+`inference_backend=local`.
+
+Measurement used `configs/deep_cfr/default.yaml` with evaluation and
+checkpointing disabled, 10 iterations, first 2 iterations dropped as warm-up.
+Because interleaved currently supports only `opponent_policy=network`, the
+recursive baseline used the same opponent-policy override.
+
+Commands:
+
+```bash
+uv run lost-cities-deep-cfr train \
+  --config configs/deep_cfr/default.yaml \
+  --keep \
+  --set run.max_iterations=10 \
+  --set run.experiment_name=option-b-recursive-network-10i \
+  --set traversal.opponent_policy=network \
+  --set checkpoint.save_latest=false \
+  --set checkpoint.save_every=0 \
+  --set evaluation.eval_every=0
+
+uv run lost-cities-deep-cfr train \
+  --config configs/deep_cfr/default.yaml \
+  --keep \
+  --set run.max_iterations=10 \
+  --set run.experiment_name=option-b-interleaved-workers-10i \
+  --set traversal.scheduler=interleaved \
+  --set traversal.opponent_policy=network \
+  --set traversal.num_workers=8 \
+  --set traversal.worker_chunk_size=64 \
+  --set traversal.interleave_width=64 \
+  --set traversal.interleave_max_batch=128 \
+  --set traversal.progress_every_traversals=0 \
+  --set checkpoint.save_latest=false \
+  --set checkpoint.save_every=0 \
+  --set evaluation.eval_every=0
+
+uv run lost-cities-deep-cfr train \
+  --config configs/deep_cfr/default.yaml \
+  --keep \
+  --set run.max_iterations=10 \
+  --set run.experiment_name=option-b-interleaved-cuda-single-10i \
+  --set traversal.scheduler=interleaved \
+  --set traversal.opponent_policy=network \
+  --set traversal.num_workers=0 \
+  --set traversal.interleave_width=64 \
+  --set traversal.interleave_max_batch=128 \
+  --set traversal.progress_every_traversals=0 \
+  --set checkpoint.save_latest=false \
+  --set checkpoint.save_every=0 \
+  --set evaluation.eval_every=0
+```
+
+Result paths:
+
+- `runs/2026-05-07_225044_option-b-recursive-network-10i`
+- `runs/2026-05-07_225342_option-b-interleaved-workers-10i`
+- `runs/2026-05-07_225542_option-b-interleaved-cuda-single-10i`
+
+Warm-up-excluded means:
+
+| Mode | iter s | traversal s | traversal speedup | iter speedup | nodes/s | batch mean | batch max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| recursive, 8 workers, chunk 8 | 16.49 | 10.22 | 1.00× | 1.00× | 17.6k | 1.0 | 1 |
+| interleaved, 8 workers, chunk 64 | 10.81 | 4.92 | 2.08× | 1.53× | 31.3k | 35.2 | 64 |
+| interleaved, single CUDA process | 11.51 | 5.35 | 1.91× | 1.43× | 24.7k | 36.7 | 64 |
+
+Net result: **PASS for the Phase 3 traversal-speed gate.** The best candidate
+is the 8-worker interleaved path with larger worker chunks. It reaches real
+batches near the target regime (`max_batch_size=64`) and more than doubles
+traversal wall-clock versus the recursive network-opponent baseline.
+
+The single-process CUDA path confirms that GPU forward is no longer the
+dominant cost once batching works (`interleaved/forward_seconds` averaged
+0.64s versus 4.53s for CPU worker forward), but it gives up multiprocessing
+game-state throughput and is slower end-to-end than 8 interleaved CPU workers.
+
+Important caveat: multi-traversal interleaving uses per-context RNG streams, so
+exact recursive-batch RNG ordering is intentionally not preserved. The Phase 2
+single-traversal parity test matches recursive stats and sample target
+checksums under identical RNG seed. Longer learning-curve A/B is still required
+before considering a default switch.
+
 ## Batched Traversal Inference: Design Decision (2026-05-07)
 
 Three structural options were considered for Priority #5:

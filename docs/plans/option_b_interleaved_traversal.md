@@ -1,7 +1,7 @@
 # Plan: Option B Per-Worker Interleaved Traversal
 
-**Status:** Phase 2 non-default production prototype implemented. Default
-behavior is unchanged.
+**Status:** Phase 3 benchmark passed. Default behavior is unchanged; the
+interleaved path remains opt-in.
 **Owner:** Codex for prototype design and implementation; operator for long-run
 benchmarks on `home`.
 **Background:** Option A, the central traversal inference server, was implemented
@@ -281,6 +281,30 @@ Metrics:
 Success gate: at least **1.5x traversal speedup** with no sample/stat parity
 failure. Stretch target: **3x traversal speedup** if realized batches reach the
 bs=64 regime without high scheduler overhead.
+
+### Phase 3 Result (2026-05-07)
+
+Default-config-scale A/B ran for 10 iterations, with evaluation and
+checkpointing disabled and the first 2 iterations dropped as warm-up. Because
+Phase 2 interleaved traversal currently supports only `opponent_policy:
+network`, the recursive baseline used the same override.
+
+Result paths:
+
+- `runs/2026-05-07_225044_option-b-recursive-network-10i`
+- `runs/2026-05-07_225342_option-b-interleaved-workers-10i`
+- `runs/2026-05-07_225542_option-b-interleaved-cuda-single-10i`
+
+| Mode | iter s | traversal s | traversal speedup | iter speedup | batch mean | batch max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| recursive, 8 workers, chunk 8 | 16.49 | 10.22 | 1.00x | 1.00x | 1.0 | 1 |
+| interleaved, 8 workers, chunk 64 | 10.81 | 4.92 | 2.08x | 1.53x | 35.2 | 64 |
+| interleaved, single CUDA process | 11.51 | 5.35 | 1.91x | 1.43x | 36.7 | 64 |
+
+Gate decision: PASS. The best current candidate is the 8-worker interleaved
+path with larger worker chunks. The single-process CUDA path makes forward
+cheap but gives up multiprocessing game-state throughput, so it is slower
+end-to-end.
 
 ## Risks
 
