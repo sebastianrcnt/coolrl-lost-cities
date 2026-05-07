@@ -192,6 +192,17 @@ checkpoint:
 iterations. If disk is tight, set `--set checkpoint.save_every=0` (keep only
 `latest.pt`) or increase `save_every`.
 
+## Compute Lock
+
+여러 에이전트가 한 머신을 공유하므로, train과 속도 벤치마크는
+repo 루트 `.compute.lock`을 잡고 실행한다:
+
+```bash
+flock -n .compute.lock uv run lost-cities-deep-cfr train ...
+```
+
+승률/점수만 뽑는 eval과 `analyze`는 결정적이라 락 불필요.
+
 ## Evaluation And Analysis
 
 Evaluate a checkpoint:
@@ -378,6 +389,9 @@ contention slows both unevenly and breaks the comparison.
 - Before committing, run `uv run ruff check .` and at least the relevant pytest
   subset. For Deep CFR changes, run
   `uv run pytest -q tests/games/classic/test_deep_cfr_trainer.py`.
+- When changing docs, run `scripts/librarian.sh` to lint markdown link
+  integrity and `file:line` code citations across `docs/**`. See
+  `docs/plans/librarian.md` for the full design.
 
 ## Git Branching Policy (READ THIS)
 
