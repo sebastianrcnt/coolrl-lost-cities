@@ -139,6 +139,11 @@ def _format_iteration_summary(metrics: IterationMetrics, data: dict[str, float |
         f"strategy_loss={_format_summary_value(metrics.strategy_loss)}",
         f"iteration_seconds={_format_summary_value(data['iteration_seconds'])}",
     ]
+    if metrics.eval_metrics:
+        eval_seconds = float(data.get("evaluation_seconds", 0.0) or 0.0)
+        iter_seconds = float(data.get("iteration_seconds", 0.0) or 0.0)
+        fraction = eval_seconds / iter_seconds if iter_seconds > 0.0 else 0.0
+        parts.append(f"eval_seconds={_format_summary_value(eval_seconds)}({fraction * 100:.0f}%)")
     for key in sorted(metrics.eval_metrics):
         if key.endswith("_win_rate0") or key.endswith("_avg_score_diff0"):
             parts.append(f"{key}={_format_summary_value(metrics.eval_metrics[key])}")
