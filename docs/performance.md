@@ -322,3 +322,36 @@ Based on the current metrics, the more plausible performance work is:
 6. For eval-heavy runs, optimize the safe-heuristic opponents and policy
    post-processing before assuming TensorRT is the main lever.
    The inspected eval row shows those costs dominate the slowest opponents.
+
+## Experiments
+
+### `torch.compile` on trainer networks (2026-05-07, regression)
+
+Wrapped both advantage networks and the strategy network with
+`torch.compile()` at trainer construction time. Implementation also
+required a `_clean_state_dict()` helper to strip the `_orig_mod.` prefix
+that compiled modules add to `state_dict()`, plus a `_orig_mod`-routed
+path for `load_state_dict()` so multiprocessing traversal workers and
+checkpoint restoration could keep using the uncompiled `DeepCFRMLP`
+class.
+
+Measurement (8 iterations on `default.yaml`, eval and checkpoint
+disabled, iteration 1 dropped as compile warm-up):
+
+| | iter mean | 1000-iter projection |
+| --- | ---: | ---: |
+| Baseline (no compile) | 17.93s | 4.98h |
+| `torch.compile` on trainer nets | 18.79s | 5.22h |
+| Effect | +0.86s (+4.8%) | +14 min |
+
+Net result: regression. Two reasons:
+
+- Traversal is ~60% of iteration time and runs in CPU multiprocessing
+  workers that reconstruct networks from cleaned `state_dict`s, so they
+  bypass the compiled wrapper entirely.
+- `DeepCFRMLP` (512-hidden, 3-layer) is small enough that the compiled
+  call dispatch overhead exceeds the kernel-fusion benefit.
+
+Implementation preserved on branch `experiments/torch-compile` for
+revisiting if the trainer model grows substantially or traversal moves
+to GPU-batched inference. Not enabled on `main`.
