@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-DEFAULT_SMOOTHING_WINDOW = 5
+DEFAULT_SMOOTHING_WINDOW = 1
 
 
 @dataclass(frozen=True)
@@ -995,7 +995,7 @@ def main(argv: list[str] | None = None) -> None:
         "--smoothing-window",
         type=int,
         default=DEFAULT_SMOOTHING_WINDOW,
-        help="Moving-average window. Default: 5.",
+        help="Moving-average window. Default: 1 (no smoothing).",
     )
     parser.add_argument(
         "--no-smoothing",
