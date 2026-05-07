@@ -1,5 +1,5 @@
 run:
-  experiment_name: deep-cfr-default
+  experiment_name: deep-cfr-default-server
   seed: 79
   max_iterations: 1000
   max_minutes: null
@@ -46,7 +46,7 @@ traversal:
   progress_every_traversals: 10
   endpoint_depth_bucket_width: 100
   endpoint_depth_bucket_max: 1000
-  inference_backend: local
+  inference_backend: server
 
 regret_matching:
   all_negative_fallback: argmax_tiebreak

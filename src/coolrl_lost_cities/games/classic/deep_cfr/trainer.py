@@ -23,6 +23,10 @@ from coolrl_lost_cities.games.classic.deep_cfr.config import (
 )
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import input_dim
 from coolrl_lost_cities.games.classic.deep_cfr.evaluate import evaluate_strategy_network
+from coolrl_lost_cities.games.classic.deep_cfr.inference_server import (
+    BatchStatsMessage,
+    InferenceServerController,
+)
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.networks import DeepCFRMLP
 from coolrl_lost_cities.games.classic.deep_cfr.tracking import (
@@ -35,6 +39,7 @@ from coolrl_lost_cities.games.classic.deep_cfr.traversal import run_cython_trave
 from coolrl_lost_cities.games.classic.deep_cfr.traversal_stats import TraversalStats
 from coolrl_lost_cities.games.classic.deep_cfr.workers import (
     TraversalWorkerBatch,
+    initialize_traversal_worker,
     run_traversal_worker_batch,
 )
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
@@ -251,6 +256,8 @@ class DeepCFRTrainer:
             self.tracker = CompositeRunTracker(trackers)
         self.self_play_league_snapshots: list[list[dict]] = []
         self._runtime_metrics: dict[str, float | int] = {}
+        self._inference_server: InferenceServerController | None = None
+        self._last_inference_weight_sync_iteration: int | None = None
 
     def checkpoint_payload(self, metrics: IterationMetrics | None = None) -> dict:
         return {
@@ -308,8 +315,14 @@ class DeepCFRTrainer:
     def run_iteration(self, iteration: int) -> IterationMetrics:
         self.iteration = iteration
         self._runtime_metrics = {}
+        if self.config.traversal.inference_backend == "server":
+            self._ensure_inference_server()
+            self._maybe_sync_inference_server(iteration)
         traversal_started = time.perf_counter()
-        if self.config.traversal.resolved_num_workers() > 1:
+        if (
+            self.config.traversal.resolved_num_workers() > 1
+            or self.config.traversal.inference_backend == "server"
+        ):
             total_stats = self._run_traversals_parallel(iteration)
         else:
             total_stats = self._run_traversals_single_process(iteration)
@@ -460,10 +473,17 @@ class DeepCFRTrainer:
         progress_nodes = 0
         progress_traversals = 0
         progress_started = time.perf_counter()
-        with ProcessPoolExecutor(
-            max_workers=max_workers,
-            mp_context=mp.get_context("spawn"),
-        ) as executor:
+        executor_kwargs: dict[str, object] = {
+            "max_workers": max_workers,
+            "mp_context": mp.get_context("spawn"),
+        }
+        if self.config.traversal.inference_backend == "server":
+            if self._inference_server is None:
+                raise RuntimeError("inference server is not initialized")
+            self._record_inference_batch_stats(self._inference_server.drain_batch_stats())
+            executor_kwargs["initializer"] = initialize_traversal_worker
+            executor_kwargs["initargs"] = (self._inference_server.handles,)
+        with ProcessPoolExecutor(**executor_kwargs) as executor:
             total_batches = len(batches)
             in_flight_limit = min(total_batches, max(1, max_workers * 2))
             batch_iter = iter(batches)
@@ -473,7 +493,15 @@ class DeepCFRTrainer:
             }
             completed_batches = 0
             while futures:
-                done, futures = wait(futures, return_when=FIRST_COMPLETED)
+                done, futures = wait(futures, timeout=5.0, return_when=FIRST_COMPLETED)
+                if not done:
+                    if (
+                        self.config.traversal.inference_backend == "server"
+                        and self._inference_server is not None
+                        and not self._inference_server.is_alive
+                    ):
+                        raise RuntimeError("inference server process exited during traversal")
+                    continue
                 for future in done:
                     result = future.result()
                     completed_batches += 1
@@ -505,20 +533,33 @@ class DeepCFRTrainer:
                     next_batch = next(batch_iter, None)
                     if next_batch is not None:
                         futures.add(executor.submit(run_traversal_worker_batch, next_batch))
+        if (
+            self.config.traversal.inference_backend == "server"
+            and self._inference_server is not None
+        ):
+            self._record_inference_batch_stats(self._inference_server.drain_batch_stats())
         return total_stats
 
     def _worker_batches(self, iteration: int) -> list[TraversalWorkerBatch]:
         batches: list[TraversalWorkerBatch] = []
-        network_payloads = [
-            {name: value.detach().cpu() for name, value in network.state_dict().items()}
-            for network in self.advantage_networks
-        ]
-        strategy_payload: dict | None = None
-        if self.config.traversal.opponent_policy == "average_strategy":
-            strategy_payload = {
-                name: value.detach().cpu()
-                for name, value in self.strategy_network.state_dict().items()
-            }
+        if self.config.traversal.inference_backend == "server":
+            network_payloads: list[dict] = []
+            league_payloads = [[{}, {}] for _snapshot in self.self_play_league_snapshots]
+            strategy_payload: dict | None = (
+                {} if self.config.traversal.opponent_policy == "average_strategy" else None
+            )
+        else:
+            network_payloads = [
+                {name: value.detach().cpu() for name, value in network.state_dict().items()}
+                for network in self.advantage_networks
+            ]
+            league_payloads = self._league_payloads()
+            strategy_payload = None
+            if self.config.traversal.opponent_policy == "average_strategy":
+                strategy_payload = {
+                    name: value.detach().cpu()
+                    for name, value in self.strategy_network.state_dict().items()
+                }
         chunk_size = self.config.traversal.worker_chunk_size
         batch_index = 0
         for player in range(2):
@@ -538,9 +579,10 @@ class DeepCFRTrainer:
                         input_dim=self.input_dim,
                         action_size=self.action_size,
                         advantage_networks=network_payloads,
-                        league_advantage_networks=self._league_payloads(),
+                        league_advantage_networks=league_payloads,
                         worker_seed=self.config.run.seed + iteration * 1_000_003 + batch_index,
                         strategy_network=strategy_payload,
+                        inference_handles=None,
                     )
                 )
                 batch_index += 1
@@ -582,6 +624,90 @@ class DeepCFRTrainer:
     def _league_payloads(self) -> list[list[dict]]:
         return self.self_play_league_snapshots
 
+    def _record_inference_batch_stats(self, stats: list[BatchStatsMessage]) -> None:
+        if not stats:
+            return
+        batch_sizes = [int(item.batch_size) for item in stats]
+        group_counts = [int(item.group_count) for item in stats]
+        request_count = sum(batch_sizes)
+        batch_count = len(batch_sizes)
+        self._runtime_metrics["inference_server/batches"] = (
+            int(self._runtime_metrics.get("inference_server/batches", 0)) + batch_count
+        )
+        self._runtime_metrics["inference_server/requests"] = (
+            int(self._runtime_metrics.get("inference_server/requests", 0)) + request_count
+        )
+        self._runtime_metrics["inference_server/groups"] = int(
+            self._runtime_metrics.get("inference_server/groups", 0)
+        ) + sum(group_counts)
+        total_batches = int(self._runtime_metrics["inference_server/batches"])
+        total_requests = int(self._runtime_metrics["inference_server/requests"])
+        total_groups = int(self._runtime_metrics["inference_server/groups"])
+        self._runtime_metrics["inference_server/avg_batch_size"] = total_requests / max(
+            total_batches, 1
+        )
+        self._runtime_metrics["inference_server/avg_groups_per_batch"] = total_groups / max(
+            total_batches, 1
+        )
+        self._runtime_metrics["inference_server/max_batch_size"] = max(
+            int(self._runtime_metrics.get("inference_server/max_batch_size", 0)),
+            max(batch_sizes),
+        )
+        current_min = self._runtime_metrics.get("inference_server/min_batch_size")
+        self._runtime_metrics["inference_server/min_batch_size"] = (
+            min(int(current_min), min(batch_sizes)) if current_min is not None else min(batch_sizes)
+        )
+
+    def _inference_num_slots(self) -> int:
+        configured = self.config.inference_server.num_slots
+        if configured is not None:
+            return int(configured)
+        workers = max(1, self.config.traversal.resolved_num_workers())
+        return max(64, 4 * workers * int(self.config.traversal.worker_chunk_size))
+
+    def _ensure_inference_server(self) -> None:
+        if self.config.traversal.resolved_num_workers() < 1:
+            raise ValueError(
+                "traversal.inference_backend='server' requires traversal.num_workers >= 1"
+            )
+        if self._inference_server is not None:
+            if not self._inference_server.is_alive:
+                raise RuntimeError("inference server process is not alive")
+            return
+        self._inference_server = InferenceServerController(
+            input_dim=self.input_dim,
+            action_size=self.action_size,
+            num_slots=self._inference_num_slots(),
+            network_config=self.config.network,
+            server_config=self.config.inference_server,
+        )
+
+    def _maybe_sync_inference_server(self, iteration: int) -> None:
+        if self._inference_server is None:
+            return
+        interval = max(1, int(self.config.inference_server.weight_sync_every))
+        if self._last_inference_weight_sync_iteration is not None and iteration % interval != 0:
+            return
+        advantage_payloads = [
+            {name: value.detach().cpu() for name, value in network.state_dict().items()}
+            for network in self.advantage_networks
+        ]
+        strategy_payload = {
+            name: value.detach().cpu() for name, value in self.strategy_network.state_dict().items()
+        }
+        self._inference_server.push_weights(
+            advantage_networks=advantage_payloads,
+            strategy_network=strategy_payload,
+            league_advantage_networks=self._league_payloads(),
+        )
+        self._last_inference_weight_sync_iteration = iteration
+
+    def _shutdown_inference_server(self) -> None:
+        if self._inference_server is None:
+            return
+        self._inference_server.shutdown()
+        self._inference_server = None
+
     def train(self) -> list[IterationMetrics]:
         self._start_run_logging()
         metrics: list[IterationMetrics] = []
@@ -606,6 +732,7 @@ class DeepCFRTrainer:
                     break
                 iteration += 1
         finally:
+            self._shutdown_inference_server()
             self.tracker.close()
         return metrics
 

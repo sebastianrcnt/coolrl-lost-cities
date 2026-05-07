@@ -111,6 +111,7 @@ class TraversalConfig(StrictModel):
     progress_every_traversals: int = 0
     endpoint_depth_bucket_width: int = 100
     endpoint_depth_bucket_max: int = 1000
+    inference_backend: str = "local"
 
     @field_validator("sampling_mode")
     @classmethod
@@ -149,6 +150,14 @@ class TraversalConfig(StrictModel):
                 "must be 'network', 'safe_heuristic', 'self_play_league', or 'average_strategy'"
             )
         return value
+
+    @field_validator("inference_backend")
+    @classmethod
+    def _validate_inference_backend(cls, value: str) -> str:
+        token = value.strip().lower()
+        if token not in {"local", "server"}:
+            raise ValueError("must be 'local' or 'server'")
+        return token
 
     def resolved_num_workers(self, batches: int | None = None) -> int:
         if isinstance(self.num_workers, str):
@@ -256,6 +265,23 @@ class EvaluationConfig(StrictModel):
         return workers
 
 
+class InferenceServerConfig(StrictModel):
+    device: str = "cuda"
+    num_slots: int | None = None
+    max_batch: int = 256
+    batch_window_us: int = 200
+    weight_sync_every: int = 1
+    use_amp: bool = False
+
+    @field_validator("device")
+    @classmethod
+    def _validate_device(cls, value: str) -> str:
+        token = value.strip().lower()
+        if token in {"auto", "cpu", "cuda"}:
+            return token
+        return token
+
+
 class DeepCFRConfig(StrictModel):
     run: RunConfig = Field(default_factory=RunConfig)
     rules: RulesConfig = Field(default_factory=RulesConfig)
@@ -269,6 +295,7 @@ class DeepCFRConfig(StrictModel):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     checkpoint: CheckpointConfig = Field(default_factory=CheckpointConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
+    inference_server: InferenceServerConfig = Field(default_factory=InferenceServerConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
