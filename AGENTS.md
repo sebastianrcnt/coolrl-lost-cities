@@ -61,12 +61,12 @@ uv run lost-cities-deep-cfr train \
   --config configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability_unbounded.yaml
 ```
 
-Short capped run:
+Short fixed-iteration run:
 
 ```bash
 uv run lost-cities-deep-cfr train \
   --config configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml \
-  --max-iterations 100 \
+  --iterations 100 \
   --save-latest-only
 ```
 
@@ -83,8 +83,19 @@ uv run lost-cities-deep-cfr train \
 
 Date-prefixed examples:
 
-- `runs/deep_cfr/2026-05-08_010000_deep_cfr_100iter`
-- `runs/deep_cfr/2026-05-08_020000_deep_cfr_unbounded`
+- `runs/deep_cfr/YYYY-MM-DD_HHMMSS_deep_cfr_100iter`
+- `runs/deep_cfr/YYYY-MM-DD_HHMMSS_deep_cfr_unbounded`
+
+Useful train overrides:
+
+- `--resume`: resume from `<checkpoint-dir>/latest.pt`.
+- `--resume PATH`: resume from a specific checkpoint.
+- `--exact-resume`: require checkpoint config compatibility for exact resume.
+- `--no-save`: disable checkpoint writes.
+- `--save-latest-only`: keep only `latest.pt`.
+- `--save-iteration-interval N`: archive every N iterations.
+- `--set PATH=VALUE`: override arbitrary config fields, e.g.
+  `--set traversal.num_workers=4`.
 
 ## Long Runs
 
@@ -94,9 +105,10 @@ Do not rely on Codex command sessions for long user-observable training runs.
 Start a long unbounded run:
 
 ```bash
-tmux new-session -s coolrl-deepcfr-unbounded -c /home/coolguy/dev/coolrl-lost-cities
-uv run lost-cities-deep-cfr train \
-  --config configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability_unbounded.yaml
+tmux new-session -s coolrl-deepcfr-unbounded \
+  -c /home/coolguy/dev/coolrl-lost-cities \
+  'uv run lost-cities-deep-cfr train \
+    --config configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability_unbounded.yaml'
 ```
 
 Attach later:
@@ -150,6 +162,17 @@ uv run lost-cities-deep-cfr eval \
   --device cpu
 ```
 
+Save evaluation game records:
+
+```bash
+uv run lost-cities-deep-cfr eval \
+  --checkpoint runs/deep_cfr/<run-name>/latest.pt \
+  --opponent random \
+  --games 100 \
+  --device cpu \
+  --save-games runs/deep_cfr/<run-name>/eval_random_games.json
+```
+
 Generate analysis plots from `metrics.jsonl`:
 
 ```bash
@@ -166,9 +189,19 @@ uv run lost-cities-deep-cfr analyze \
 ```
 
 The analyzer reads `metrics.jsonl` and writes PNG files grouped by diagnostic
-section. Opponents are compared within each plot using fixed colors. Smoothing
-uses a 5-iteration moving average by default; pass `--no-smoothing` to disable
-it or `--smoothing-window N` to choose a different window.
+section. Opponents are compared within each plot using fixed colors. The
+`lost-cities-deep-cfr analyze` subcommand uses the analyzer default smoothing
+window, currently 1 iteration (no smoothing), and supports `--max-iteration`.
+
+For smoothing controls, run the analyzer module directly:
+
+```bash
+uv run python -m coolrl_lost_cities.games.classic.deep_cfr.analyze \
+  --run runs/deep_cfr/<run-name> \
+  --smoothing-window 5
+```
+
+Use `--no-smoothing` to force no moving average.
 
 Current output files:
 
@@ -180,6 +213,7 @@ Current output files:
 - `analysis_06_expedition_outcomes.png`
 - `analysis_07_calibration.png`
 - `analysis_08_traversal.png`
+- `analysis_09_selectivity.png`
 - `analysis_final_eval_summary.png`
 
 ## Runtime Artifacts
