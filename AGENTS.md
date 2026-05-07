@@ -357,3 +357,40 @@ contention slows both unevenly and breaks the comparison.
 - Before committing, run `uv run ruff check .` and at least the relevant pytest
   subset. For Deep CFR changes, run
   `uv run pytest -q tests/games/classic/test_deep_cfr_trainer.py`.
+
+## Git Branching Policy (READ THIS)
+
+**DO NOT create new git branches unless the user explicitly asks for one in
+the current task. Work on whatever branch is currently checked out (default
+`main`). This is a hard rule — no exceptions for "safety", "isolation",
+"experiments", "work-in-progress", or any other self-justified reason.**
+
+Why this rule exists:
+- This project intentionally develops on `main` with frequent small commits.
+- Auto-created branches like `experiments/foo`, `feature/bar`, `wip/baz`
+  fragment review, hide work from the user, and require manual cleanup.
+- The user has not authorized branch creation as a default behavior. If
+  they want a branch, they will say so explicitly ("make a branch", "PR
+  this", "isolate this in a branch", etc.).
+
+What you MUST do instead:
+- Make commits directly on the currently checked-out branch.
+- If you think a branch is justified, **stop and ask the user first** —
+  do not preemptively create one.
+- If a tool or subagent invocation auto-suggests creating a branch
+  (e.g. PR-style workflows), refuse the branch creation step and commit
+  to the current branch.
+- If you find yourself already on a non-default branch you didn't expect,
+  stop and ask the user — do not switch, do not create a new one, do not
+  reset.
+
+Forbidden without explicit user instruction:
+- `git checkout -b <name>`
+- `git switch -c <name>`
+- `git branch <name>`
+- `gh pr create` from an auto-created branch
+- Any worktree creation that implicitly creates a new branch
+
+This rule applies to the main agent and to every subagent or tool the main
+agent invokes. Pass it through in subagent prompts when delegating
+git-touching work.
