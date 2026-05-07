@@ -1,8 +1,14 @@
-# Plan: Model-Size Experiment (Keystone for AMP / compile / TRT Unblock)
+# Plan: Model-Size Experiment (Keystone for Model-Scale Optimizations)
 
 **Status:** Ready to execute
 **Owner:** Operator (runs grid on `home`); Codex (adds configs and runner script)
-**Background:** See `docs/performance.md` → "Post-A Optimization Calculus" and "Option A Bench Result and Structural Ceiling" for the sequencing rationale. AMP, `torch.compile`, TensorRT, and re-enabling Option A are all gated on the outcome of this experiment.
+**Background:** See `docs/performance.md` → "Post-A Optimization Calculus",
+"Option A Bench Result and Structural Ceiling", and "Clarifying the traversal
+bottleneck: sync policy boundary, not SIMD" for the sequencing rationale. AMP,
+`torch.compile`, and TensorRT are gated on the outcome of this experiment.
+Traversal batching itself is now tracked separately in
+`docs/plans/option_b_interleaved_traversal.md`; model-size growth does not fix
+the current sync-blocking traversal scheduler by itself.
 
 ## Goal
 
@@ -11,12 +17,15 @@ Identify a `network` config (hidden_size × num_layers) where:
 1. Learning-curve win-rates improve meaningfully over the current `default.yaml` baseline (hidden=512, layers=3) by iteration 200, AND
 2. Per-call forward time is large enough that AMP / `torch.compile` / TensorRT overhead is amortized — the documented threshold is `hidden_size >= 1024` or `num_layers >= 6`.
 
-The experiment must produce either a recommended new `network` config or a documented null result. Its output determines which downstream optimization plans ship next.
+The experiment must produce either a recommended new `network` config or a documented null result. Its output determines which model-scale optimization plans ship next.
 
 ## Non-goals
 
 - Do NOT implement AMP, `torch.compile`, or TensorRT here. Those are separate plans gated on this experiment's outcome.
-- Do NOT re-enable Option A (`traversal.inference_backend: server`). That gate is also conditional on the model size chosen here.
+- Do NOT re-enable Option A (`traversal.inference_backend: server`). Option A
+  has already been implemented and benchmarked; it is structurally capped by
+  sync-blocking traversal. Revisit it only after Option B-style traversal
+  interleaving can feed larger batches.
 - Do NOT change traversal, replay buffer, or evaluation architecture.
 - Do NOT change eval cadence (`eval_every`, `evaluation.games`) — those are separate variables.
 - Do NOT change encoding (`input_dim` stays 365).
@@ -78,7 +87,6 @@ Confirm that `NetworkConfig.hidden_size` and `NetworkConfig.num_layers` flow thr
 uv run python -c "
 from coolrl_lost_cities.games.classic.deep_cfr.networks import DeepCFRMLP
 from coolrl_lost_cities.games.classic.deep_cfr.config import NetworkConfig
-import sum as _
 cfg_small = NetworkConfig(hidden_size=512, num_layers=3)
 cfg_large = NetworkConfig(hidden_size=1024, num_layers=6)
 m_small = DeepCFRMLP.from_config(365, 22, cfg_small)
@@ -282,7 +290,10 @@ Grid: hidden={512,768,1024,1536} × layers={3,4,6,8} subset. 200 iterations on h
 
 **Recommendation:** <see decision tree below>
 
-Cross-reference: AMP plan `docs/plans/amp_trainer.md`, compile plan `docs/plans/torch_compile.md`.
+Cross-reference: archived AMP implementation plan
+`docs/plans/archive/amp_trainer.md`, compile plan
+`docs/plans/torch_compile.md`, and Option B traversal plan
+`docs/plans/option_b_interleaved_traversal.md`.
 ```
 
 ## Decision tree
@@ -296,10 +307,13 @@ Apply this logic after the grid completes:
 **Action:**
 1. Recommend that config as the new `network` default.
 2. Update `default.yaml` `network` block in a follow-up commit.
-3. Trigger AMP re-measurement: run `scripts/bench_amp_trainer.py` with the new model size per `docs/plans/amp_trainer.md`.
+3. Trigger AMP re-measurement: run `scripts/bench_amp_trainer.py` with the new model size. The implementation exists and is default-off after the 2026-05-07 smoke regression; see `docs/plans/archive/amp_trainer.md` for the original implementation plan.
 4. Trigger `torch.compile` re-measurement per `docs/plans/torch_compile.md`.
-5. Trigger TensorRT evaluation on the inference server.
-6. Note that Option A (`inference_backend: server`) should be re-benchmarked at the new model size — the larger forward time directly reduces the IPC/GPU-forward ratio that caused A's regression.
+5. Trigger TensorRT evaluation for batched eval/inference surfaces.
+6. Do not treat this as sufficient to re-enable Option A. Larger models improve
+   the IPC/GPU-forward ratio, but the observed traversal ceiling is still
+   scheduling shape. Re-benchmark server inference only after Option B or a
+   comparable traversal interleaving path can feed bs=64+ batches.
 
 ### Branch B — no size unlocks the curve
 

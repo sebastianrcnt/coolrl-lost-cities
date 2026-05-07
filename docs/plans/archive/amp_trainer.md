@@ -1,6 +1,6 @@
 # Plan: Trainer-side AMP (Automatic Mixed Precision)
 
-**Status:** Ready for implementation
+**Status:** Archived. Implemented and benchmarked on 2026-05-07; default remains off after smoke-config AMP regression. See `docs/performance.md` "AMP on trainer networks (2026-05-07, regression)".
 **Owner:** Codex
 **Background:** See `docs/performance.md` → "AMP Status" (currently a no-op flag) and "Post-A Optimization Calculus" (AMP becomes more meaningful only at larger model sizes; today's gains are bounded by the small `DeepCFRMLP` and the dominant traversal phase). Also note the `torch.compile` regression experiment in the same doc — small models punish low-level kernel optimizations because dispatch overhead outweighs fused-kernel gains. AMP can hit the same wall.
 

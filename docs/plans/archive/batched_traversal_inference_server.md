@@ -1,6 +1,6 @@
 # Plan: Batched Traversal Inference Server (Priority #5, Option A)
 
-**Status:** Ready for implementation
+**Status:** Archived. Implemented and benchmarked on 2026-05-07 as Option A; end-to-end traversal regressed because sync-blocking traversal could not feed large batches. Superseded by `docs/plans/option_b_interleaved_traversal.md`.
 **Owner:** Codex
 **Background:** See `docs/performance.md` → "Batched Traversal Inference: Design Decision (2026-05-07)" for the A/B/C analysis and rationale. This plan implements Option A.
 

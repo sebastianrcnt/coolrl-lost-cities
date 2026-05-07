@@ -5,18 +5,19 @@
 **Background:** See `docs/performance.md`:
 - "Experiments → `torch.compile` on trainer networks (2026-05-07, regression)" — the prior attempt regressed iter time by +4.8% on the small default model. Implementation is preserved on branch `experiments/torch-compile`.
 - "Post-A Optimization Calculus (forward-looking, 2026-05-07)" — argues compile/TensorRT become meaningful only after model size grows out of the dispatch-bound regime and/or eval density rises. This plan honors that sequencing.
+- "Clarifying the traversal bottleneck: sync policy boundary, not SIMD" — the current traversal bottleneck is scheduling shape, not a compile-able model-kernel problem.
 
 This plan is the follow-up referenced in step 3 of "Recommended sequencing".
 
 ## Goal
 
-Re-enable `torch.compile` on the Deep CFR trainer's networks at a model size where kernel work amortizes compile dispatch overhead, and (optionally, secondary) on the inference server's eval-mode forward path introduced by `docs/plans/batched_traversal_inference_server.md`. The goal is iter-time speedup with **no learning-curve drift**.
+Re-enable `torch.compile` on the Deep CFR trainer's networks at a model size where kernel work amortizes compile dispatch overhead, and (optionally, secondary) on batched eval/inference-server forward paths. The goal is iter-time speedup with **no learning-curve drift**.
 
 ## Non-goals
 
 - Do not enable compile on the current 512-hidden / 3-layer `default.yaml`. The regression is already measured.
 - Do not compile the Cython traversal call-site networks (workers' CPU networks under `inference_backend: local`). Their per-call shape is `batch_size == 1` and dispatch-dominated; compile cannot help and recompilation triggers are higher-risk.
-- Do not introduce TensorRT here. TensorRT is a separate work item also gated on the inference server (see `docs/performance.md` § "Tooling split").
+- Do not introduce TensorRT here. TensorRT is a separate work item for batched inference/eval surfaces (see `docs/performance.md` § "Tooling split").
 - Do not change network architectures. This plan picks up whatever larger model the project settles on in step 2 of the post-A sequencing.
 - Do not change the public CLI surface. Compile toggles via config only.
 - Do not enable `mode="max-autotune"` by default. It is opt-in for benchmarking.
@@ -59,11 +60,17 @@ Wraps `advantage_networks[player]` and `strategy_network` at trainer constructio
 
 Why this target: the trainer's optimization step has fixed batch shapes (no dynamic shapes), runs many steps per iteration, and exercises forward+backward+optimizer — the regime where compile pays best when the kernel is large enough.
 
-### B. Inference-server forward (eval-mode, no grad)
+### B. Batched inference/eval forward (eval-mode, no grad)
 
-Optional follow-up. After Option A from the batched-traversal plan lands and is benchmarked, optionally compile the server's `model.forward` path with `mode="reduce-overhead"` or `mode="default"`. The server already uses `eval()` + `inference_mode()`. Batches are bounded by `max_batch` (default 256) but variable in size up to that — this introduces a dynamic-shape concern (see Risks).
+Optional follow-up. The Option A inference server has landed and benchmarked,
+but it is structurally capped by sync-blocking traversal and is not the default.
+Only compile the server's `model.forward` path after either (a) Option B-style
+interleaved traversal can feed meaningful batches, or (b) the target is
+evaluation, which already has batching. The server/eval path uses `eval()` +
+`inference_mode()`. Batches vary in size, which introduces a dynamic-shape
+concern (see Risks).
 
-Why this target is secondary: per `docs/performance.md` § "Why compile / TensorRT are negligible *today* but become meaningful later", the inference-server forward share of an iter is <1% post-A on the small model. Even a 50% forward speedup is iter-level negligible until the model grows. At that point compile and TensorRT compete for the same role; this plan covers compile, and the TensorRT plan (separate, future) covers TensorRT.
+Why this target is secondary: per `docs/performance.md` § "Why compile / TensorRT are negligible *today* but become meaningful later", small-model inference forward is not the iter-level limiter unless traversal can actually feed batched requests. At larger model sizes or denser evaluation, compile and TensorRT compete for the same role; this plan covers compile, and the TensorRT plan (separate, future) covers TensorRT.
 
 ## Compile mode selection
 
@@ -80,7 +87,7 @@ For the inference server (target B), `default` is the only safe mode initially. 
 - `src/coolrl_lost_cities/games/classic/deep_cfr/trainer.py` — owns trainer-side networks, optimizer, and the train loop. This is where target A's `torch.compile(...)` calls go, plus the `_clean_state_dict()` helper and the `_orig_mod`-routed `load_state_dict` shim. Reference implementation lives on branch `experiments/torch-compile` (commit `05cc02a`).
 - `src/coolrl_lost_cities/games/classic/deep_cfr/networks.py` — network classes. Not modified by this plan; compile wraps the constructed module from outside.
 - `src/coolrl_lost_cities/games/classic/deep_cfr/workers.py` — multiprocessing traversal worker entry. Reconstructs CPU networks from `state_dict`s. Must keep receiving cleaned (no-`_orig_mod.`) state dicts.
-- `src/coolrl_lost_cities/games/classic/deep_cfr/inference_server.py` — created by the batched-traversal plan. Target B wraps `model.forward` here. If the inference-server plan has not landed, target B is deferred.
+- `src/coolrl_lost_cities/games/classic/deep_cfr/inference_server.py` — created by the archived Option A plan. Target B wraps `model.forward` here only after Option B or eval batching provides large enough batches.
 - `src/coolrl_lost_cities/games/classic/deep_cfr/config.py` — extend with a `CompileConfig` block.
 
 ## Reference implementation (branch `experiments/torch-compile`)
@@ -186,7 +193,7 @@ Caveats:
 - Cherry-pick `experiments/torch-compile` (commit `05cc02a`) onto a fresh branch. Resolve any conflicts against current `main`.
 - Move the unconditional `torch.compile(...)` calls behind `config.compile.trainer.enabled`. Default is `false`.
 - Add the `CompileConfig` and `CompileTrainerConfig` dataclasses to `config.py`. Wire `--set compile.trainer.enabled=true` through.
-- Confirm `_clean_state_dict()` and the `_orig_mod`-routed `load_state_dict` paths are correctly invoked on every checkpoint save, every checkpoint load, every weight push to workers, and (post-A) every weight push to the inference server.
+- Confirm `_clean_state_dict()` and the `_orig_mod`-routed `load_state_dict` paths are correctly invoked on every checkpoint save, every checkpoint load, every weight push to workers, and every weight push to the inference server if target B is enabled.
 
 ### Step 2: tests for state-dict round-tripping
 
@@ -208,7 +215,7 @@ See "Bench plan" below. This is the gating step. If results do not clear success
 
 ### Step 6: (optional) inference-server forward compile (target B)
 
-- Only if the batched-traversal-inference server has landed (per `docs/plans/batched_traversal_inference_server.md`).
+- Only if Option B or evaluation batching can feed large enough batches to make the inference-server forward a meaningful target. The archived Option A server exists, but the sync-blocking traversal path did not feed large batches.
 - Add `CompileInferenceServerConfig` wiring. Add `torch.compile(...)` invocation inside the server process. Route weight sync through `_orig_mod` when enabled.
 - Add a small inference-server bench script (or extend `scripts/bench_inference_backend.py` if it has landed) to measure server-side `policy_network_seconds` with and without compile at the chosen larger model size.
 - Ship only if criterion 6 is met. Otherwise leave disabled.
@@ -247,7 +254,7 @@ For target B, bench `policy_network_seconds` from the inference-server side with
 - **Backward path not benefiting.** Compile's biggest theoretical wins on the trainer phase come from fusing forward+backward+optimizer. In practice on simple MLPs the optimizer is already fused (e.g. `torch.optim.Adam(..., fused=True)` if available); compile may add little on top. Mitigation: bench is the answer — if iter time does not move 5%, the plan does not merge. This is a real possibility.
 - **CFR variable-length traversal does not feed compile.** Confirmed: traversal call sites use `batch_size == 1` and run on CPU workers (or via the inference server, which is target B not target A). Target A only sees the trainer optimization batches, which are fixed-shape. So dynamic-shape concerns do not apply to target A.
 - **GPU contention with eval.** Eval already runs on the trainer's device. Compile increases peak memory during compile/autotune phases (especially `max-autotune`). Mitigation: compile happens once per process at startup; eval runs after warm-up. Bench with eval disabled to isolate iter time, then re-enable for the drift check.
-- **AMP interaction.** `run.use_amp` is currently a no-op (per `docs/performance.md`). If AMP is implemented before this plan ships, re-bench compile under AMP — the two interact and prior numbers do not transfer.
+- **AMP interaction.** Trainer AMP is implemented but default-off after the 2026-05-07 smoke regression. If the model-size experiment later makes AMP attractive, re-bench compile with and without AMP because the two interact and prior numbers do not transfer.
 
 ## Decision tree
 

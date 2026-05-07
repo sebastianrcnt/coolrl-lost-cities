@@ -1,6 +1,6 @@
 # Plan: Cython Port of the Safe-Heuristic Bot Family
 
-**Status:** Ready for implementation
+**Status:** Archived. Implemented as `heuristic_cy.pyx` with Python shim and equivalence tests.
 **Owner:** Codex
 **Background:** See `docs/performance.md` → "Evaluation Breakdown" and "Post-A Optimization Calculus". The safe-heuristic family dominates eval wall-clock through `opponent_act_seconds` (7.57s / 4.63s / 9.22s for `safe_heuristic` / `safe_heuristic_loose` / `safe_heuristic_strict` in the inspected eval row), not GPU forward. As denser eval becomes operationally useful (`eval_every: 5`, `evaluation.games: 1000`), this cost becomes a first-order wall-clock concern.
 
