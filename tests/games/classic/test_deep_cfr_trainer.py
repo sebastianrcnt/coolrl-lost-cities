@@ -327,6 +327,48 @@ def test_deep_cfr_trainer_uses_playability_encoding() -> None:
     assert metrics[0].advantage_samples > 0
 
 
+def test_deep_cfr_trainer_forwards_metrics_to_extra_trackers(tmp_path) -> None:
+    events: list[tuple[str, object]] = []
+
+    class _CaptureTracker:
+        def log_event(self, message: str) -> None:
+            events.append(("event", message))
+
+        def log_metrics(self, metrics: dict, *, step: int) -> None:
+            events.append(("metrics", step))
+
+        def close(self) -> None:
+            events.append(("close", None))
+
+    trainer = DeepCFRTrainer(
+        _deep_cfr_config(
+            {
+                "run": {"iterations": 1, "seed": 71},
+                "network": {"hidden_size": 16},
+                "traversal": {
+                    "traversals_per_iteration": 1,
+                    "max_depth": 2,
+                    "max_nodes": 16,
+                },
+                "optimization": {"batch_size": 2},
+                "checkpoint": {
+                    "directory": str(tmp_path / "extra-tracker"),
+                    "save_every_iteration": False,
+                },
+            }
+        ),
+        LostCitiesConfig(seed=71),
+        extra_trackers=[_CaptureTracker()],
+    )
+
+    trainer.train()
+
+    assert any(kind == "metrics" for kind, _ in events)
+    assert any(kind == "event" for kind, _ in events)
+    assert ("close", None) in events
+    assert (tmp_path / "extra-tracker" / "metrics.jsonl").exists()
+
+
 def test_deep_cfr_trainer_smoke_run() -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(

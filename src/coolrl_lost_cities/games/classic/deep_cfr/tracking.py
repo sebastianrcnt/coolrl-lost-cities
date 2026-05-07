@@ -61,6 +61,47 @@ class ConsoleRunTracker:
         pass
 
 
+class WandbRunTracker:
+    def __init__(
+        self,
+        *,
+        project: str,
+        run_dir: str | Path,
+        name: str | None = None,
+        mode: str | None = None,
+        config: dict[str, Any] | None = None,
+        tags: list[str] | None = None,
+    ):
+        try:
+            import wandb
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError(
+                "wandb is not installed. Install with: uv sync --extra wandb"
+            ) from exc
+        run_dir_path = Path(run_dir)
+        run_dir_path.mkdir(parents=True, exist_ok=True)
+        self._wandb = wandb
+        self._run = wandb.init(
+            project=project,
+            name=name,
+            mode=mode,
+            config=config or {},
+            dir=str(run_dir_path),
+            tags=tags,
+            reinit=True,
+        )
+
+    def log_event(self, message: str) -> None:
+        # Human-readable events stay in train.log / console; wandb is purely for metrics.
+        pass
+
+    def log_metrics(self, metrics: dict[str, Any], *, step: int) -> None:
+        self._wandb.log(metrics, step=step)
+
+    def close(self) -> None:
+        self._wandb.finish()
+
+
 class FileRunTracker:
     def __init__(
         self,

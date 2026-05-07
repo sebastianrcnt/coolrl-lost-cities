@@ -20,6 +20,9 @@ gui = [
     "pygame>=2.6.1",
     "pygame-gui>=0.6.14",
 ]
+wandb = [
+    "wandb>=0.17",
+]
 
 [project.scripts]
 lost-cities-classic = "coolrl_lost_cities.games.classic:main"

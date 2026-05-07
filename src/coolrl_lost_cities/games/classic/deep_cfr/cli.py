@@ -23,6 +23,7 @@ from coolrl_lost_cities.games.classic.deep_cfr.imitation import (
 from coolrl_lost_cities.games.classic.deep_cfr.policy_gradient import (
     fine_tune_strategy_policy_gradient,
 )
+from coolrl_lost_cities.games.classic.deep_cfr.tracking import RunTracker, WandbRunTracker
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
 from coolrl_lost_cities.games.classic.game import classic_config
 
@@ -135,10 +136,23 @@ def train_command(args: argparse.Namespace) -> None:
     overrides = _train_overrides_from_args(args)
     config = _with_overrides(config, overrides)
     resume_path = _resolve_resume_path(config, args.resume)
+    extra_trackers: list[RunTracker] = []
+    if args.wandb:
+        extra_trackers.append(
+            WandbRunTracker(
+                project=args.wandb_project,
+                name=args.wandb_name or config.run.experiment_name,
+                mode=args.wandb_mode,
+                config=config.to_dict(),
+                run_dir=str(config.checkpoint_path),
+                tags=list(args.wandb_tag) if args.wandb_tag else None,
+            )
+        )
     trainer = DeepCFRTrainer(
         config,
         config.rules.to_lost_cities_config(seed=config.run.seed),
         device=args.device or config.run.device,
+        extra_trackers=extra_trackers or None,
     )
     if resume_path:
         trainer.load_checkpoint(resume_path)
@@ -268,6 +282,27 @@ def main(argv: list[str] | None = None) -> None:
     train.add_argument("--no-save", action="store_true")
     train.add_argument("--save-latest-only", action="store_true")
     train.add_argument("--save-iteration-interval", type=int)
+    train.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Mirror metrics to Weights & Biases (requires wandb extra).",
+    )
+    train.add_argument("--wandb-project", default="coolrl-lost-cities")
+    train.add_argument(
+        "--wandb-name",
+        help="W&B run name. Defaults to config.run.experiment_name.",
+    )
+    train.add_argument(
+        "--wandb-mode",
+        choices=("online", "offline", "disabled"),
+        default="online",
+    )
+    train.add_argument(
+        "--wandb-tag",
+        action="append",
+        default=[],
+        help="Tag to attach to the W&B run (repeatable).",
+    )
     train.set_defaults(func=train_command)
 
     evaluate = subparsers.add_parser("eval")

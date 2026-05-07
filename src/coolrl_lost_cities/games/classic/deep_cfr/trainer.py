@@ -159,6 +159,7 @@ class DeepCFRTrainer:
         *,
         device: str = "cpu",
         tracker: RunTracker | None = None,
+        extra_trackers: list[RunTracker] | None = None,
     ) -> None:
         self.config = config or DeepCFRConfig()
         self.game_config = game_config or self.config.rules.to_lost_cities_config(
@@ -203,8 +204,10 @@ class DeepCFRTrainer:
         self.metrics_path = self.run_dir / "metrics.jsonl"
         self.progress_path = self.run_dir / "runtime_progress.json"
         self.log_path = self.run_dir / "train.log"
-        self.tracker = tracker or CompositeRunTracker(
-            [
+        if tracker is not None:
+            self.tracker = tracker
+        else:
+            trackers: list[RunTracker] = [
                 FileRunTracker(
                     log_path=self.log_path,
                     metrics_path=self.metrics_path,
@@ -212,7 +215,9 @@ class DeepCFRTrainer:
                 ),
                 ConsoleRunTracker(),
             ]
-        )
+            if extra_trackers:
+                trackers.extend(extra_trackers)
+            self.tracker = CompositeRunTracker(trackers)
         self.self_play_league_snapshots: list[list[dict]] = []
         self._runtime_metrics: dict[str, float | int] = {}
 
@@ -546,19 +551,24 @@ class DeepCFRTrainer:
         stop = self._stop_iteration()
         run_started = time.perf_counter()
         iteration = start
-        while iteration <= stop:
-            started = time.perf_counter()
-            item = self.run_iteration(iteration)
-            metrics.append(item)
-            self._maybe_record_self_play_snapshot(iteration)
-            checkpoint_started = time.perf_counter()
-            self._save_iteration_checkpoints(iteration, item)
-            item.runtime_metrics["checkpoint_seconds"] = time.perf_counter() - checkpoint_started
-            elapsed = time.perf_counter() - started
-            self._append_metrics(item, elapsed)
-            if self._time_limit_reached(run_started):
-                break
-            iteration += 1
+        try:
+            while iteration <= stop:
+                started = time.perf_counter()
+                item = self.run_iteration(iteration)
+                metrics.append(item)
+                self._maybe_record_self_play_snapshot(iteration)
+                checkpoint_started = time.perf_counter()
+                self._save_iteration_checkpoints(iteration, item)
+                item.runtime_metrics["checkpoint_seconds"] = (
+                    time.perf_counter() - checkpoint_started
+                )
+                elapsed = time.perf_counter() - started
+                self._append_metrics(item, elapsed)
+                if self._time_limit_reached(run_started):
+                    break
+                iteration += 1
+        finally:
+            self.tracker.close()
         return metrics
 
     def _stop_iteration(self) -> int:
