@@ -48,4 +48,4 @@ while not state.terminal:
 print(state.total_score(0), state.total_score(1))
 ```
 
-See [classic port notes](docs/classic-port-notes.md) for the current direction.
+See [classic port notes](docs/archive/classic-port-notes.md) for the current direction.
