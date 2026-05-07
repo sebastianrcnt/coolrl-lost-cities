@@ -1,5 +1,9 @@
 # Lost Cities Deep CFR — Ideas 압축 정리
 
+## Active Research Threads
+
+- [Lost Cities selectivity 가설 / 4-model 분석](docs/research/lost_cities_selectivity.md)
+
 ## 진단 가설들
 
 - Variance 가설 — Draw variance가 entry regret signal 압도. Reward smoothing 1순위.
