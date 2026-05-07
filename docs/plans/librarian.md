@@ -165,11 +165,29 @@ deterministic detection:
   and derived research notes; LLM should decide whether two passages
   are the *same idea* vs the *same evidence*.
 
-Open Stage 1 finding to address: `docs/performance.md` at 914 lines.
+## Stage 1 finding closed
+
+`docs/performance.md` 914-line oversize finding is resolved by
+routing the dated experiments and design analysis out of the file:
+
+- `docs/archive/deep-cfr-performance-experiments-2026-05-07.md` —
+  `torch.compile`, AMP, GPU-forward profiling, Option B (4 sub-experiments).
+- `docs/research/batched-traversal-inference-decision.md` —
+  durable A/B/C design rationale.
+- `docs/archive/post-a-optimization-calculus-2026-05-07.md` —
+  forward-looking sequencing recorded pre-bench.
+- `docs/archive/option-a-bench-result-2026-05-07.md` —
+  bench regression + structural-ceiling diagnosis.
+
+`docs/performance.md` trimmed to 345 lines and now points at the
+extracts via a "See Also" section. AGENTS.md soft-cap rule reworded
+to clarify it is a *routing trigger*, not a split mandate.
 
 ## Next Concrete Step
 
-Address the open Stage 1 finding by splitting `docs/performance.md`
-into sub-topic notes under `docs/research/` (and dated archive
-entries where appropriate). Sketch the split as a 1-page sub-plan
-before doing the actual move so we don't shred a useful document.
+Stage 2 — LLM judgment dispatcher. Read `librarian-<timestamp>.json`
++ relevant doc bodies, route to `LIBRARIAN_LLM={claude|codex|gemini}`
+with `scripts/librarian-prompt.md` as system prompt, emit a unified
+diff under `runs/tmp/librarian-<timestamp>.patch`. Initial use cases:
+research-note drafts for promotable archive entries, MEMORY.md drift
+fixups, duplicate-doc merge proposals.

@@ -378,7 +378,10 @@ contention slows both unevenly and breaks the comparison.
 - archive 본문 복붙 금지 — 대신 `Source:` 링크 + distill.
 - `file.py:NN` 인용은 작성 시점에 `rg`로 검증.
 - 한 주제 한 파일 — `foo-v2.md` 만들지 말 것.
-- 파일당 ~500줄 soft cap.
+- 파일당 ~500줄 soft cap — 강제 분할이 아니라 "다른 위치(archive/research)로
+  가야 할 내용이 누적됐는지" routing 점검 트리거. 초과 시 dated 실험은
+  `docs/archive/`로, 항구적 분석은 `docs/research/`로 보내고 본 파일은
+  현재 상태 reference만 남긴다.
 
 ## Notes For Future Agents
 
