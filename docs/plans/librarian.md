@@ -131,6 +131,9 @@ operator applies the patch.
   references. Caught one real drift in
   `docs/research/optimization_sequencing.md` (path moved into
   `docs/plans/archive/`).
+- ✅ Stage 1 orchestrator: `scripts/librarian.sh`. Runs every Stage 1
+  check in order, aggregates exit code, prints findings inline. Single
+  entry point for users and (future) cron.
 
 ## Stage 1 Remaining Checks
 
@@ -143,8 +146,7 @@ operator applies the patch.
 
 ## Next Concrete Step
 
-Build `scripts/librarian.sh` as a thin orchestrator that runs every
-existing Stage 1 check in order and aggregates the exit code. Two
-checks today, more land incrementally. This gives a single entry
-point so users (and future cron) can run `scripts/librarian.sh`
-instead of remembering each individual checker.
+Mention `scripts/librarian.sh` in AGENTS.md so agents and humans know
+it exists as the canonical Stage 1 entry point. After that, pick one
+of the remaining checks above to add as the next checker (oversize
+files is the cheapest; stale plans is the most useful).

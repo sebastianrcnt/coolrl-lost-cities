@@ -12,9 +12,6 @@
 #
 # Comments after `#` are stripped per line. Blank lines ignored.
 
-# Future deliverables described in docs/plans/librarian.md
-scripts/librarian.sh
-
 # Future config + script described in docs/plans/model_size_experiment.md
 configs/deep_cfr/model-size-*.yaml
 scripts/run_model_size_experiment.sh
