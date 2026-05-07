@@ -307,6 +307,19 @@ W&B is purely additive — `metrics.jsonl` remains the source of truth, and
 `analyze` reads `metrics.jsonl`, not W&B. Disabling W&B never breaks
 training, resume, or analysis.
 
+### Notes and tags
+
+Use `--wandb-notes` for the run's *purpose* (free-form prose) and
+`--wandb-tag` for *categories you might filter on later* (short kebab-case
+keywords, repeatable). Otherwise use them however you like. Just avoid:
+
+- Tags that duplicate `config` (`lr-1e-4`, `traversal-280`) — W&B already
+  indexes config fields.
+- Tags that are unique per run (`test-1`, `2026-05-07`) — that's the run
+  name and timestamp's job.
+- Tag-as-sentence (`tested-bigger-traversal-with-lcfr`) — that belongs in
+  `--wandb-notes`.
+
 ## Notes For Future Agents
 
 - Prefer `rg`/`rg --files` for search.
