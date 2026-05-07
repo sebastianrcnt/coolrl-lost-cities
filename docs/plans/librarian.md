@@ -259,14 +259,54 @@ tests or cost control.
 
 All three drafts accepted into `docs/research/`:
 `classic-port-notes.md`, `deep-cfr-batched-evaluation.md`,
-`deep-cfr-evaluation-profile.md`. 12 archive entries remain
-unprocessed for the next survey run.
+`deep-cfr-evaluation-profile.md`.
+
+### Full-archive pass (2026-05-08, gemini, 12 archives)
+
+Second survey processed the remaining 12 archives. 12 drafts, 0
+skips, 0 errors. Post-processing produced consistent
+`Last verified: 2026-05-08, commit 5c221fb` headers on every draft.
+All 12 accepted into `docs/research/` verbatim:
+
+- deep-cfr-evaluation-profile-plan.md
+- deep-cfr-legacy-experiment-reproduction.md
+- deep-cfr-legacy-runtime-comparison.md
+- deep-cfr-performance-experiments.md
+- deep-cfr-profile-advantage-memory-split.md
+- deep-cfr-profile.md
+- deep-cfr-regret-fallback-audit.md
+- deep-cfr-v0-gap-vs-coolrl.md
+- deep-cfr-v0-plan.md
+- fast-engine-next-optimizations.md
+- post-a-optimization-calculus.md
+- test-coverage-notes.md
+
+`docs/archive/` is now fully covered: every entry either has a
+research counterpart by stem or by tail-match. `librarian.sh`
+exits 0.
+
+### Parallel dispatch added
+
+`scripts/librarian_survey.py --parallel N` runs up to N concurrent
+LLM calls via `ThreadPoolExecutor`. `subprocess.run` is mostly
+network-bound, so threads are enough — no GIL fight. Default
+remains 1 (sequential) for backward compatibility; explicit opt-in
+to widen. The two surveys above ran sequentially; future runs can
+collapse wall-clock significantly with `--parallel 4`.
 
 ## Stage 2 remaining
 
-- MEMORY.md drift fixup mode (read drift report, propose one-line
-  diffs). Currently no drift to act on, so deferred.
-- Duplicate-doc merge proposal mode.
+- MEMORY.md drift fixup mode — currently no drift to act on
+  (Stage 1 reports clean), so deferred until a real drift surfaces.
+- Duplicate-doc merge proposal mode — same shape; defer until a
+  duplicate is detected.
+
+## Status: closed for new feature work
+
+Librarian is in maintenance mode. New archive entries will surface
+via `librarian_survey.py` on the next run; new drift will surface
+via `librarian.sh`. Build mode resumes only when a real input
+appears that the deferred Stage 2 features would handle.
 
 ## Next Concrete Step
 

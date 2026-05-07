@@ -14,13 +14,16 @@ Per archive output:
   the entry non-promotable.
 - `<stem>.ERROR.txt` — captured stderr, when the CLI itself failed.
 
-Sequential; one LLM call per archive.
+Sequential by default; pass `--parallel N` to dispatch up to N concurrent
+LLM calls (subprocess.run is mostly waiting on the network, so threads
+are enough — no GIL fight).
 
 Usage:
     uv run python scripts/librarian_survey.py
     LIBRARIAN_LLM=gemini uv run python scripts/librarian_survey.py
     uv run python scripts/librarian_survey.py --dry-run    # list candidates only
-    uv run python scripts/librarian_survey.py --max 3      # limit to first 3 candidates
+    uv run python scripts/librarian_survey.py --max 3      # cap candidates
+    uv run python scripts/librarian_survey.py --parallel 4 # 4 concurrent calls
 """
 
 from __future__ import annotations
@@ -30,6 +33,8 @@ import os
 import re
 import subprocess
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -124,6 +129,42 @@ def _has_counterpart(archive_stem_no_date: str, research_stems: set[str]) -> boo
     return False
 
 
+def _dispatch_one(
+    archive: Path,
+    target: Path,
+    *,
+    root: Path,
+    cmd: list[str],
+    system_prompt: str,
+    commit_sha: str,
+) -> tuple[Path, str, str, str]:
+    """Process a single archive end-to-end.
+
+    Returns ``(rel_archive, status, stem, payload)`` where ``status`` is
+    one of ``"draft"``, ``"skip"``, or ``"error"``. ``payload`` is the
+    text to write under ``out_dir / f"{stem}.<ext>"``. Pure function
+    (apart from the subprocess call) so it is safe to call from a thread.
+    """
+    rel_archive = archive.relative_to(root)
+    rel_target = target.relative_to(root)
+    archive_body = archive.read_text(encoding="utf-8")
+    prompt = _assemble_prompt(system_prompt, rel_archive, archive_body, rel_target)
+    result = subprocess.run(
+        cmd,
+        input=prompt,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    stem_out = DATE_SUFFIX.sub("", archive.stem)
+    if result.returncode != 0:
+        return (rel_archive, "error", stem_out, result.stderr)
+    output = result.stdout.strip()
+    if output.lstrip().upper().startswith("SKIP"):
+        return (rel_archive, "skip", stem_out, output)
+    return (rel_archive, "draft", stem_out, _post_process_draft(output, commit_sha))
+
+
 def _candidates(root: Path) -> list[tuple[Path, Path]]:
     """Return (archive_path, suggested_research_target) for archives lacking a counterpart."""
     archive_dir = root / "docs" / "archive"
@@ -152,7 +193,18 @@ def main() -> int:
         default=None,
         help="Process at most N archives (testing/cost guard).",
     )
+    parser.add_argument(
+        "--parallel",
+        type=int,
+        default=1,
+        help=(
+            "Number of concurrent LLM calls. Default 1 (sequential). "
+            "Try 4 for a meaningful speedup on large surveys."
+        ),
+    )
     args = parser.parse_args()
+    if args.parallel < 1:
+        parser.error("--parallel must be >= 1")
 
     root = _repo_root()
     candidates = _candidates(root)
@@ -188,38 +240,58 @@ def main() -> int:
     drafts = 0
     skips = 0
     errors = 0
-    for idx, (archive, target) in enumerate(candidates, 1):
-        rel_archive = archive.relative_to(root)
-        rel_target = target.relative_to(root)
-        print(f"[{idx}/{len(candidates)}] {rel_archive} → {backend}", file=sys.stderr)
+    total = len(candidates)
+    print_lock = threading.Lock()
 
-        archive_body = archive.read_text(encoding="utf-8")
-        prompt = _assemble_prompt(system_prompt, rel_archive, archive_body, rel_target)
-
-        result = subprocess.run(
-            cmd,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        stem_out = DATE_SUFFIX.sub("", archive.stem)
-        if result.returncode != 0:
-            (out_dir / f"{stem_out}.ERROR.txt").write_text(result.stderr, encoding="utf-8")
-            errors += 1
-            print(f"    ERROR (exit {result.returncode})", file=sys.stderr)
-            continue
-
-        output = result.stdout.strip()
-        if output.lstrip().upper().startswith("SKIP"):
-            (out_dir / f"{stem_out}.SKIP.txt").write_text(output, encoding="utf-8")
-            skips += 1
-            print(f"    SKIP ({output[:80]})", file=sys.stderr)
+    def _record(idx: int, rel_archive: Path, status: str, stem: str, payload: str) -> str:
+        if status == "error":
+            (out_dir / f"{stem}.ERROR.txt").write_text(payload, encoding="utf-8")
+            note = "ERROR"
+        elif status == "skip":
+            (out_dir / f"{stem}.SKIP.txt").write_text(payload, encoding="utf-8")
+            note = f"SKIP ({payload[:80]})"
         else:
-            normalized = _post_process_draft(output, commit_sha)
-            (out_dir / f"{stem_out}.md").write_text(normalized, encoding="utf-8")
-            drafts += 1
-            print(f"    draft ({len(normalized)} chars)", file=sys.stderr)
+            (out_dir / f"{stem}.md").write_text(payload, encoding="utf-8")
+            note = f"draft ({len(payload)} chars)"
+        with print_lock:
+            print(f"[{idx}/{total}] {rel_archive} → {backend}", file=sys.stderr)
+            print(f"    {note}", file=sys.stderr)
+        return status
+
+    if args.parallel == 1:
+        for idx, (archive, target) in enumerate(candidates, 1):
+            rel_archive, status, stem_out, payload = _dispatch_one(
+                archive,
+                target,
+                root=root,
+                cmd=cmd,
+                system_prompt=system_prompt,
+                commit_sha=commit_sha,
+            )
+            kind = _record(idx, rel_archive, status, stem_out, payload)
+            drafts += kind == "draft"
+            skips += kind == "skip"
+            errors += kind == "error"
+    else:
+        with ThreadPoolExecutor(max_workers=args.parallel) as pool:
+            futures = {
+                pool.submit(
+                    _dispatch_one,
+                    archive,
+                    target,
+                    root=root,
+                    cmd=cmd,
+                    system_prompt=system_prompt,
+                    commit_sha=commit_sha,
+                ): None
+                for archive, target in candidates
+            }
+            for idx, fut in enumerate(as_completed(futures), 1):
+                rel_archive, status, stem_out, payload = fut.result()
+                kind = _record(idx, rel_archive, status, stem_out, payload)
+                drafts += kind == "draft"
+                skips += kind == "skip"
+                errors += kind == "error"
 
     print()
     print(f"Survey complete: {drafts} drafts, {skips} skips, {errors} errors.")
