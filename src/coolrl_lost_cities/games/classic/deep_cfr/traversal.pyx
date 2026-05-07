@@ -82,6 +82,7 @@ cdef class CythonDeepCFRTraverser:
     cdef int max_depth
     cdef bint has_max_nodes
     cdef int max_nodes
+    cdef int sampling_mode_id
     cdef float outcome_sampling_epsilon
     cdef bint has_value_clip
     cdef float outcome_sampling_value_clip
@@ -122,6 +123,7 @@ cdef class CythonDeepCFRTraverser:
         bint store_strategy_on_opponent_nodes=True,
         object max_depth=None,
         object max_nodes=None,
+        str sampling_mode="outcome",
         float outcome_sampling_epsilon=0.0,
         object outcome_sampling_value_clip=None,
         str outcome_unsampled_regret="negative_node_value",
@@ -165,6 +167,12 @@ cdef class CythonDeepCFRTraverser:
         self.max_depth = 0 if max_depth is None else int(max_depth)
         self.has_max_nodes = max_nodes is not None
         self.max_nodes = 0 if max_nodes is None else int(max_nodes)
+        if sampling_mode == "outcome":
+            self.sampling_mode_id = 0
+        elif sampling_mode == "external":
+            self.sampling_mode_id = 1
+        else:
+            raise ValueError("sampling_mode must be 'outcome' or 'external'")
         self.outcome_sampling_epsilon = min(1.0, max(0.0, outcome_sampling_epsilon))
         self.has_value_clip = outcome_sampling_value_clip is not None
         self.outcome_sampling_value_clip = (
@@ -269,6 +277,7 @@ cdef class CythonDeepCFRTraverser:
         cdef float action_prob
         cdef float sampled_action_value
         cdef float node_value
+        cdef float action_values[MAX_ACTIONS]
         cdef float policy[MAX_ACTIONS]
         cdef float sampling_policy[MAX_ACTIONS]
         cdef unsigned char legal[MAX_ACTIONS]
@@ -323,8 +332,47 @@ cdef class CythonDeepCFRTraverser:
             self._record_endpoint(stats, depth)
             return <float>(state.total_scores[traverser] - state.total_scores[1 - traverser])
 
-        self._sampling_policy(policy, legal, sampling_policy)
-        action = _sample_policy_from_actions_c(sampling_policy, actions, legal_count, _next_double(&self.rng))
+        if self.sampling_mode_id == 1 and player == traverser:
+            node_value = 0.0
+            for i in range(legal_count):
+                action = actions[i]
+                local_action = self._from_unified_action_c(state, action)
+                swapped_deck_index = self._sample_deck_draw_chance(state, action)
+                state._push_action_c(local_action)
+                try:
+                    child_value = self._traverse(state, traverser, iteration, depth + 1, stats)
+                finally:
+                    state._pop_action_c()
+                    if swapped_deck_index >= 0:
+                        state._swap_deck_cards_c(swapped_deck_index, state.deck_len - 1)
+                action_values[action] = child_value
+                node_value += policy[action] * child_value
+            self._record_regret_matching_decision(
+                stats,
+                state,
+                player,
+                actions[0],
+                depth,
+                policy_regret_fallback,
+                policy_argmax_tie_size,
+                policy_argmax_full_tie,
+            )
+            self._record_external_advantage(
+                info_state,
+                legal,
+                action_values,
+                node_value,
+                iteration,
+                player,
+                stats,
+            )
+            return node_value
+
+        if self.sampling_mode_id == 1:
+            action = _sample_policy_from_actions_c(policy, actions, legal_count, _next_double(&self.rng))
+        else:
+            self._sampling_policy(policy, legal, sampling_policy)
+            action = _sample_policy_from_actions_c(sampling_policy, actions, legal_count, _next_double(&self.rng))
         local_action = self._from_unified_action_c(state, action)
         swapped_deck_index = self._sample_deck_draw_chance(state, action)
         state._push_action_c(local_action)
@@ -346,16 +394,25 @@ cdef class CythonDeepCFRTraverser:
             policy_argmax_tie_size,
             policy_argmax_full_tie,
         )
-        action_prob = sampling_policy[action]
+        if self.sampling_mode_id == 1:
+            action_prob = policy[action]
+        else:
+            action_prob = sampling_policy[action]
         if action_prob < self.epsilon:
             action_prob = self.epsilon
-        sampled_action_value = child_value / action_prob
-        if self.has_value_clip:
+        if self.sampling_mode_id == 1:
+            sampled_action_value = child_value
+        else:
+            sampled_action_value = child_value / action_prob
+        if self.sampling_mode_id == 0 and self.has_value_clip:
             if sampled_action_value > self.outcome_sampling_value_clip:
                 sampled_action_value = self.outcome_sampling_value_clip
             elif sampled_action_value < -self.outcome_sampling_value_clip:
                 sampled_action_value = -self.outcome_sampling_value_clip
-        node_value = policy[action] * sampled_action_value
+        if self.sampling_mode_id == 1:
+            node_value = sampled_action_value
+        else:
+            node_value = policy[action] * sampled_action_value
 
         if player == traverser:
             self._record_advantage(
@@ -888,6 +945,38 @@ cdef class CythonDeepCFRTraverser:
         )
         stats.advantage_samples += 1
 
+    cdef void _record_external_advantage(
+        self,
+        object info_state,
+        const unsigned char* legal,
+        const float* action_values,
+        float node_value,
+        int iteration,
+        int player,
+        object stats,
+    ):
+        cdef int i
+        target = np.empty(self.action_size, dtype=np.float32)
+        legal_mask = np.empty(self.action_size, dtype=np.bool_)
+        cdef float[::1] target_view = target
+        cdef unsigned char[::1] legal_view = legal_mask.view(np.uint8)
+        for i in range(self.action_size):
+            legal_view[i] = legal[i]
+            if legal[i] == 0:
+                target_view[i] = 0.0
+            else:
+                target_view[i] = action_values[i] - node_value
+        self.advantage_samples.append(
+            TrainingSample(
+                info_state=info_state,
+                target=target,
+                legal_mask=legal_mask,
+                iteration=iteration,
+                player=player,
+            )
+        )
+        stats.advantage_samples += 1
+
     cdef void _record_endpoint(self, object stats, int depth):
         cdef int width = self.endpoint_depth_bucket_width
         cdef int max_depth = self.endpoint_depth_bucket_max
@@ -935,6 +1024,7 @@ def run_cython_traversal_batch(
     bint store_strategy_on_opponent_nodes=True,
     object max_depth=None,
     object max_nodes=None,
+    str sampling_mode="outcome",
     float outcome_sampling_epsilon=0.0,
     object outcome_sampling_value_clip=None,
     str outcome_unsampled_regret="negative_node_value",
@@ -972,6 +1062,7 @@ def run_cython_traversal_batch(
         store_strategy_on_opponent_nodes=store_strategy_on_opponent_nodes,
         max_depth=max_depth,
         max_nodes=max_nodes,
+        sampling_mode=sampling_mode,
         outcome_sampling_epsilon=outcome_sampling_epsilon,
         outcome_sampling_value_clip=outcome_sampling_value_clip,
         outcome_unsampled_regret=outcome_unsampled_regret,

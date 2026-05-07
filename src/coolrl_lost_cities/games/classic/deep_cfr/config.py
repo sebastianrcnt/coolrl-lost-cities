@@ -97,6 +97,7 @@ class NetworkConfig(StrictModel):
 class TraversalConfig(StrictModel):
     traversals_per_iteration: int = 2
     traversals_per_player: int | None = None
+    sampling_mode: str = "outcome"
     max_depth: int | None = 8
     max_nodes: int | None = 10_000
     max_nodes_per_traversal: int | None = None
@@ -118,6 +119,14 @@ class TraversalConfig(StrictModel):
     progress_every_traversals: int = 0
     endpoint_depth_bucket_width: int = 100
     endpoint_depth_bucket_max: int = 1000
+
+    @field_validator("sampling_mode")
+    @classmethod
+    def _validate_sampling_mode(cls, value: str) -> str:
+        token = value.strip().lower()
+        if token not in {"outcome", "external"}:
+            raise ValueError("must be 'outcome' or 'external'")
+        return token
 
     @field_validator("outcome_unsampled_regret")
     @classmethod

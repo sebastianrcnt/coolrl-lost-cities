@@ -101,6 +101,7 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
         store_strategy_on_opponent_nodes=cfg.traversal.store_strategy_on_opponent_nodes,
         max_depth=cfg.traversal.max_depth,
         max_nodes=cfg.traversal.resolved_max_nodes(),
+        sampling_mode=cfg.traversal.sampling_mode,
         outcome_sampling_epsilon=cfg.traversal.outcome_sampling_epsilon,
         outcome_sampling_value_clip=cfg.traversal.outcome_sampling_value_clip,
         outcome_unsampled_regret=cfg.traversal.outcome_unsampled_regret,

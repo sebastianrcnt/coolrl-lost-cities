@@ -51,6 +51,7 @@ def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
     assert config.network.hidden_size == 256
     assert config.network.num_layers == 3
     assert config.traversal.resolved_traversals_per_player() == 70
+    assert config.traversal.sampling_mode == "outcome"
     assert config.traversal.max_depth is None
     assert config.traversal.resolved_max_nodes() == 1000
     assert config.traversal.resolved_worker_chunk_size() == 8
@@ -109,6 +110,12 @@ def test_deep_cfr_train_cli_count_overrides_disable_duration_limits() -> None:
     assert overridden.training_weighting.mode == "lcfr"
     assert overridden.checkpoint.save_every_iteration is False
     assert overridden.checkpoint.save_latest is False
+
+
+def test_deep_cfr_config_accepts_external_sampling_mode() -> None:
+    config = _deep_cfr_config({"traversal": {"sampling_mode": "external"}})
+
+    assert config.traversal.sampling_mode == "external"
 
 
 def test_deep_cfr_train_cli_checkpoint_save_overrides() -> None:
@@ -446,6 +453,57 @@ def test_deep_cfr_cython_traverser_supports_outcome_sampling_and_rollout_cutoffs
     unsampled_legal = sample.legal_mask.copy()
     unsampled_legal[np.nonzero(sample.target)[0]] = False
     assert np.all(sample.target[unsampled_legal] == 0.0)
+
+
+def test_deep_cfr_cython_traverser_supports_external_sampling() -> None:
+    trainer = DeepCFRTrainer(
+        _deep_cfr_config(
+            {
+                "run": {"iterations": 1, "seed": 33},
+                "network": {"hidden_size": 16},
+                "traversal": {
+                    "traversals_per_iteration": 1,
+                    "sampling_mode": "external",
+                    "max_depth": 1,
+                    "max_nodes": 64,
+                },
+                "optimization": {"batch_size": 2},
+                "checkpoint": {"save_every_iteration": False},
+            }
+        ),
+        LostCitiesConfig(seed=33),
+    )
+    metrics = trainer.train()
+
+    assert len(metrics) == 1
+    assert metrics[0].advantage_samples > 0
+    state = GameState.new_game(LostCitiesConfig(seed=33), seed=33)
+    before = state.to_snapshot()
+    traverser = CythonDeepCFRTraverser(
+        trainer.advantage_networks,
+        device=trainer.device,
+        action_size=trainer.action_size,
+        sampling_mode="external",
+        max_depth=1,
+        max_nodes=64,
+        seed=33,
+    )
+
+    value, stats = traverser.traverse(state, traverser=0, iteration=1)
+    advantage_samples, strategy_samples = traverser.drain_samples()
+
+    assert isinstance(value, float)
+    assert state.to_snapshot() == before
+    assert stats.nodes > 0
+    assert stats.depth_cutoffs > 0
+    assert stats.advantage_samples > 0
+    assert stats.strategy_samples > 0
+    assert len(advantage_samples) == stats.advantage_samples
+    assert len(strategy_samples) == stats.strategy_samples
+    sample = advantage_samples[0]
+    assert sample.legal_mask.dtype == bool
+    assert sample.target.shape == sample.legal_mask.shape
+    assert np.count_nonzero(sample.target[sample.legal_mask]) > 1
 
 
 def test_deep_cfr_cython_traverser_records_regret_fallback_metrics() -> None:
