@@ -264,6 +264,49 @@ Each training run writes:
 If a run is stopped mid-iteration, the in-progress iteration may not appear in
 `metrics.jsonl`. Analyze the latest completed metric row.
 
+## Weights & Biases (Optional)
+
+Metrics can be mirrored to W&B. `wandb` is an optional extra; default
+installs and runs do not require it.
+
+Install:
+
+```bash
+uv sync --extra wandb
+```
+
+Run with W&B:
+
+```bash
+# Offline: no login, writes to <run_dir>/wandb/offline-run-*/
+uv run lost-cities-deep-cfr train --config <...> --wandb --wandb-mode offline
+
+# Online: requires `uv run wandb login` once, then real-time upload
+uv run lost-cities-deep-cfr train --config <...> --wandb
+```
+
+W&B data is stored **per run** at `<run_dir>/wandb/`, not at a global
+`runs/wandb/`. Each training run gets its own subfolder, so moving or
+deleting a run directory carries its W&B data along with it.
+
+Sync offline runs to wandb.ai later:
+
+```bash
+wandb sync runs/<run-dir>/wandb/offline-run-*
+```
+
+Flags:
+
+- `--wandb`: enable W&B mirroring.
+- `--wandb-project <name>`: defaults to `coolrl-lost-cities`.
+- `--wandb-name <name>`: W&B run name; defaults to `run.experiment_name`.
+- `--wandb-mode {online,offline,disabled}`: default `online`.
+- `--wandb-tag <tag>`: tag the run; repeatable.
+
+W&B is purely additive — `metrics.jsonl` remains the source of truth, and
+`analyze` reads `metrics.jsonl`, not W&B. Disabling W&B never breaks
+training, resume, or analysis.
+
 ## Notes For Future Agents
 
 - Prefer `rg`/`rg --files` for search.
