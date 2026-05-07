@@ -353,5 +353,7 @@ Net result: regression. Two reasons:
   call dispatch overhead exceeds the kernel-fusion benefit.
 
 Implementation preserved on branch `experiments/torch-compile` for
-revisiting if the trainer model grows substantially or traversal moves
-to GPU-batched inference. Not enabled on `main`.
+revisiting if the trainer model grows substantially or after the
+batched-traversal-inference work in Optimization Priorities #5 lands —
+that is the change that would put compile on the dominant phase, not
+just on the trainer's optimization steps. Not enabled on `main`.
