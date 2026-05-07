@@ -26,6 +26,10 @@ extensions = cythonize(
             "coolrl_lost_cities.games.classic.deep_cfr.traversal",
             ["src/coolrl_lost_cities/games/classic/deep_cfr/traversal.pyx"],
         ),
+        Extension(
+            "coolrl_lost_cities.games.classic.bots.heuristic_cy",
+            ["src/coolrl_lost_cities/games/classic/bots/heuristic_cy.pyx"],
+        ),
     ],
     language_level=3,
     compiler_directives={
