@@ -325,7 +325,8 @@ class DeepCFRTrainer:
 
         eval_started = time.perf_counter()
         eval_metrics = self._evaluate(iteration)
-        self._runtime_metrics["evaluation_seconds"] = time.perf_counter() - eval_started
+        if eval_metrics:
+            self._runtime_metrics["evaluation_seconds"] = time.perf_counter() - eval_started
         self._runtime_metrics["advantage_memory_size"] = self._advantage_memory_size()
         for player, memory in enumerate(self.advantage_memories):
             self._runtime_metrics[f"advantage_player_{player}_memory_size"] = len(memory)
