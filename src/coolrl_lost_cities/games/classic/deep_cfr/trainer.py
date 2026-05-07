@@ -156,6 +156,29 @@ def _format_summary_value(value: float | int) -> str:
     return str(value)
 
 
+def _next_eval_iteration(current_iteration: int, eval_every: int) -> int | None:
+    if eval_every <= 0:
+        return None
+    return ((current_iteration // eval_every) + 1) * eval_every
+
+
+def eval_skipped_warning(
+    current_iteration: int,
+    max_iterations: int | None,
+    eval_every: int,
+) -> str | None:
+    if eval_every <= 0 or max_iterations is None:
+        return None
+    next_eval = _next_eval_iteration(current_iteration, eval_every)
+    if next_eval is None or next_eval <= max_iterations:
+        return None
+    return (
+        f"WARNING evaluation will not run: eval_every={eval_every} "
+        f"but max_iterations={max_iterations} (current iteration={current_iteration}). "
+        f"Next scheduled eval at iteration {next_eval}."
+    )
+
+
 class DeepCFRTrainer:
     def __init__(
         self,
@@ -612,6 +635,13 @@ class DeepCFRTrainer:
         self.tracker.log_event(
             f"Deep CFR run start iteration={self.iteration} seed={self.config.run.seed}"
         )
+        warning = eval_skipped_warning(
+            self.iteration,
+            self.config.run.max_iterations,
+            self.config.evaluation.eval_every,
+        )
+        if warning is not None:
+            self.tracker.log_event(warning)
 
     def _append_metrics(self, metrics: IterationMetrics, iteration_seconds: float) -> None:
         data = metrics.to_dict()
