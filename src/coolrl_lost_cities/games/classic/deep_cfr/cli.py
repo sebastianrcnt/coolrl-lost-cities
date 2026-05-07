@@ -105,7 +105,7 @@ def train_command(args: argparse.Namespace) -> None:
     trainer = DeepCFRTrainer(
         config,
         config.rules.to_lost_cities_config(seed=config.run.seed),
-        device=args.device or config.run.device,
+        device=config.run.device,
         extra_trackers=extra_trackers or None,
     )
     if resume_path:
@@ -204,7 +204,6 @@ def main(argv: list[str] | None = None) -> None:
     train = subparsers.add_parser("train")
     train.add_argument("--config")
     train.add_argument("--resume", nargs="?", const=_RESUME_LATEST, default=None)
-    train.add_argument("--device")
     train.add_argument(
         "--set",
         action="append",

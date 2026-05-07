@@ -93,13 +93,13 @@ Useful train controls:
 
 - `--resume`: resume from `<checkpoint-dir>/latest.pt`.
 - `--resume PATH`: resume from a specific checkpoint.
-- `--device DEVICE`: override the trainer device for this invocation.
 - `--set PATH=VALUE`: override config fields. It is repeatable and parses
   values as YAML, e.g. `--set traversal.num_workers=4` or
   `--set run.max_hours=null`.
 
 Common `--set` overrides:
 
+- `--set run.device=cuda`: set the trainer device.
 - `--set checkpoint.exact_resume=true`: require checkpoint config compatibility.
 - `--set checkpoint.save_latest=false --set checkpoint.save_every_iteration=false
   --set checkpoint.save_iteration_interval=0`: disable checkpoint writes.
