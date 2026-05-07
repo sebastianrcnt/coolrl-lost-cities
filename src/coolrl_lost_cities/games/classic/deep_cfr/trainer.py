@@ -47,6 +47,10 @@ def _resolve_torch_device(device: str) -> torch.device:
     return torch.device(token)
 
 
+def _clean_state_dict(network: nn.Module) -> dict[str, torch.Tensor]:
+    return getattr(network, "_orig_mod", network).state_dict()
+
+
 @dataclass(frozen=True)
 class EvaluationWorkerJob:
     opponent: str
@@ -204,14 +208,18 @@ class DeepCFRTrainer:
 
         torch.manual_seed(self.config.run.seed)
         self.advantage_networks = [
-            DeepCFRMLP.from_config(self.input_dim, self.action_size, self.config.network).to(
-                self.device
+            torch.compile(
+                DeepCFRMLP.from_config(self.input_dim, self.action_size, self.config.network).to(
+                    self.device
+                )
             )
             for _ in range(2)
         ]
-        self.strategy_network = DeepCFRMLP.from_config(
-            self.input_dim, self.action_size, self.config.network
-        ).to(self.device)
+        self.strategy_network = torch.compile(
+            DeepCFRMLP.from_config(self.input_dim, self.action_size, self.config.network).to(
+                self.device
+            )
+        )
         self.advantage_optimizers = [
             torch.optim.AdamW(
                 network.parameters(),
@@ -260,8 +268,10 @@ class DeepCFRTrainer:
             "iteration": self.iteration,
             "input_dim": self.input_dim,
             "action_size": self.action_size,
-            "advantage_networks": [network.state_dict() for network in self.advantage_networks],
-            "strategy_network": self.strategy_network.state_dict(),
+            "advantage_networks": [
+                _clean_state_dict(network) for network in self.advantage_networks
+            ],
+            "strategy_network": _clean_state_dict(self.strategy_network),
             "self_play_league_snapshots": self.self_play_league_snapshots,
             "advantage_optimizers": [
                 optimizer.state_dict() for optimizer in self.advantage_optimizers
@@ -288,8 +298,10 @@ class DeepCFRTrainer:
         for network, state_dict in zip(
             self.advantage_networks, payload["advantage_networks"], strict=True
         ):
-            network.load_state_dict(state_dict)
-        self.strategy_network.load_state_dict(payload["strategy_network"])
+            getattr(network, "_orig_mod", network).load_state_dict(state_dict)
+        getattr(self.strategy_network, "_orig_mod", self.strategy_network).load_state_dict(
+            payload["strategy_network"]
+        )
         for optimizer, state_dict in zip(
             self.advantage_optimizers, payload.get("advantage_optimizers", []), strict=False
         ):
@@ -510,14 +522,14 @@ class DeepCFRTrainer:
     def _worker_batches(self, iteration: int) -> list[TraversalWorkerBatch]:
         batches: list[TraversalWorkerBatch] = []
         network_payloads = [
-            {name: value.detach().cpu() for name, value in network.state_dict().items()}
+            {name: value.detach().cpu() for name, value in _clean_state_dict(network).items()}
             for network in self.advantage_networks
         ]
         strategy_payload: dict | None = None
         if self.config.traversal.opponent_policy == "average_strategy":
             strategy_payload = {
                 name: value.detach().cpu()
-                for name, value in self.strategy_network.state_dict().items()
+                for name, value in _clean_state_dict(self.strategy_network).items()
             }
         chunk_size = self.config.traversal.worker_chunk_size
         batch_index = 0
@@ -548,7 +560,10 @@ class DeepCFRTrainer:
 
     def _frozen_advantage_state_dicts(self) -> list[dict]:
         return [
-            {name: value.detach().cpu().clone() for name, value in network.state_dict().items()}
+            {
+                name: value.detach().cpu().clone()
+                for name, value in _clean_state_dict(network).items()
+            }
             for network in self.advantage_networks
         ]
 
@@ -745,7 +760,8 @@ class DeepCFRTrainer:
 
     def _strategy_state_dict_cpu(self) -> dict[str, torch.Tensor]:
         return {
-            key: value.detach().cpu() for key, value in self.strategy_network.state_dict().items()
+            key: value.detach().cpu()
+            for key, value in _clean_state_dict(self.strategy_network).items()
         }
 
     def _train_advantage_networks(self) -> float:
