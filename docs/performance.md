@@ -386,3 +386,307 @@ bs=1 to 0.34 μs at bs=256 (>230×). The available supply of ~368 states per
 traversal sits comfortably in the bs=64–256 range where μs/call plateaus near
 90 μs. End-to-end gain will be bounded by encoding and worker-GPU coordination
 overhead, but the GPU forward is not the limiter once batching is in place.
+
+## Batched Traversal Inference: Design Decision (2026-05-07)
+
+Three structural options were considered for Priority #5:
+
+- **A. Central inference server.** Workers stay in multiprocessing and
+  reconstruct nothing on GPU. A separate server process owns the model, batches
+  incoming policy requests across workers, runs GPU forward, returns logits.
+  Worker traversal logic and the Cython recursion are untouched.
+- **B. Per-worker batching.** Each worker interleaves multiple traversals
+  internally to form its own batches. GPU process count = worker count, so model
+  copies and GPU contention scale with workers. Batching efficiency is bounded
+  by per-worker in-flight count.
+- **C. Single-process vectorized traversal.** Drop multiprocessing entirely.
+  Main process runs N traversals lockstep with explicit recursion stacks,
+  forming a natural batch dimension across traversal instances. Existing
+  recursive traversal can be kept and a new `traversal/batched.{py,pyx}` added
+  as a parallel backend gated by config; existing code is not modified.
+
+### Decision: A
+
+Reasons:
+
+- **Hardware fit dominates.** A central inference server keeps multiprocessing,
+  so all available CPU cores stay productive on game logic. C is single-process,
+  so on a 32-core remote machine with a weak GPU it wastes 31 cores while the
+  weak GPU caps batching gains; A is strictly better there. On a 6-core / RTX
+  3090 box A and C are competitive but uncertain — C only wins when GPU forward
+  is the dominant share of traversal, and game logic in CFR traversal is not
+  negligible.
+- **C is not the "ultimate" answer on multi-core machines.** A truly maximal
+  design would combine C's batched GPU forward with `nogil` threaded game
+  logic, which is strictly more complex than C alone. Plain C, by being
+  single-process, gives up CPU parallelism that the existing multiprocessing
+  path already exploits.
+- **A is mostly additive.** New modules: `inference_server.py`,
+  `inference_client.py`, shared-memory tensor pool, weight-sync hook. Existing
+  touches are small: worker policy call site (one line), worker spawn/teardown
+  (server start/stop), trainer (periodic weight push). Cython traversal
+  recursion, game engine, replay/training paths are unchanged.
+- **The hard part is IPC tuning, not code volume.** Latency budget vs GPU
+  forward, weight-staleness window, backpressure, and shared-memory tensor
+  layout. Code is small; the design surface is concentrated in one place.
+
+### IPC: what crosses the process boundary
+
+Only the encoded policy input and its response cross IPC:
+
+- Forward request: encoded state vector, ~365 floats ≈ 1.5KB.
+- Forward response: action logits, ~22 floats ≈ 88 bytes.
+
+Game state, traversal recursion stack, event log, CFR regret/strategy
+accumulators, and chance-node sampling history all stay inside the worker
+process. The policy network consumes a flat encoded state (`input_dim=365`),
+so the server needs no game-tree context to answer a request.
+
+The replay-buffer write path (workers shipping collected regret/strategy
+samples to the trainer) is separate, already exists today, and is reflected in
+`memory_add_seconds` ≈ 1.25s/iter; A does not add to it.
+
+### IPC mechanism: multiprocessing + shared memory
+
+- **Big payload (state, logits)**: shared-memory tensors. Either
+  `torch.multiprocessing` with `tensor.share_memory_()` and a pre-allocated
+  buffer pool indexed by slot id, or `multiprocessing.shared_memory.SharedMemory`
+  with manual slot management. Pickle is bypassed for the data itself.
+- **Control messages (slot index, request id)**: small `Queue`. Pickle still
+  happens here but only for ints/tuples, which is sub-microsecond and
+  negligible against ~90 μs GPU forward.
+- The naive path (`multiprocessing.Queue(tensor)` with default pickle) is the
+  one that is slow and is what causes the "Python IPC is slow" reputation.
+  With shared memory, multiprocessing IPC is effectively on par with thread
+  shared-memory access for tensor traffic.
+
+### Why not Cython `nogil` + threading instead of multiprocessing
+
+Threading would avoid IPC entirely, but it requires the game-engine hot path
+to be genuinely `nogil`-clean — no Python objects touched anywhere on the path.
+Whether the existing Cython traversal qualifies is unknown and likely no:
+auditing and migrating it to be fully `nogil`-clean is a substantial,
+high-risk change to existing code, contradicting A's "mostly additive"
+property. Additional drawbacks: a single segfault kills all threads;
+multi-threaded CUDA usage has subtle context-sharing pitfalls; tooling and
+prior art are weaker than for the multiprocessing pattern. Revisit only after
+free-threaded Python (PEP 703) stabilizes or if a future profile shows the
+shared-memory IPC is itself the limiter.
+
+### Implementation plan
+
+1. Prototype A on the 6-core / 3090 host with a single worker: validate
+   end-to-end correctness and measure IPC round-trip latency vs GPU forward.
+2. Scale to multiple workers; tune `batch_window_us`, `max_batch`, and
+   `sync_every` (weight push frequency).
+3. Deploy to the 32-core / weak-GPU remote and confirm CPU-side scaling holds
+   and the weak GPU is still the right place to keep the model.
+4. Defer C. Re-evaluate only if A's measurements show GPU forward is no longer
+   on the critical path and game-logic CPU cost dominates — in that case the
+   right next step is C with `nogil` threading, not plain C.
+
+## Post-A Optimization Calculus (forward-looking, 2026-05-07)
+
+Once Option A lands, the bottleneck shape changes. This section records the
+expected sequencing for follow-up work. It is forward-looking and has not been
+measured yet — verify against bench numbers after A is benchmarked.
+
+### Why compile / TensorRT are negligible *today* but become meaningful later
+
+Today (small model: 3-layer, 512 hidden):
+
+- `torch.compile` on the trainer's networks already regressed (see the
+  2026-05-07 experiment above). The model is too small for kernel fusion to
+  beat compile dispatch overhead.
+- `torch.compile` / TensorRT on the inference-server forward (post-A) would
+  shave ~30–50% off ~90μs/call → ~50–70μs/call. With forward share of an iter
+  reduced to <1% by A's batching, the iter-level multiplier is ~1.00–1.01×.
+  Negligible.
+
+Two compounding shifts can flip this:
+
+1. **Larger model.** Going from 512 hidden / 3 layers to ~1024 hidden /
+   ~6 layers pushes the forward call out of dispatch-bound territory into
+   kernel-bound territory. Compile fusion and TensorRT both deliver real
+   1.5–2× on the forward call itself once the kernel is large enough to
+   amortize launch overhead. Forward share of iter time also rebalances upward
+   because per-call time scales with FLOPs while batching gain is fixed.
+2. **Denser, larger evaluation.** Moving toward `eval_every: 5` and
+   `evaluation.games: 1000` makes evaluation about half of iteration wall-clock
+   (see the amortized eval table earlier in this doc). Eval is pure inference,
+   so TensorRT on the inference-server's forward path applies directly.
+
+When both shifts happen together, an illustrative future iter (rough order of
+magnitude only):
+
+| Configuration                                  | Iter time (rough) |
+| ---                                            | ---: |
+| Today (small model, eval_every=25)             | 17.85s |
+| + A (batched traversal inference)              | ~14s |
+| + larger model (≈4× FLOPs), no compile/TRT     | ~50s |
+| + dense eval (eval_every=5, games=1000)        | ~70s |
+| + compile (trainer) + TensorRT (inference)     | ~45s |
+
+That last row is where compile/TensorRT contributes ~1.5× iter — the same
+tooling that is iter-neutral today. The numbers above are illustrative; real
+ratios depend on model size, kernel autotune outcomes, and the eval-vs-train
+balance.
+
+### Tooling split
+
+- **TensorRT**: applies only to inference (no backward). Targets:
+  - inference-server forward in traversal,
+  - inference-server forward in evaluation.
+  Both are served by the same A-era server, so a single TensorRT integration
+  covers both.
+- **`torch.compile`**: applies to trainer's advantage/strategy training
+  (forward+backward+optimizer). The 2026-05-07 regression on a small model
+  does **not** generalize — it must be re-measured on whatever larger model
+  config we settle on. Do not conclude "compile is bad" from the small-model
+  data point.
+
+### Recommended sequencing
+
+Do this in order. Skipping ahead is the failure mode that creates misleading
+"compile/TRT didn't help" data.
+
+1. **Now**: benchmark A (`scripts/bench_inference_backend.py`) and confirm the
+   `local` vs `server` multipliers on `home` and `remote`. Validate the iter
+   1.2–1.3× / traversal 1.5–2× working estimate.
+2. **Next**: experiment with a larger network config. Measure compute vs
+   learning-curve trade-off with the existing toolchain (no compile/TRT yet).
+   This step decides the model size that future optimizations target.
+3. **Then**: re-measure `torch.compile` on the trainer at the chosen model
+   size. The earlier regression was size-bound; expect a different result.
+4. **Then**: integrate TensorRT into the inference server (covers traversal
+   and eval forward simultaneously). Bound the gain by the post-step-2
+   `policy_network_seconds` share, not the headline TensorRT speedup.
+5. **In parallel with 2–4**: if denser eval is operationally useful, raise
+   `evaluation.games` and lower `evaluation.eval_every`. This step does not
+   require code changes but sharply increases the value of step 4.
+
+Out of scope until A bench numbers are in: Option C, `nogil` threading, async
+inference client, compiled encoding.
+
+## Option A Bench Result and Structural Ceiling (2026-05-07)
+
+Option A (`traversal.inference_backend: server`) was implemented and
+benchmarked. **Result: regression. A is deferred. `default.yaml` stays on
+`local`. The implementation is preserved behind the flag for future revisit.**
+
+### Bench numbers
+
+`scripts/bench_inference_backend.py --device cuda --iterations 5 --warmup 1`,
+RTX 3090, after a per-call IPC fix (replaced `multiprocessing.Manager()`
+queues/events with spawn-context primitives, slot reuse per worker batch,
+shared memory confirmed in use for state/response payloads).
+
+| Backend | iter | traversal | adv_train | strat_train | mem_add | batch_tensor |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `local` | 16.75s | 10.81s | 3.91s | 2.02s | 0.95s | 3.56s |
+| `server` | 57.61s | 51.61s | 3.96s | 2.02s | 0.50s | 3.57s |
+| Speedup | 0.29× | 0.21× | 0.99× | 1.00× | 1.89× | 1.00× |
+
+Raw: `runs/bench/2026-05-07_193335_inference_backend/results.json`.
+
+Training and eval phases are unchanged (as expected — A only touches the
+traversal forward path). The regression is contained in `traversal_seconds`,
+which is ~5× worse.
+
+### Diagnosis
+
+The server emits per-flush batch stats. **Mean batch size: ~7.2–7.9, max 8.**
+This is the structural ceiling, not a tunable misconfiguration:
+
+- Traversal recursion is **sync-blocking** at the policy call site. Each
+  worker has at most one in-flight policy request at a time.
+- In-flight requests at the server ≤ `num_workers` = 8.
+- The server further splits each batch by `(network_kind, network_index)`,
+  so the actual GPU forward group size is roughly half of that — about 4
+  rows per group.
+
+Per-state cost at this realized batch size, from the GPU profile table:
+
+| Realized batch | μs/state |
+| ---: | ---: |
+| 1 | 80.07 |
+| 4 | 20.30 |
+| 8 (extrapolated) | ~12 |
+| 64 | 1.46 |
+| 256 | 0.34 |
+
+So the GPU is doing ~12μs per state instead of the projected ~1.5μs at
+bs=64. The IPC round-trip per call (queue post + server scheduler + event
+wakeup, even with shared-memory payload) is on the order of hundreds of μs
+per call, which exceeds both the local CPU forward (~80–200μs at bs=1 on
+this small MLP) and the marginal GPU gain. Net: per-call cost roughly
+doubles or triples, compounded across ~205k calls/iter, gives the observed
+5× traversal regression.
+
+`batch_window_us` and `max_batch` tuning cannot escape this ceiling —
+there are simply not 64 concurrent in-flight requests to coalesce when only
+8 workers are blocking-sync.
+
+### What this means for the headline GPU profile (`scripts/profile_gpu_forward.py`)
+
+The earlier "230× speedup at bs=256" is a **per-state GPU forward**
+microbenchmark, not an end-to-end traversal speedup. Realizing that gain
+requires *actually feeding the GPU* with bs=64+ batches. Sync-blocking
+multi-worker traversal cannot do that. Reaching the bs=64 regime needs
+either:
+
+- Per-worker traversal interleaving (worker advances `worker_chunk_size`
+  traversals concurrently, suspending at each policy call — Option B
+  shape), which requires turning Cython traversal recursion into a
+  resumable state machine. Same scope as a partial Option C, localized to
+  worker scope.
+- Option C proper (single-process vectorized traversal).
+
+Both require restructuring traversal. Option A's "additive, no traversal
+changes" property turned out to also mean "cannot drive the batch size up."
+
+### Why deferring A (not deleting) is the right call
+
+- The plumbing (server process, shared-memory client, weight sync, config
+  flag) is complete and tested. Re-enabling is a config flip.
+- The fundamental issue at this model size is that **GPU forward time is
+  too small to amortize IPC overhead** at any realistic batch size we can
+  drive without restructuring traversal. Bigger model changes that
+  arithmetic; the same plumbing then becomes useful.
+- The `mem_add_seconds` row showed a real 1.89× win, suggesting the
+  shared-memory replay-write path adopted along the way is worth keeping
+  even with `local` backend. (Confirm separately; this is a side effect.)
+
+### Re-enable A when one of these holds
+
+1. **Model grows** to ~1024 hidden / ~6 layers (compile/TRT discussion
+   above). Forward time scales with FLOPs while IPC overhead is fixed; at
+   some point IPC becomes a small fraction.
+2. **Per-worker interleaved traversal** ships (Option B-shape refactor).
+   Drives realized batch toward 64 and reclaims the profile table's gains.
+3. **Eval becomes the dominant phase** (`eval_every: 5`,
+   `evaluation.games: 1000`). Eval is not sync-blocking traversal; it is
+   already batch_size=64 in eval code. The same inference server can
+   serve eval directly without the worker-side ceiling.
+
+### Free-threaded Python (3.13t) note
+
+Free-threaded Python + Cython `nogil` would let many threads (well above
+core count) run game logic concurrently in one process, with shared memory
+and no IPC. With ~64 threads sync-blocking on policy calls, the server
+would naturally see bs=64. **In principle this is the cleanest endpoint.**
+
+In practice as of early 2026:
+
+- Free-threaded Python is an opt-in build (`python3.13t`), still
+  experimental, with measurable single-thread overhead.
+- PyTorch's free-threaded compatibility is partial.
+- Cython `nogil`-cleanliness audit on the existing game engine is still
+  required and was the original reason `nogil` threading was deferred in
+  the design decision above.
+- No project-level adoption pressure on `python3.13t` today.
+
+So free-threaded Python does change the architectural answer, but it does
+not unblock A *now*. Track the ecosystem; revisit when (a) `python3.13t`
+becomes mainstream or (b) the Cython engine is `nogil`-cleaned for other
+reasons.
