@@ -91,13 +91,37 @@ the heavier workload still does not reach near-linear 8-thread scaling.
 Julia delivers useful throughput scaling (4.76× at 8T), but this is not
 the decisive PASS threshold for the threading criterion.
 
-## Open evidence (criteria 4, 5)
+## Open evidence (criterion 5)
 
-- **Flux.jl + CUDA.jl MLP forward at bs={1, 64, 256}.** Compare to
-  PyTorch numbers in `docs/performance.md`. Criterion 4. Not started.
 - **Real-game-state slice port.** Port `play_card` + scoring, run on a
   fixed corpus of game states, compare to current Cython. Criterion 5.
-  Not started.
+  Not started. Skipped for now because criterion 4 failed; per the
+  decision rule, the full Julia port is no longer a GO candidate on the
+  current evidence.
+
+### 2026-05-07 — Flux.jl + CUDA.jl MLP forward (criterion 4)
+
+Path: `experiments/julia_flux_mlp/`.
+
+Same `DeepCFRMLP` shape as the current Deep CFR default MLP:
+365→512→512→512→22, ReLU, identical PyTorch-exported weights loaded
+into Flux. Output parity passed with max absolute difference
+`5.215e-08`. Timing uses 10 warmup forwards, then 100 timed forwards,
+with CUDA synchronized around the timed loop in both runtimes.
+
+| backend | batch | forward ms | μs/state | ratio vs PyTorch |
+| ---     | ---:  | ---:       | ---:     | ---:             |
+| PyTorch | 1     | 0.0829     | 82.8755  | 1.00×            |
+| Flux    | 1     | 0.1669     | 166.8867 | 2.01×            |
+| PyTorch | 64    | 0.0927     | 1.4477   | 1.00×            |
+| Flux    | 64    | 0.1909     | 2.9836   | 2.06×            |
+| PyTorch | 256   | 0.0877     | 0.3427   | 1.00×            |
+| Flux    | 256   | 0.1758     | 0.6867   | 2.00×            |
+
+**Verdict on criterion 4:** FAIL. bs=64 is ~2.06× slower than
+PyTorch, outside the ±20% PASS band. bs=1 and bs=256 are also ~2×
+slower, outside the ±30% bands. Criterion 5 was not run after this
+FAIL because the full Julia-port decision rule is already blocked.
 
 ## Pass/fail thresholds (decided in advance)
 
@@ -169,16 +193,17 @@ purpose.
 
 ## Decision posture
 
-Promising but not enough to justify a port yet. The completed benchmarks
-remove the main risk (GC under recursion) and confirm compute parity.
-Heavy thread scaling upgrades criterion 3 from inconclusive to PARTIAL:
-8T is 4.76× faster than 1T, but 59% efficiency is below the near-linear
-PASS threshold.
+No full Julia port on the current evidence. The completed benchmarks
+remove the main risk (GC under recursion) and confirm compute parity,
+but criterion 3 is only PARTIAL and criterion 4 is FAIL. Per the
+decision rule, a full port would spend months to replace a PyTorch GPU
+path that is already ~2× faster for the exact model shape we use.
 
-This means Julia remains a credible option, but not a slam dunk. ML-stack
-and game-state evidence (criteria 4, 5) must be positive before starting
-a serious port plan. If those are positive, criterion 3 should be revisited
-on a real traversal slice where each thread has substantially more work
-than this toy benchmark.
+Recommended next path: stay on Python/Cython and pursue Option B
+(per-worker interleaved traversal) as the GIL-escape path. A narrower
+Julia experiment could still be considered later for traversal-only
+logic, but it would need an explicit hybrid plan that keeps PyTorch for
+networks and separately proves PythonCall/PyCall overhead is acceptable.
 
-Do not commit to porting on the current evidence alone.
+Criterion 5 remains unrun because criterion 4 already blocks the full
+port decision.

@@ -1,0 +1,52 @@
+{
+  "flux": {
+    "batches": {
+      "1": {
+        "forward_ms": 0.16688673,
+        "max_abs_diff": 1.4901161193847656e-08,
+        "us_per_state": 166.88673
+      },
+      "256": {
+        "forward_ms": 0.17579791,
+        "max_abs_diff": 2.9802322387695312e-08,
+        "us_per_state": 0.6867105859375
+      },
+      "64": {
+        "forward_ms": 0.19094904,
+        "max_abs_diff": 5.21540641784668e-08,
+        "us_per_state": 2.98357875
+      }
+    },
+    "device": "NVIDIA GeForce RTX 3090",
+    "lang": "Julia/Flux",
+    "max_abs_diff": 5.21540641784668e-08,
+    "timed_iters": 100,
+    "warmup_iters": 10
+  },
+  "pytorch": {
+    "batches": {
+      "1": {
+        "forward_ms": 0.0828754500253126,
+        "us_per_state": 82.8754500253126
+      },
+      "256": {
+        "forward_ms": 0.0877418098389171,
+        "us_per_state": 0.34274144468326995
+      },
+      "64": {
+        "forward_ms": 0.09265014989068732,
+        "us_per_state": 1.4476585920419893
+      }
+    },
+    "device": "NVIDIA GeForce RTX 3090",
+    "lang": "PyTorch",
+    "timed_iters": 100,
+    "warmup_iters": 10
+  },
+  "ratios": {
+    "1": 2.0137052643337428,
+    "256": 2.0035819904187386,
+    "64": 2.0609684951971476
+  },
+  "verdict": "FAIL"
+}
