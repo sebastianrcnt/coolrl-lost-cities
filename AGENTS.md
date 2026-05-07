@@ -320,6 +320,11 @@ keywords, repeatable). Otherwise use them however you like. Just avoid:
 - Tag-as-sentence (`tested-bigger-traversal-with-lcfr`) — that belongs in
   `--wandb-notes`.
 
+**Notes length**: 3–5 lines, commit-message-body length. Should answer
+*why* (hypothesis), *what* (key config delta), and *baseline* (run/iter
+to compare against). Long analyses go in `docs/` and are linked from
+notes; don't paste them in.
+
 ## Notes For Future Agents
 
 - Prefer `rg`/`rg --files` for search.
