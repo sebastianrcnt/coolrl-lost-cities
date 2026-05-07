@@ -42,11 +42,14 @@ traversal:
   store_strategy_on_traverser_nodes: true
   store_strategy_on_opponent_nodes: false
   num_workers: 8
-  worker_chunk_size: 8
-  progress_every_traversals: 10
+  worker_chunk_size: 64
+  progress_every_traversals: 0
   endpoint_depth_bucket_width: 100
   endpoint_depth_bucket_max: 1000
   inference_backend: local
+  scheduler: interleaved
+  interleave_width: 64
+  interleave_max_batch: 128
 
 regret_matching:
   all_negative_fallback: argmax_tiebreak

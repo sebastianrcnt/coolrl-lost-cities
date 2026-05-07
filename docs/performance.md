@@ -532,8 +532,16 @@ game-state throughput and is slower end-to-end than 8 interleaved CPU workers.
 Important caveat: multi-traversal interleaving uses per-context RNG streams, so
 exact recursive-batch RNG ordering is intentionally not preserved. The Phase 2
 single-traversal parity test matches recursive stats and sample target
-checksums under identical RNG seed. Longer learning-curve A/B is still required
-before considering a default switch.
+checksums under identical RNG seed. This means the default now favors the
+measured traversal-speed win over byte-identical sample ordering. If future
+learning curves show unexplained drift, first compare against the recursive
+fallback:
+
+```bash
+--set traversal.scheduler=recursive \
+--set traversal.worker_chunk_size=8 \
+--set traversal.progress_every_traversals=10
+```
 
 Follow-up: `average_strategy` support was added after the initial Phase 3
 network-opponent A/B so the interleaved path can run the actual default opponent
@@ -546,8 +554,8 @@ settings produced warm-up-excluded means:
 | interleaved, default `average_strategy` | 10.61 | 4.85 | 28.3 | 64 |
 
 Run: `runs/2026-05-07_230419_option-b-interleaved-average-strategy-10i`.
-This prepares the long-run default-config A/B, but it does not replace it:
-learning-curve stability still has to be measured before any default switch.
+This follow-up unblocked making interleaved traversal the default. The default
+switch was made with the caveat above rather than waiting for a long-run A/B.
 
 ## Batched Traversal Inference: Design Decision (2026-05-07)
 
