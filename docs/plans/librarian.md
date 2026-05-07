@@ -220,14 +220,26 @@ prose, no bullet soup. Accepted verbatim as
 oversize finding → extracted archive → LLM draft → human accept —
 closed without touching the LLM's output.
 
+## Stage 2 v2: survey mode
+
+✅ `scripts/librarian_survey.py`. Walks `docs/archive/*.md`, filters
+out entries that already have a research counterpart (exact stem
+match or tail match — research notes sometimes drop a domain
+prefix), and dispatches each remaining archive to the same prompt
+template as `librarian_promote.py`. Outputs land under
+`runs/tmp/librarian-survey-<timestamp>/`, one file per archive,
+classified into `<stem>.md` (draft), `<stem>.SKIP.txt` (LLM judged
+non-promotable), or `<stem>.ERROR.txt` (CLI failure).
+
+`--dry-run` lists candidates without calling the LLM. `--max N`
+caps the number of archives processed per run, useful for smoke
+tests or cost control.
+
 ## Stage 2 remaining
 
 - MEMORY.md drift fixup mode (read drift report, propose one-line
-  diffs).
+  diffs). Currently no drift to act on, so deferred.
 - Duplicate-doc merge proposal mode.
-- Survey mode: scan all archive entries lacking a research
-  counterpart and run `librarian_promote` on each, accumulating
-  drafts under one timestamped directory.
 
 ## Next Concrete Step
 
