@@ -3,6 +3,7 @@
 ## Active Research Threads
 
 - [Lost Cities selectivity 가설 / 4-model 분석](docs/research/lost_cities_selectivity.md)
+- [Julia 포팅 검토 — 단일/멀티스레드/ML 평가](docs/research/julia_port_evaluation.md)
 
 ## 진단 가설들
 

@@ -1,0 +1,3 @@
+bench_cfr.c
+bench_cfr*.so
+build/
