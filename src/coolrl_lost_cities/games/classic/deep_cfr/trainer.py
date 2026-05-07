@@ -131,8 +131,7 @@ class IterationMetrics:
 
 def _format_iteration_summary(metrics: IterationMetrics, data: dict[str, float | int]) -> str:
     parts = [
-        "Iteration complete:",
-        f"iteration={metrics.iteration}",
+        f"[i={metrics.iteration}] Iteration complete",
         f"traversal_nodes={metrics.traversal_nodes}",
         f"nodes_per_second={_format_summary_value(data['nodes_per_second'])}",
         f"advantage_loss={_format_summary_value(metrics.advantage_loss)}",
@@ -422,7 +421,7 @@ class DeepCFRTrainer:
             if progress_every > 0 and completed >= progress_every:
                 elapsed = time.perf_counter() - progress_started
                 self.tracker.log_event(
-                    f"Traversal progress iteration={iteration} completed={completed} "
+                    f"[i={iteration}] Traversal progress completed={completed} "
                     f"elapsed_seconds={elapsed:.2f} total_nodes={total_stats.nodes} "
                     f"nodes_per_second={total_stats.nodes / max(elapsed, 1.0e-12):.1f}"
                 )
@@ -436,13 +435,13 @@ class DeepCFRTrainer:
         requested_workers = self.config.traversal.resolved_num_workers()
         max_workers = self.config.traversal.resolved_num_workers(len(batches))
         self.tracker.log_event(
-            f"Traversal multiprocessing enabled iteration={iteration} "
+            f"[i={iteration}] Traversal multiprocessing enabled "
             f"requested_workers={requested_workers} effective_workers={max_workers} "
             f"batches={len(batches)} chunk_size={self.config.traversal.worker_chunk_size}"
         )
         if max_workers < requested_workers:
             self.tracker.log_event(
-                f"Traversal worker count capped iteration={iteration} "
+                f"[i={iteration}] Traversal worker count capped "
                 f"requested_workers={requested_workers} effective_workers={max_workers} "
                 f"available_batches={len(batches)}"
             )
@@ -482,7 +481,7 @@ class DeepCFRTrainer:
                     if next_progress_at is not None and progress_traversals >= next_progress_at:
                         elapsed = time.perf_counter() - progress_started
                         self.tracker.log_event(
-                            f"Traversal multiprocessing progress iteration={iteration} "
+                            f"[i={iteration}] Traversal multiprocessing progress "
                             f"completed_batches={completed_batches}/{total_batches} "
                             f"completed_traversals={progress_traversals} "
                             f"elapsed_seconds={elapsed:.2f} "

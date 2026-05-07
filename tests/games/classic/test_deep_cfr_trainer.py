@@ -666,7 +666,8 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
     assert (checkpoint_dir / "train.log").exists()
     train_log = (checkpoint_dir / "train.log").read_text(encoding="utf-8")
     assert re.search(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", train_log)
-    assert "Iteration complete:" in train_log
+    assert "Iteration complete" in train_log
+    assert "[i=1]" in train_log
     assert "reservoir memories and RNG state are not restored" in train_log
     assert restored.iteration == 1
     assert "eval_random_games" in metrics[0].eval_metrics
