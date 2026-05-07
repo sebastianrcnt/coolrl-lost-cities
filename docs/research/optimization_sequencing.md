@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | **Model size growth** (hidden ≥ 1024 / layers ≥ 6) | `docs/plans/model_size_experiment.md` | 인프라 미설치 |
 | **Option B** (per-worker interleaved traversal) | plan 미작성 | 미시작 |
-| **AMP** trainer | `docs/plans/amp_trainer.md` (구현 됨, default off) | 모델 키운 후 재측정 |
+| **AMP** trainer | `docs/plans/archive/amp_trainer.md` (구현 됨, default off) | 모델 키운 후 재측정 |
 | **torch.compile** trainer | `docs/plans/torch_compile.md` | 모델 키운 후 재측정 |
 | **TensorRT** inference | plan 미작성 | 모델 키운 + eval dense 시점 |
 | **Option A re-enable** | 코드 있음 (default off) | 모델 키운 후 또는 Option B 후 |

@@ -121,12 +121,30 @@ operator applies the patch.
 - ✅ Prompt moved: `.claude/agents/librarian.md` →
   `scripts/librarian-prompt.md`. Claude-specific subagent registration
   removed.
+- ✅ Stage 1, piece 1: `scripts/librarian_check_links.py` (lychee
+  wrapper). Caught one stale README link on first run (commit
+  `b9bbb4f`).
+- ✅ Stage 1, piece 2: `scripts/librarian_check_citations.py` (custom
+  `file:line` citation checker over inline-code spans). Skips
+  `docs/archive/` and `docs/plans/archive/`. Ignore list at
+  `scripts/librarian-ignore.txt` for intentional future-tense
+  references. Caught one real drift in
+  `docs/research/optimization_sequencing.md` (path moved into
+  `docs/plans/archive/`).
+
+## Stage 1 Remaining Checks
+
+- Stale plans (mtime + git-log staleness heuristic).
+- Promotable archive entries (deferred to Stage 2 — heuristic vs LLM
+  judgment is the open question).
+- MEMORY.md drift (index lines vs target file `description:` frontmatter).
+- Duplicate prose (high-overlap pairs across archive vs research).
+- Oversize files (>500-line soft cap from AGENTS.md).
 
 ## Next Concrete Step
 
-Build a minimum viable Stage 1: port coolrl's `check_doc_links.py`
-into `scripts/` as `librarian_check_links.py` (one-file lychee wrapper),
-verified to run against `docs/**`. No JSON aggregation yet — just exit
-code 0/non-zero. This proves the deterministic-lint layer works on this
-repo before adding the custom checks (code citations, stale plans,
-etc.).
+Build `scripts/librarian.sh` as a thin orchestrator that runs every
+existing Stage 1 check in order and aggregates the exit code. Two
+checks today, more land incrementally. This gives a single entry
+point so users (and future cron) can run `scripts/librarian.sh`
+instead of remembering each individual checker.

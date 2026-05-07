@@ -1,0 +1,23 @@
+# Ignore patterns for scripts/librarian_check_citations.py.
+#
+# One fnmatch glob per line. Citations matching any pattern are
+# silently skipped — use sparingly, only for citations that are
+# genuinely intentional (planned future files, design references)
+# rather than drift you can fix.
+#
+# Format examples:
+#   scripts/foo.sh                   # exact path
+#   configs/deep_cfr/model-*.yaml    # glob
+#   docs/research/*.md               # whole directory
+#
+# Comments after `#` are stripped per line. Blank lines ignored.
+
+# Future deliverables described in docs/plans/librarian.md
+scripts/librarian.sh
+
+# Future config + script described in docs/plans/model_size_experiment.md
+configs/deep_cfr/model-size-*.yaml
+scripts/run_model_size_experiment.sh
+
+# Future config described in docs/plans/torch_compile.md
+configs/deep_cfr/default_compile.yaml
