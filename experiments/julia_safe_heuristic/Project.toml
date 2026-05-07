@@ -1,0 +1,7 @@
+name = "JuliaSafeHeuristic"
+uuid = "e0293fdf-6d99-4c3d-bd99-7fd1bdcf64f1"
+version = "0.1.0"
+
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"

@@ -17,6 +17,9 @@ src/coolrl_lost_cities/games/classic/deep_cfr/*.c
 # Rust build output
 target/
 
+# Local toolchains
+tools/julia/
+
 # Virtual environments
 .venv
 
