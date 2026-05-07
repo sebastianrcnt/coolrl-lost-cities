@@ -150,6 +150,7 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
             total_stats, advantage_samples, strategy_samples, runtime_metrics = (
                 run_interleaved_traversal_batch(
                     networks,
+                    strategy_network,
                     game_config,
                     batch.seeds,
                     batch.player,
@@ -169,6 +170,7 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
                     max_nodes=cfg.traversal.max_nodes_per_traversal,
                     outcome_sampling_epsilon=cfg.traversal.outcome_sampling_epsilon,
                     outcome_sampling_value_clip=cfg.traversal.outcome_sampling_value_clip,
+                    opponent_policy=cfg.traversal.opponent_policy,
                     endpoint_depth_bucket_width=cfg.traversal.endpoint_depth_bucket_width,
                     endpoint_depth_bucket_max=cfg.traversal.endpoint_depth_bucket_max,
                     seed=batch.worker_seed,

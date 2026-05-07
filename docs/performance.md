@@ -535,6 +535,20 @@ single-traversal parity test matches recursive stats and sample target
 checksums under identical RNG seed. Longer learning-curve A/B is still required
 before considering a default switch.
 
+Follow-up: `average_strategy` support was added after the initial Phase 3
+network-opponent A/B so the interleaved path can run the actual default opponent
+policy. A 10-iteration throughput check with default opponent policy,
+evaluation/checkpoint disabled, and the same 8-worker chunk-64 interleaving
+settings produced warm-up-excluded means:
+
+| Mode | iter s | traversal s | batch mean | batch max |
+| --- | ---: | ---: | ---: | ---: |
+| interleaved, default `average_strategy` | 10.61 | 4.85 | 28.3 | 64 |
+
+Run: `runs/2026-05-07_230419_option-b-interleaved-average-strategy-10i`.
+This prepares the long-run default-config A/B, but it does not replace it:
+learning-curve stability still has to be measured before any default switch.
+
 ## Batched Traversal Inference: Design Decision (2026-05-07)
 
 Three structural options were considered for Priority #5:

@@ -1,7 +1,7 @@
 # Plan: Option B Per-Worker Interleaved Traversal
 
-**Status:** Phase 3 benchmark passed. Default behavior is unchanged; the
-interleaved path remains opt-in.
+**Status:** Phase 4 long-run A/B is prepared. Default behavior is unchanged;
+the interleaved path remains opt-in.
 **Owner:** Codex for prototype design and implementation; operator for long-run
 benchmarks on `home`.
 **Background:** Option A, the central traversal inference server, was implemented
@@ -305,6 +305,81 @@ Gate decision: PASS. The best current candidate is the 8-worker interleaved
 path with larger worker chunks. The single-process CUDA path makes forward
 cheap but gives up multiprocessing game-state throughput, so it is slower
 end-to-end.
+
+### Phase 4: Feature Expansion And Long-Run A/B Prep
+
+Required feature expansion:
+
+- Support `opponent_policy: average_strategy`, matching the default config's
+  opponent branch.
+- Keep unsupported branches guarded (`self_play_league`, `safe_heuristic`,
+  random rollout cutoffs, external sampling).
+- Add parity tests for the average-strategy fixed-opponent branch.
+- Verify a default-policy interleaved run starts and emits batch metrics.
+
+Long-run A/B protocol:
+
+- Baseline: `configs/deep_cfr/default.yaml` unchanged.
+- Treatment: exactly one structural scheduler change plus the chunk/batch
+  settings below.
+- Run sequentially, not in parallel on the same GPU.
+- Keep default evaluation/checkpoint cadence for the real A/B unless measuring
+  pure throughput only.
+- Stop and report if learning metrics drift materially despite wall-clock
+  speedup.
+
+Treatment command:
+
+```bash
+uv run lost-cities-deep-cfr train \
+  --config configs/deep_cfr/default.yaml \
+  --keep \
+  --set run.experiment_name=option-b-interleaved-default-ab \
+  --set traversal.scheduler=interleaved \
+  --set traversal.num_workers=8 \
+  --set traversal.worker_chunk_size=64 \
+  --set traversal.interleave_width=64 \
+  --set traversal.interleave_max_batch=128 \
+  --set traversal.progress_every_traversals=0
+```
+
+### Phase 4 Result (2026-05-07)
+
+Implemented `average_strategy` support in the interleaved scheduler. Opponent
+nodes now use the strategy network as a fixed-opponent policy, matching the
+Cython recursive path rather than recording CFR regret at those nodes.
+
+Validation:
+
+- average-strategy single-traversal parity against `run_cython_traversal_batch`:
+  PASS,
+- trainer smoke with `scheduler=interleaved` and `opponent_policy=average_strategy`:
+  PASS,
+- focused trainer test suite: PASS.
+
+Default-policy throughput check:
+
+```bash
+uv run lost-cities-deep-cfr train \
+  --config configs/deep_cfr/default.yaml \
+  --keep \
+  --set run.max_iterations=10 \
+  --set run.experiment_name=option-b-interleaved-average-strategy-10i \
+  --set traversal.scheduler=interleaved \
+  --set traversal.num_workers=8 \
+  --set traversal.worker_chunk_size=64 \
+  --set traversal.interleave_width=64 \
+  --set traversal.interleave_max_batch=128 \
+  --set traversal.progress_every_traversals=0 \
+  --set checkpoint.save_latest=false \
+  --set checkpoint.save_every=0 \
+  --set evaluation.eval_every=0
+```
+
+Result path: `runs/2026-05-07_230419_option-b-interleaved-average-strategy-10i`.
+Warm-up-excluded means: `iteration_seconds=10.61s`,
+`traversal_seconds=4.85s`, `interleaved/avg_batch_size=28.3`,
+`interleaved/max_batch_size=64`.
 
 ## Risks
 

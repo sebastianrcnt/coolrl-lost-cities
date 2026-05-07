@@ -76,6 +76,22 @@ def _sampling_policy(policy: np.ndarray, legal_mask: np.ndarray, epsilon: float)
     return out
 
 
+def _masked_softmax(logits: np.ndarray, legal_mask: np.ndarray) -> np.ndarray:
+    policy = np.zeros_like(logits, dtype=np.float32)
+    legal = np.flatnonzero(legal_mask)
+    if len(legal) == 0:
+        return policy
+    legal_logits = logits[legal].astype(np.float32)
+    shifted = legal_logits - float(np.max(legal_logits))
+    values = np.exp(shifted, dtype=np.float32)
+    total = float(values.sum())
+    if total <= 0.0:
+        policy[legal] = 1.0 / float(len(legal))
+        return policy
+    policy[legal] = values / total
+    return policy
+
+
 def _record_endpoint(stats: TraversalStats, depth: int, width: int, max_depth: int) -> None:
     stats.endpoint_depth_sum += depth
     start = (depth // width) * width
@@ -95,6 +111,7 @@ class InterleavedTraversalConfig:
     strategy_sample_interval: int
     store_strategy_on_traverser_nodes: bool
     store_strategy_on_opponent_nodes: bool
+    opponent_policy: str
     endpoint_depth_bucket_width: int
     endpoint_depth_bucket_max: int
 
@@ -109,6 +126,7 @@ class PolicyResult:
     full_tie: bool
     player: int = -1
     depth: int = -1
+    kind: str = "advantage"
 
 
 @dataclass
@@ -118,6 +136,7 @@ class PolicyRequest:
     info_state: np.ndarray
     legal_mask: np.ndarray
     depth: int
+    network_kind: str = "advantage"
 
 
 @dataclass
@@ -143,11 +162,16 @@ class AfterChildFrame:
 
 
 @dataclass
+class FixedActionFrame:
+    swapped_deck_index: int
+
+
+@dataclass
 class EnterFrame:
     depth: int
 
 
-Frame = EnterFrame | AfterChildFrame
+Frame = EnterFrame | AfterChildFrame | FixedActionFrame
 
 
 class BatchedPolicy:
@@ -157,8 +181,10 @@ class BatchedPolicy:
         *,
         device: torch.device,
         epsilon: float,
+        strategy_network: torch.nn.Module | None = None,
     ) -> None:
         self.networks = networks
+        self.strategy_network = strategy_network
         self.device = device
         self.epsilon = epsilon
         self.batch_sizes: list[int] = []
@@ -168,24 +194,36 @@ class BatchedPolicy:
         if not requests:
             return []
         out: list[PolicyResult | None] = [None] * len(requests)
-        for player in sorted({request.player for request in requests}):
-            indices = [idx for idx, request in enumerate(requests) if request.player == player]
+        group_keys = sorted({(request.network_kind, request.player) for request in requests})
+        for network_kind, player in group_keys:
+            indices = [
+                idx
+                for idx, request in enumerate(requests)
+                if (request.network_kind, request.player) == (network_kind, player)
+            ]
             states = np.stack([requests[idx].info_state for idx in indices]).astype(np.float32)
             x = torch.as_tensor(states, dtype=torch.float32, device=self.device)
             if self.device.type == "cuda":
                 torch.cuda.synchronize(self.device)
             start = time.perf_counter()
             with torch.inference_mode():
-                values = self.networks[player](x).detach().cpu().numpy().astype(np.float32)
+                network = self._network(network_kind, player)
+                values = network(x).detach().cpu().numpy().astype(np.float32)
             if self.device.type == "cuda":
                 torch.cuda.synchronize(self.device)
             self.forward_seconds += time.perf_counter() - start
             self.batch_sizes.append(len(indices))
             for local_idx, request_idx in enumerate(indices):
                 request = requests[request_idx]
-                policy, fallback, tie_size, full_tie = _regret_matching(
-                    values[local_idx], request.legal_mask, self.epsilon
-                )
+                if request.network_kind == "strategy":
+                    policy = _masked_softmax(values[local_idx], request.legal_mask)
+                    fallback = False
+                    tie_size = 0
+                    full_tie = False
+                else:
+                    policy, fallback, tie_size, full_tie = _regret_matching(
+                        values[local_idx], request.legal_mask, self.epsilon
+                    )
                 out[request_idx] = PolicyResult(
                     info_state=request.info_state,
                     legal_mask=request.legal_mask,
@@ -195,6 +233,13 @@ class BatchedPolicy:
                     full_tie=full_tie,
                 )
         return [result for result in out if result is not None]
+
+    def _network(self, network_kind: str, player: int) -> torch.nn.Module:
+        if network_kind == "advantage":
+            return self.networks[player]
+        if network_kind == "strategy" and self.strategy_network is not None:
+            return self.strategy_network
+        raise ValueError(f"unsupported policy network request: {network_kind!r}")
 
 
 class InterleavedContext:
@@ -225,8 +270,10 @@ class InterleavedContext:
             frame = self.stack.pop()
             if isinstance(frame, EnterFrame):
                 self._enter(frame.depth, context_index)
-            else:
+            elif isinstance(frame, AfterChildFrame):
                 self._after_child(frame)
+            else:
+                self._after_fixed_action(frame)
         if not self.stack and self.pending is None and not self.done:
             self.done = True
             self.value = self.last_value
@@ -239,7 +286,6 @@ class InterleavedContext:
         depth = result.depth
         if depth < 0:
             raise RuntimeError("policy result is missing depth")
-        self._record_strategy(result, player, depth)
         actions = [int(action) for action in np.flatnonzero(result.legal_mask)]
         if not actions:
             self.stats.terminals += 1
@@ -252,6 +298,16 @@ class InterleavedContext:
             self._return_value(float(self.state.score_diff(self.traverser)))
             return
 
+        if result.kind == "strategy":
+            self.rng, random_value = _next_double(self.rng)
+            action = _sample_policy(result.policy, actions, random_value)
+            swapped_deck_index = self._sample_deck_draw_chance(action)
+            self.state.push_unified_action(action)
+            self.stack.append(FixedActionFrame(swapped_deck_index=swapped_deck_index))
+            self.stack.append(EnterFrame(depth + 1))
+            return
+
+        self._record_strategy(result, player, depth)
         sampling_policy = _sampling_policy(
             result.policy, result.legal_mask, self.cfg.outcome_sampling_epsilon
         )
@@ -289,7 +345,12 @@ class InterleavedContext:
         info_state = encode_info_state(self.state, player, self.cfg.encoding)
         legal_mask = np.zeros(self.cfg.action_size, dtype=bool)
         legal_mask[self.state.unified_legal_actions()] = True
-        request = PolicyRequest(context_index, player, info_state, legal_mask, depth)
+        network_kind = (
+            "strategy"
+            if player != self.traverser and self.cfg.opponent_policy == "average_strategy"
+            else "advantage"
+        )
+        request = PolicyRequest(context_index, player, info_state, legal_mask, depth, network_kind)
         self.pending = request
 
     def _after_child(self, frame: AfterChildFrame) -> None:
@@ -319,6 +380,13 @@ class InterleavedContext:
             )
             self.stats.advantage_samples += 1
         self._return_value(node_value)
+
+    def _after_fixed_action(self, frame: FixedActionFrame) -> None:
+        child_value = self.last_value
+        self.state.pop_action()
+        if frame.swapped_deck_index >= 0:
+            self.state.swap_deck_cards(frame.swapped_deck_index, len(self.state.deck) - 1)
+        self._return_value(child_value)
 
     def _sample_deck_draw_chance(self, unified_action: int) -> int:
         deck_draw_action = 2 * self.state.config.hand_size
@@ -496,6 +564,7 @@ class InterleavedTraversalScheduler:
                 for context_index, request, result in zip(
                     request_contexts, requests, results, strict=True
                 ):
+                    result.kind = request.network_kind
                     result.player = request.player
                     result.depth = request.depth
                     contexts[context_index].apply_policy(result)
@@ -513,6 +582,7 @@ class InterleavedTraversalScheduler:
 
 def run_interleaved_traversal_batch(
     advantage_networks: list[torch.nn.Module],
+    strategy_network: torch.nn.Module | None,
     game_config: Any,
     seeds: list[int],
     player: int,
@@ -529,6 +599,7 @@ def run_interleaved_traversal_batch(
     max_nodes: int | None,
     outcome_sampling_epsilon: float,
     outcome_sampling_value_clip: float | None,
+    opponent_policy: str,
     endpoint_depth_bucket_width: int,
     endpoint_depth_bucket_max: int,
     seed: int,
@@ -546,12 +617,18 @@ def run_interleaved_traversal_batch(
         strategy_sample_interval=strategy_sample_interval,
         store_strategy_on_traverser_nodes=store_strategy_on_traverser_nodes,
         store_strategy_on_opponent_nodes=store_strategy_on_opponent_nodes,
+        opponent_policy=opponent_policy,
         endpoint_depth_bucket_width=endpoint_depth_bucket_width,
         endpoint_depth_bucket_max=endpoint_depth_bucket_max,
     )
     states = [GameState.new_game(game_config, seed=game_seed) for game_seed in seeds]
     rng_seeds = [int(seed) + index * 1_000_003 for index in range(len(seeds))]
-    policy = BatchedPolicy(advantage_networks, device=device, epsilon=cfg.epsilon)
+    policy = BatchedPolicy(
+        advantage_networks,
+        device=device,
+        epsilon=cfg.epsilon,
+        strategy_network=strategy_network,
+    )
     scheduler = InterleavedTraversalScheduler(cfg, policy)
     _values, _rng_out, stats_rows, sample_rows, batch_sizes = scheduler.run(
         states,

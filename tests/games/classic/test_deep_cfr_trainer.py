@@ -128,15 +128,15 @@ def test_deep_cfr_config_accepts_external_sampling_mode() -> None:
 
 def test_deep_cfr_config_accepts_interleaved_scheduler() -> None:
     config = _deep_cfr_config(
-        {"traversal": {"scheduler": "interleaved", "opponent_policy": "network"}}
+        {"traversal": {"scheduler": "interleaved", "opponent_policy": "average_strategy"}}
     )
 
     assert config.traversal.scheduler == "interleaved"
-    assert config.traversal.opponent_policy == "network"
+    assert config.traversal.opponent_policy == "average_strategy"
 
 
 def test_deep_cfr_config_rejects_unsupported_interleaved_options() -> None:
-    with pytest.raises(ValueError, match="opponent_policy='network'"):
+    with pytest.raises(ValueError, match="opponent_policy='network' or 'average_strategy'"):
         _deep_cfr_config(
             {"traversal": {"scheduler": "interleaved", "opponent_policy": "self_play_league"}}
         )
@@ -516,11 +516,110 @@ def test_deep_cfr_interleaved_scheduler_matches_recursive_single_traversal() -> 
     interleaved_stats, interleaved_advantage, interleaved_strategy, _runtime = (
         run_interleaved_traversal_batch(
             networks,
+            None,
             game_config,
             [260],
             0,
             1,
             **common,
+            opponent_policy=config.traversal.opponent_policy,
+            interleave_width=4,
+            interleave_max_batch=8,
+        )
+    )
+
+    assert interleaved_stats.to_dict() == recursive_stats.to_dict()
+    assert len(interleaved_advantage) == len(recursive_advantage)
+    assert len(interleaved_strategy) == len(recursive_strategy)
+    assert np.allclose(
+        [sample.target.sum() for sample in interleaved_advantage],
+        [sample.target.sum() for sample in recursive_advantage],
+        atol=1.0e-5,
+    )
+    assert np.allclose(
+        [sample.target.sum() for sample in interleaved_strategy],
+        [sample.target.sum() for sample in recursive_strategy],
+        atol=1.0e-6,
+    )
+
+
+def test_deep_cfr_interleaved_scheduler_matches_average_strategy_opponent() -> None:
+    config = _deep_cfr_config(
+        {
+            "run": {"seed": 27},
+            "network": {"hidden_size": 16},
+            "traversal": {
+                "opponent_policy": "average_strategy",
+                "store_strategy_on_opponent_nodes": False,
+                "max_depth": 4,
+                "max_nodes_per_traversal": 64,
+            },
+        }
+    )
+    game_config = LostCitiesConfig(seed=27)
+    probe = GameState.new_game(game_config, seed=27)
+    action_size = game_config.action_size
+    torch.manual_seed(27)
+    networks = [
+        DeepCFRMLP.from_config(input_dim(probe, config.encoding), action_size, config.network)
+        for _ in range(2)
+    ]
+    strategy_network = DeepCFRMLP.from_config(
+        input_dim(probe, config.encoding), action_size, config.network
+    )
+    for network in [*networks, strategy_network]:
+        network.eval()
+    common = {
+        "device": torch.device("cpu"),
+        "action_size": action_size,
+        "encoding": config.encoding,
+        "epsilon": config.traversal.regret_matching_epsilon,
+        "strategy_sample_interval": config.traversal.strategy_sample_interval,
+        "store_strategy_on_traverser_nodes": config.traversal.store_strategy_on_traverser_nodes,
+        "store_strategy_on_opponent_nodes": config.traversal.store_strategy_on_opponent_nodes,
+        "max_depth": config.traversal.max_depth,
+        "max_nodes": config.traversal.max_nodes_per_traversal,
+        "outcome_sampling_epsilon": config.traversal.outcome_sampling_epsilon,
+        "outcome_sampling_value_clip": config.traversal.outcome_sampling_value_clip,
+        "endpoint_depth_bucket_width": config.traversal.endpoint_depth_bucket_width,
+        "endpoint_depth_bucket_max": config.traversal.endpoint_depth_bucket_max,
+        "seed": 2701,
+    }
+
+    recursive_stats, recursive_advantage, recursive_strategy = run_cython_traversal_batch(
+        networks,
+        game_config,
+        [270],
+        0,
+        1,
+        **common,
+        strategy_network=strategy_network,
+        sampling_mode=config.traversal.sampling_mode,
+        outcome_unsampled_regret=config.traversal.outcome_unsampled_regret,
+        cutoff_value_mode=config.traversal.cutoff_value_mode,
+        cutoff_rollouts=config.traversal.cutoff_rollouts,
+        cutoff_rollout_policy=config.traversal.cutoff_rollout_policy,
+        cutoff_rollout_max_steps=config.traversal.cutoff_rollout_max_steps,
+        opponent_policy=config.traversal.opponent_policy,
+        all_negative_fallback=config.regret_matching.all_negative_fallback,
+        league_advantage_networks=[],
+        self_play_anchor_probability=config.self_play.anchor_probability,
+        self_play_current_weight=config.self_play.current_weight,
+        self_play_recent_weight=config.self_play.recent_weight,
+        self_play_older_weight=config.self_play.older_weight,
+        self_play_anchor_weight=config.self_play.anchor_weight,
+        self_play_recent_window=config.self_play.recent_window,
+    )
+    interleaved_stats, interleaved_advantage, interleaved_strategy, _runtime = (
+        run_interleaved_traversal_batch(
+            networks,
+            strategy_network,
+            game_config,
+            [270],
+            0,
+            1,
+            **common,
+            opponent_policy=config.traversal.opponent_policy,
             interleave_width=4,
             interleave_max_batch=8,
         )

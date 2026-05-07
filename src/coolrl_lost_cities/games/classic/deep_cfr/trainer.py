@@ -401,6 +401,11 @@ class DeepCFRTrainer:
                 stats, advantage_samples, strategy_samples, runtime_metrics = (
                     run_interleaved_traversal_batch(
                         self.advantage_networks,
+                        (
+                            self.strategy_network
+                            if self.config.traversal.opponent_policy == "average_strategy"
+                            else None
+                        ),
                         self.game_config,
                         seeds,
                         player,
@@ -422,6 +427,7 @@ class DeepCFRTrainer:
                         outcome_sampling_value_clip=(
                             self.config.traversal.outcome_sampling_value_clip
                         ),
+                        opponent_policy=self.config.traversal.opponent_policy,
                         endpoint_depth_bucket_width=(
                             self.config.traversal.endpoint_depth_bucket_width
                         ),
