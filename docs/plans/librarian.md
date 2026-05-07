@@ -235,6 +235,33 @@ non-promotable), or `<stem>.ERROR.txt` (CLI failure).
 caps the number of archives processed per run, useful for smoke
 tests or cost control.
 
+### Smoke test results (2026-05-08, gemini, --max 3)
+
+3 drafts, 0 skips, 0 errors. Spot-check verified:
+
+- All cited file paths exist; line numbers and function names
+  resolve to within 1–2 lines of the actual symbols
+  (`game.pyx:217` `cdef class GameState`, `evaluate.py:220`
+  batched-entropy block, `trainer.py:892` `_evaluate_parallel`,
+  etc.).
+- Numbers cross-checked against archives match (61.83/38.92/14.83
+  eval seconds; 4.05/2.88 advantage train seconds).
+- Conclusions preserved.
+- One systemic weakness: gemini did not run `git` to resolve HEAD,
+  leaving `commit <short-hash>` placeholder, literal `commit
+  \`HEAD\``, or omitting the commit field. Fixed in two places:
+  the three drafts were patched manually before acceptance, and
+  both `librarian_promote.py` and `librarian_survey.py` now
+  post-process the LLM's output to rewrite the `**Last verified:**`
+  line with the real short SHA from `git rev-parse --short HEAD`
+  before writing to disk. Future runs converge to the right header
+  deterministically.
+
+All three drafts accepted into `docs/research/`:
+`classic-port-notes.md`, `deep-cfr-batched-evaluation.md`,
+`deep-cfr-evaluation-profile.md`. 12 archive entries remain
+unprocessed for the next survey run.
+
 ## Stage 2 remaining
 
 - MEMORY.md drift fixup mode (read drift report, propose one-line

@@ -24,7 +24,6 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -37,6 +36,7 @@ LLM_COMMANDS = {
 }
 
 DATE_SUFFIX = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+LAST_VERIFIED = re.compile(r"^\*\*Last verified:\*\*[^\n]*$", re.MULTILINE)
 
 
 def _repo_root() -> Path:
@@ -45,6 +45,34 @@ def _repo_root() -> Path:
         if (parent / "pyproject.toml").is_file():
             return parent
     raise RuntimeError("pyproject.toml을 찾을 수 없어 repository root를 판정할 수 없습니다.")
+
+
+def _current_commit_sha(root: Path) -> str:
+    """Resolve HEAD to a short SHA. Returns 'unknown' if git is unavailable."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=root,
+    )
+    if result.returncode != 0:
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
+def _post_process_draft(content: str, commit_sha: str) -> str:
+    """Normalize a draft before writing to disk.
+
+    The LLM is unreliable about running `git` itself in headless mode; it
+    tends to leave `<short-hash>` placeholders or literal `HEAD` strings.
+    Rewrite the `**Last verified:**` line in place with today's date and
+    the real short SHA. If the line is missing entirely, leave the draft
+    untouched so the omission stays visible during review.
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    new_line = f"**Last verified:** {today}, commit `{commit_sha}`"
+    return LAST_VERIFIED.sub(new_line, content, count=1)
 
 
 def _assemble_prompt(
@@ -167,7 +195,9 @@ def main() -> int:
         print(result.stderr, file=sys.stderr)
         return result.returncode
 
-    draft_path.write_text(result.stdout, encoding="utf-8")
+    commit_sha = _current_commit_sha(root)
+    draft_text = _post_process_draft(result.stdout, commit_sha)
+    draft_path.write_text(draft_text, encoding="utf-8")
     print(f"Draft written to: {draft_path.relative_to(root)}")
 
     if args.accept:
@@ -177,7 +207,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        shutil.copyfile(draft_path, target)
+        target.write_text(draft_text, encoding="utf-8")
         print(f"Copied to: {rel_target}")
         print("Next: review the diff and `git add` + commit if you're satisfied.")
     else:

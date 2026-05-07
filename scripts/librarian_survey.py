@@ -40,6 +40,7 @@ LLM_COMMANDS = {
 }
 
 DATE_SUFFIX = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+LAST_VERIFIED = re.compile(r"^\*\*Last verified:\*\*[^\n]*$", re.MULTILINE)
 
 
 def _repo_root() -> Path:
@@ -76,6 +77,34 @@ def _assemble_prompt(
         "Archive body:\n\n"
         f"{archive_body}\n"
     )
+
+
+def _current_commit_sha(root: Path) -> str:
+    """Resolve HEAD to a short SHA. Returns 'unknown' if git is unavailable."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=root,
+    )
+    if result.returncode != 0:
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
+def _post_process_draft(content: str, commit_sha: str) -> str:
+    """Normalize a draft before writing to disk.
+
+    The LLM is unreliable about running `git` itself in headless mode; it
+    tends to leave `<short-hash>` placeholders or literal `HEAD` strings.
+    Rewrite the `**Last verified:**` line in place with today's date and
+    the real short SHA. If the line is missing entirely, leave the draft
+    untouched so the omission stays visible during review.
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    new_line = f"**Last verified:** {today}, commit `{commit_sha}`"
+    return LAST_VERIFIED.sub(new_line, content, count=1)
 
 
 def _has_counterpart(archive_stem_no_date: str, research_stems: set[str]) -> bool:
@@ -150,6 +179,7 @@ def main() -> int:
         return 1
 
     system_prompt = (root / "scripts" / "librarian-prompt.md").read_text(encoding="utf-8")
+    commit_sha = _current_commit_sha(root)
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     out_dir = root / "runs" / "tmp" / f"librarian-survey-{timestamp}"
@@ -186,9 +216,10 @@ def main() -> int:
             skips += 1
             print(f"    SKIP ({output[:80]})", file=sys.stderr)
         else:
-            (out_dir / f"{stem_out}.md").write_text(output, encoding="utf-8")
+            normalized = _post_process_draft(output, commit_sha)
+            (out_dir / f"{stem_out}.md").write_text(normalized, encoding="utf-8")
             drafts += 1
-            print(f"    draft ({len(output)} chars)", file=sys.stderr)
+            print(f"    draft ({len(normalized)} chars)", file=sys.stderr)
 
     print()
     print(f"Survey complete: {drafts} drafts, {skips} skips, {errors} errors.")
