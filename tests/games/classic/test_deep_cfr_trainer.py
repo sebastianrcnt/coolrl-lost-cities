@@ -44,7 +44,7 @@ def test_deep_cfr_loads_smoke_yaml_config() -> None:
 
 
 def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
-    config = load_config("configs/deep_cfr/deep-cfr-selfplay-full-depth-slot-playability.yaml")
+    config = load_config("configs/archive/deep-cfr-selfplay-full-depth-slot-playability.yaml")
 
     assert config.run.experiment_name.endswith("slot-playability")
     assert config.run.seed == 79
@@ -92,7 +92,7 @@ def test_deep_cfr_train_cli_accepts_run_and_traversal_config_overrides() -> None
             ],
         },
     )()
-    config = load_config("configs/deep_cfr/deep-cfr-selfplay-full-depth-slot-playability.yaml")
+    config = load_config("configs/archive/deep-cfr-selfplay-full-depth-slot-playability.yaml")
 
     overridden = _with_overrides(config, _train_overrides_from_args(args))
 

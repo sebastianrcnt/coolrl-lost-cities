@@ -8,7 +8,13 @@ project environment and Cython extensions are built/loaded consistently.
 - `src/coolrl_lost_cities/games/classic/game.pyx`: Cython Lost Cities engine.
 - `src/coolrl_lost_cities/games/classic/deep_cfr/`: Deep CFR training,
   traversal, evaluation, analysis, and CLI code.
-- `configs/deep_cfr/`: Deep CFR YAML configs (kebab-case filenames).
+- `configs/deep_cfr/`: active Deep CFR YAML configs (kebab-case filenames).
+  Currently holds two:
+  - `default.yaml`: the canonical "best-known" baseline. Start here, then
+    override fields via `--set` for experiments/ablations.
+  - `smoke.yaml`: 1-iter sanity check for the training loop.
+- `configs/archive/`: retired/historical configs. Don't modify; reference
+  if you need to reproduce an old run.
 - `runs/`: generated training runs. Gitignored, may be a symlink to larger
   storage. Layout:
   - `runs/archive/`: past runs. **Do not modify or delete.**
@@ -67,28 +73,28 @@ Real experiment (lands in `runs/`):
 
 ```bash
 uv run lost-cities-deep-cfr train \
-  --config configs/deep_cfr/deep-cfr-selfplay-full-depth-slot-playability.yaml \
+  --config configs/deep_cfr/default.yaml \
   --keep
-# → runs/<YYYY-MM-DD_HHMMSS>_lost-cities-deep-cfr-selfplay-full-depth-slot-playability/
+# → runs/<YYYY-MM-DD_HHMMSS>_deep-cfr-default/
 ```
 
-Variant of the same config (override slug):
+Variant / ablation (override one field; keep slug informative):
 
 ```bash
 uv run lost-cities-deep-cfr train \
-  --config configs/deep_cfr/deep-cfr-color-shared-attention-512x3.yaml \
+  --config configs/deep_cfr/default.yaml \
   --keep \
-  --set run.experiment_name=color-attn-v2
-# → runs/<YYYY-MM-DD_HHMMSS>_color-attn-v2/
+  --set training_weighting.mode=none \
+  --set run.experiment_name=ablation-no-lcfr
+# → runs/<YYYY-MM-DD_HHMMSS>_ablation-no-lcfr/
 ```
 
 Short fixed-iteration run:
 
 ```bash
 uv run lost-cities-deep-cfr train \
-  --config configs/deep_cfr/deep-cfr-selfplay-full-depth-slot-playability.yaml \
+  --config configs/deep_cfr/default.yaml \
   --set run.max_iterations=100 \
-  --set run.max_minutes=null \
   --set checkpoint.save_every=0
 ```
 
@@ -96,7 +102,7 @@ Resume (path required, no shortcut):
 
 ```bash
 uv run lost-cities-deep-cfr train \
-  --config configs/deep_cfr/deep-cfr-selfplay-full-depth-slot-playability.yaml \
+  --config configs/deep_cfr/default.yaml \
   --resume runs/<YYYY-MM-DD_HHMMSS>_<slug>/latest.pt
 ```
 
@@ -142,7 +148,9 @@ Start a long unbounded run:
 tmux new-session -s coolrl-deepcfr-unbounded \
   -c /home/coolguy/dev/coolrl-lost-cities \
   'uv run lost-cities-deep-cfr train \
-    --config configs/deep_cfr/deep-cfr-selfplay-full-depth-slot-playability-unbounded.yaml \
+    --config configs/deep_cfr/default.yaml \
+    --set run.max_iterations=null \
+    --set run.max_minutes=null \
     --keep'
 ```
 

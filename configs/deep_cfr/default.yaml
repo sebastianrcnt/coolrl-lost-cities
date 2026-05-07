@@ -1,5 +1,5 @@
 run:
-  experiment_name: lost-cities-deep-cfr-opponent-average-strategy-512x3-1000iter
+  experiment_name: deep-cfr-default
   seed: 79
   max_iterations: 1000
   max_minutes: null
