@@ -158,6 +158,62 @@ suboptimal — exploitable.
 weighted sampling으로 opponent를 선택하면, 위 문제 4개 (1, 2, 3, 4) 모두
 완화되거나 해결된다.
 
+## 직접 비교: 동일 조건의 self_play_league run
+
+`runs/deep_cfr/2026-05-07_512x3_argmax_tiebreak_2x_updates_10000iter`는
+512x3 opponent_network 실험과 **거의 동일한 hyperparameter**에 단지
+`opponent_policy`만 `self_play_league`로 바꾼 run이다 (10000-iter cap이라
+iter 579에서 멈춰있음).
+
+| 항목 | opponent_network 512x3 | self_play_league 512x3 |
+|------|------------------------|-------------------------|
+| `opponent_policy` | **network** | **self_play_league** |
+| `self_play.max_snapshots` | 0 | **20** |
+| `self_play.current_weight` | 1.0 | 0.5 |
+| `self_play.recent_weight` | 0.0 | 0.3 |
+| `self_play.older_weight` | 0.0 | 0.2 |
+| network / traversal / optimization 나머지 | 동일 | 동일 |
+| `regret_matching.all_negative_fallback` | argmax_tiebreak | argmax_tiebreak |
+| `traversals_per_iteration` | 2 | 2 |
+
+### iteration별 비교
+
+| iter | NETWORK Random WR | NETWORK Safe WR | LEAGUE Random WR | LEAGUE Safe WR |
+|------|-------------------|------------------|-------------------|-----------------|
+| 10 | 78% Δ+28.6 | 8% Δ-40.8 | **86%** Δ+32.0 | 5% Δ-52.7 |
+| 15 | **85%** Δ+32.2 | 5% Δ-47.2 | 70% Δ+14.4 | 7% Δ-53.6 |
+| 30 | 36% Δ-14.3 | 3% Δ-106 | 53% Δ+3.9 | **10%** Δ-75.5 |
+| 100 | 41% Δ-12.9 | 0% Δ-111.6 | **68%** Δ+19.9 | 1% Δ-88.5 |
+| 200 | 33% Δ-17.1 | 1% Δ-114.1 | **63%** Δ+18.9 | 0% Δ-90.7 |
+| 300 | 38% Δ-16.2 | 0% Δ-106.4 | **78%** Δ+35.6 | 1% Δ-74.1 |
+| 350 | 34% Δ-21.0 | 8% Δ-91.9 | **72%** Δ+31.7 | 4% Δ-68.6 |
+
+### Best 비교
+
+| 메트릭 | NETWORK | LEAGUE |
+|--------|---------|--------|
+| Best Random WR | 85% (iter 15) | **86%** (iter 10) |
+| iter 350 시점 Random WR | 34% | **72%** |
+| Best Safe Heuristic WR | 8% (iter 10) | **11%** (iter 555) |
+| 발산 여부 | 발산 (iter 30~) | 발산 없음, plateau 유지 |
+
+### 해석
+
+- **두 run 모두 iter 10–15 근처에서 비슷한 peak (~85%)** 도달.
+  → opponent_policy는 학습 초기 신호에는 영향 없음.
+- 그 이후가 갈림길:
+  - **network**: iter 30부터 발산, iter 100+에서 Random WR ~30–40%로 collapse.
+  - **league**: 같은 시점에 plateau 유지, iter 200–350 사이에 오히려
+    Random WR이 60–78%로 천천히 상승. Safe Heuristic도 매우 느리지만
+    학습 (iter 555에 11%로 best).
+- **iter 350 시점의 Random WR 격차 = 38%p (72% vs 34%)**.
+  같은 hyperparameter, 같은 seed, 같은 traversal/optimization 설정에서
+  opponent policy 하나의 차이가 이런 정도의 격차를 만든다.
+
+이 결과는 본 문서의 "moving target → 발산" 가설을 거의 완벽히 실증한다.
+network는 echo chamber로 무너지고, league는 다양한 fixed snapshot 덕에
+안정적으로 학습을 이어간다.
+
 ## 왜 큰 네트워크가 plateau를 늘렸나
 
 가설: 큰 capacity는 더 다양한 strategy mode를 표현할 수 있음. echo
