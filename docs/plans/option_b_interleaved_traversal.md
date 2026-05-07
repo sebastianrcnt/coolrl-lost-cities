@@ -1,6 +1,7 @@
 # Plan: Option B Per-Worker Interleaved Traversal
 
-**Status:** Planning only; do not implement until this design is reviewed.
+**Status:** Phase 1 prototype started. Production trainer wiring has not begun;
+default behavior is unchanged.
 **Owner:** Codex for prototype design and implementation; operator for long-run
 benchmarks on `home`.
 **Background:** Option A, the central traversal inference server, was implemented
@@ -132,6 +133,29 @@ Default remains `recursive`.
 
 Deliverable: short design note appended to this plan before code work starts.
 
+### Phase 0 Design Note (2026-05-07)
+
+The production `_traverse` yield point is the call to `_policy(...)`; all
+state below must survive across that yield:
+
+- current `GameState`, traverser, iteration, depth, and per-context RNG state,
+- `TraversalStats`,
+- policy metadata: `info_state`, legal mask, policy vector, fallback/tie
+  metadata,
+- selected sampled action, action probability, and any deck-draw chance swap
+  index,
+- child return value and the parent post-child computation state,
+- pending advantage/strategy samples.
+
+The first implementation target is an experiment-only Python prototype, not a
+Cython production rewrite. It intentionally uses per-context RNG so interleaved
+execution order does not change the random stream for another context. That
+lets the prototype assert value/stat/sample parity against a recursive prototype
+while measuring realized batch size. Production Cython parity is a later Phase 2
+gate because the real path also has safe-heuristic opponents, average-strategy
+opponents, self-play league snapshots, deck-draw chance sampling, external
+sampling, and cutoff rollouts.
+
 ### Phase 1: Python Prototype, No Production Wiring
 
 - Add an experiment-only traversal prototype under `experiments/` that mimics
@@ -142,6 +166,34 @@ Deliverable: short design note appended to this plan before code work starts.
 
 Success gate: sample/stat parity on small deterministic fixtures, and realized
 policy batches materially above worker count.
+
+### Phase 1 Prototype Result (2026-05-07)
+
+Prototype location: `experiments/option_b_interleaved_traversal/`.
+
+Command:
+
+```bash
+uv run python experiments/option_b_interleaved_traversal/prototype_interleaved.py \
+  --traversals 64 \
+  --interleave-width 32 \
+  --max-depth 8 \
+  --max-nodes 512 \
+  --device cuda
+```
+
+Result on RTX 3090 host:
+
+| Device | Mode | total s | forward s | scheduler s | batch mean | batch max | speedup |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| CPU | recursive | 0.084 | 0.054 | - | 1.0 | 1 | 1.00x |
+| CPU | interleaved | 0.018 | 0.005 | 0.003 | 32.0 | 32 | 4.71x |
+| CUDA | recursive | 0.195 | 0.144 | - | 1.0 | 1 | 1.00x |
+| CUDA | interleaved | 0.028 | 0.014 | 0.003 | 32.0 | 32 | 6.98x |
+
+Prototype parity: PASS for values, RNG outputs, aggregate traversal stats, and
+sample checksum within float tolerance. This proves the scheduling shape can
+form large policy batches. It does **not** yet prove production Cython parity.
 
 ### Phase 2: Cython Prototype Behind Non-Default Flag
 
