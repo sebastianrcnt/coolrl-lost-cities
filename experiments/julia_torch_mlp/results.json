@@ -1,0 +1,7 @@
+{
+  "backend": "Torch.jl",
+  "julia_version": "1.11.9",
+  "status": "BLOCKED",
+  "error_summary": "Torch.jl v0.1.3 failed to precompile: UndefVarError: libtorch_c_api not defined in Torch.Wrapper",
+  "criterion_4_verdict": "UNCHANGED_FAIL"
+}

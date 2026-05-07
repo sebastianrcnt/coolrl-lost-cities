@@ -123,6 +123,26 @@ PyTorch, outside the ±20% PASS band. bs=1 and bs=256 are also ~2×
 slower, outside the ±30% bands. Criterion 5 was not run after this
 FAIL because the full Julia-port decision rule is already blocked.
 
+### 2026-05-07 — Torch.jl MLP forward retry (criterion 4)
+
+Path: `experiments/julia_torch_mlp/`.
+
+Torch.jl was tested as a possible replacement for Flux/CUDA on the same
+DeepCFRMLP forward benchmark. The measurement could not start because
+Torch.jl v0.1.3 fails during package load/precompile on this Julia
+1.11.9 environment:
+
+```text
+UndefVarError: libtorch_c_api not defined in Torch.Wrapper
+```
+
+This occurs before model construction or timing, so there is no
+Torch.jl forward result to compare against PyTorch.
+
+**Verdict on criterion 4 after Torch.jl retry:** unchanged FAIL. Flux.jl
+misses the performance threshold, and Torch.jl is blocked by package
+load failure rather than providing a successful re-measurement.
+
 ## Pass/fail thresholds (decided in advance)
 
 These are explicit so that the moment a measurement lands, the decision
@@ -195,9 +215,11 @@ purpose.
 
 No full Julia port on the current evidence. The completed benchmarks
 remove the main risk (GC under recursion) and confirm compute parity,
-but criterion 3 is only PARTIAL and criterion 4 is FAIL. Per the
-decision rule, a full port would spend months to replace a PyTorch GPU
-path that is already ~2× faster for the exact model shape we use.
+but criterion 3 is only PARTIAL and criterion 4 is FAIL. The Torch.jl
+retry did not reverse criterion 4 because Torch.jl failed to load in
+this Julia environment. Per the decision rule, a full port would spend
+months to replace a PyTorch GPU path that is already ~2× faster than
+Flux for the exact model shape we use.
 
 Recommended next path: stay on Python/Cython and pursue Option B
 (per-worker interleaved traversal) as the GIL-escape path. A narrower
