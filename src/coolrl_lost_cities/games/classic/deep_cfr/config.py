@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from coolrl_lost_cities.games.classic.game import LostCitiesConfig
 
@@ -158,6 +158,22 @@ class TraversalConfig(StrictModel):
         if token not in {"local", "server"}:
             raise ValueError("must be 'local' or 'server'")
         return token
+
+    @model_validator(mode="after")
+    def _validate_external_strategy_memory_convention(self) -> TraversalConfig:
+        if self.sampling_mode == "external" and (
+            self.store_strategy_on_traverser_nodes or not self.store_strategy_on_opponent_nodes
+        ):
+            raise ValueError(
+                "sampling_mode='external' requires "
+                "store_strategy_on_traverser_nodes=False and "
+                "store_strategy_on_opponent_nodes=True to match the OpenSpiel "
+                "Deep CFR convention. Storing on traverser nodes under "
+                "external sampling drops the ρ_p reach factor and biases the "
+                "average-policy estimate. See "
+                "docs/research/strategy-memory-location.md."
+            )
+        return self
 
     def resolved_num_workers(self, batches: int | None = None) -> int:
         if isinstance(self.num_workers, str):
