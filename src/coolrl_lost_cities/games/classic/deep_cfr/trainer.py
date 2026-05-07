@@ -157,6 +157,7 @@ class DeepCFRTrainer:
         config: DeepCFRConfig | None = None,
         game_config: LostCitiesConfig | None = None,
         *,
+        run_dir: str | Path | None = None,
         device: str = "cpu",
         tracker: RunTracker | None = None,
         extra_trackers: list[RunTracker] | None = None,
@@ -200,7 +201,7 @@ class DeepCFRTrainer:
         self.strategy_memory = ReservoirMemory(self.config.memory.strategy_capacity)
         self.rng = np.random.default_rng(self.config.run.seed + 101)
         self.iteration = 0
-        self.run_dir = self.config.checkpoint_path
+        self.run_dir = Path(run_dir) if run_dir is not None else Path("runs/tmp/default")
         self.metrics_path = self.run_dir / "metrics.jsonl"
         self.progress_path = self.run_dir / "runtime_progress.json"
         self.log_path = self.run_dir / "train.log"

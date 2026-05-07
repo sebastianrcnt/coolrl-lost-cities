@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +29,19 @@ from coolrl_lost_cities.games.classic.deep_cfr.tracking import RunTracker, Wandb
 from coolrl_lost_cities.games.classic.deep_cfr.trainer import DeepCFRTrainer
 from coolrl_lost_cities.games.classic.game import classic_config
 
-_RESUME_LATEST = "__latest__"
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _kebab_slug(value: str) -> str:
+    slug = _SLUG_RE.sub("-", value.strip().lower()).strip("-")
+    return slug or "run"
+
+
+def _resolve_run_dir(config: DeepCFRConfig, *, keep: bool) -> Path:
+    parent = Path("runs") if keep else Path("runs/tmp")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    slug = _kebab_slug(config.run.experiment_name)
+    return parent / f"{timestamp}_{slug}"
 
 
 def _load_config(path: str | None) -> DeepCFRConfig:
@@ -67,17 +81,6 @@ def _set_path_override(overrides: dict[str, Any], assignment: str) -> None:
     cursor[keys[-1]] = value
 
 
-def _resolve_resume_path(config: DeepCFRConfig, resume: str | None) -> str | None:
-    if resume != _RESUME_LATEST:
-        return resume
-    latest_path = config.checkpoint_path / "latest.pt"
-    if not latest_path.exists():
-        raise FileNotFoundError(
-            f"--resume was used without a path, but latest checkpoint does not exist: {latest_path}"
-        )
-    return str(latest_path)
-
-
 def _train_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
     overrides: dict[str, Any] = {}
     for assignment in getattr(args, "config_overrides", None) or ():
@@ -89,7 +92,10 @@ def train_command(args: argparse.Namespace) -> None:
     config = _load_config(args.config)
     overrides = _train_overrides_from_args(args)
     config = _with_overrides(config, overrides)
-    resume_path = _resolve_resume_path(config, args.resume)
+    if args.resume:
+        run_dir = Path(args.resume).parent
+    else:
+        run_dir = _resolve_run_dir(config, keep=args.keep)
     extra_trackers: list[RunTracker] = []
     if args.wandb:
         extra_trackers.append(
@@ -98,18 +104,19 @@ def train_command(args: argparse.Namespace) -> None:
                 name=args.wandb_name or config.run.experiment_name,
                 mode=args.wandb_mode,
                 config=config.to_dict(),
-                run_dir=str(config.checkpoint_path),
+                run_dir=str(run_dir),
                 tags=list(args.wandb_tag) if args.wandb_tag else None,
             )
         )
     trainer = DeepCFRTrainer(
         config,
         config.rules.to_lost_cities_config(seed=config.run.seed),
+        run_dir=run_dir,
         device=config.run.device,
         extra_trackers=extra_trackers or None,
     )
-    if resume_path:
-        trainer.load_checkpoint(resume_path)
+    if args.resume:
+        trainer.load_checkpoint(args.resume)
     trainer.train()
 
 
@@ -203,7 +210,15 @@ def main(argv: list[str] | None = None) -> None:
 
     train = subparsers.add_parser("train")
     train.add_argument("--config")
-    train.add_argument("--resume", nargs="?", const=_RESUME_LATEST, default=None)
+    train.add_argument(
+        "--resume",
+        help="Path to a checkpoint to resume from (e.g. runs/.../latest.pt).",
+    )
+    train.add_argument(
+        "--keep",
+        action="store_true",
+        help="Place run under runs/ instead of runs/tmp/ (use for real experiments).",
+    )
     train.add_argument(
         "--set",
         action="append",

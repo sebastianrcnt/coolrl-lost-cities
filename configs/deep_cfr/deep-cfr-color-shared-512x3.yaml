@@ -1,6 +1,6 @@
 run:
-  experiment_name: lost_cities_deep_cfr_pure_selfplay_full_depth_slot_playability_512x3_2x_updates_10000iter
-  seed: 79
+  experiment_name: lost-cities-deep-cfr-color-shared-512x3
+  seed: 42
   max_iterations: 10000
   max_minutes: null
   device: cuda
@@ -21,9 +21,12 @@ encoding:
   slot_aware_playability: true
 
 network:
+  kind: color_shared
   hidden_size: 512
   num_layers: 3
   activation: relu
+  color_attention_layers: 0
+  color_attention_heads: 4
 
 traversal:
   traversals_per_player: 2
@@ -39,7 +42,7 @@ traversal:
   cutoff_rollouts: 0
   cutoff_rollout_policy: random
   cutoff_rollout_max_steps: 300
-  opponent_policy: network
+  opponent_policy: self_play_league
   strategy_sample_interval: 1
   store_strategy_on_traverser_nodes: true
   store_strategy_on_opponent_nodes: false
@@ -58,12 +61,12 @@ training_weighting:
 
 self_play:
   snapshot_every: 1
-  max_snapshots: 0
+  max_snapshots: 20
   anchor_probability: 0.0
-  current_weight: 1.0
-  recent_weight: 0.0
-  older_weight: 0.0
-  anchor_weight: 0.0
+  current_weight: 0.45
+  recent_weight: 0.30
+  older_weight: 0.15
+  anchor_weight: 0.10
   recent_window: 5
 
 optimization:
@@ -82,7 +85,6 @@ memory:
   strategy_capacity: 2000000
 
 checkpoint:
-  directory: runs/deep_cfr/deep_cfr_pure_selfplay_full_depth_slot_playability_512x3_2x_updates_10000iter
   save_latest: true
   save_every: 100
   progress_interval_seconds: 20.0

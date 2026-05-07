@@ -1,4 +1,5 @@
 run:
+  experiment_name: smoke
   max_iterations: 1
   seed: 1
   device: cpu
@@ -25,7 +26,6 @@ memory:
   strategy_capacity: 1000
 
 checkpoint:
-  directory: runs/deep_cfr/smoke
   save_every: 0
   save_latest: false
 

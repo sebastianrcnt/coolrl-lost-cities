@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -14,8 +15,8 @@ from coolrl_lost_cities.games.classic.deep_cfr.benchmark import (
 )
 from coolrl_lost_cities.games.classic.deep_cfr.checkpoints import load_checkpoint
 from coolrl_lost_cities.games.classic.deep_cfr.cli import (
-    _RESUME_LATEST,
-    _resolve_resume_path,
+    _kebab_slug,
+    _resolve_run_dir,
     _train_overrides_from_args,
     _with_overrides,
 )
@@ -36,13 +37,13 @@ def test_deep_cfr_loads_smoke_yaml_config() -> None:
     assert config.run.max_iterations == 1
     assert config.network.hidden_size == 16
     assert config.traversal.traversals_per_player == 1
-    assert config.checkpoint.directory == "runs/deep_cfr/smoke"
+    assert config.run.experiment_name == "smoke"
 
 
 def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
-    config = load_config("configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml")
+    config = load_config("configs/deep_cfr/deep-cfr-selfplay-full-depth-slot-playability.yaml")
 
-    assert config.run.experiment_name.endswith("slot_playability")
+    assert config.run.experiment_name.endswith("slot-playability")
     assert config.run.seed == 79
     assert config.run.max_iterations is None
     assert config.run.max_minutes == 240
@@ -69,9 +70,6 @@ def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
     assert config.regret_matching.all_negative_fallback == "uniform"
     assert config.training_weighting.mode == "none"
     assert config.checkpoint.save_every == 10
-    assert (
-        config.checkpoint.directory == "runs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability"
-    )
 
 
 def test_deep_cfr_train_cli_accepts_run_and_traversal_config_overrides() -> None:
@@ -91,7 +89,7 @@ def test_deep_cfr_train_cli_accepts_run_and_traversal_config_overrides() -> None
             ],
         },
     )()
-    config = load_config("configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml")
+    config = load_config("configs/deep_cfr/deep-cfr-selfplay-full-depth-slot-playability.yaml")
 
     overridden = _with_overrides(config, _train_overrides_from_args(args))
 
@@ -216,25 +214,18 @@ def test_deep_cfr_batched_evaluation_matches_batch_size_one() -> None:
     assert np.isclose(batched["policy_entropy"], batch_one["policy_entropy"])
 
 
-def test_deep_cfr_resume_latest_resolution_uses_config_checkpoint_dir(tmp_path) -> None:
-    config = _deep_cfr_config({"checkpoint": {"directory": str(tmp_path)}})
-    latest = tmp_path / "latest.pt"
-    latest.write_bytes(b"checkpoint")
+def test_deep_cfr_resolve_run_dir_uses_keep_flag_and_kebab_slug() -> None:
+    config = _deep_cfr_config({"run": {"experiment_name": "Color Shared Attn v2"}})
 
-    assert _resolve_resume_path(config, _RESUME_LATEST) == str(latest)
-    assert _resolve_resume_path(config, "custom.pt") == "custom.pt"
-    assert _resolve_resume_path(config, None) is None
+    tmp_path = _resolve_run_dir(config, keep=False)
+    keep_path = _resolve_run_dir(config, keep=True)
 
-
-def test_deep_cfr_resume_latest_resolution_requires_latest(tmp_path) -> None:
-    config = _deep_cfr_config({"checkpoint": {"directory": str(tmp_path)}})
-
-    try:
-        _resolve_resume_path(config, _RESUME_LATEST)
-    except FileNotFoundError as exc:
-        assert "latest checkpoint does not exist" in str(exc)
-    else:  # pragma: no cover
-        raise AssertionError("expected FileNotFoundError")
+    assert tmp_path.parent == Path("runs/tmp")
+    assert keep_path.parent == Path("runs")
+    assert tmp_path.name.endswith("_color-shared-attn-v2")
+    assert keep_path.name.endswith("_color-shared-attn-v2")
+    assert _kebab_slug("Foo BAR_baz!!") == "foo-bar-baz"
+    assert _kebab_slug("   ") == "run"
 
 
 def test_deep_cfr_playability_encoding_extends_input_shape() -> None:
@@ -321,13 +312,11 @@ def test_deep_cfr_trainer_forwards_metrics_to_extra_trackers(tmp_path) -> None:
                     "max_nodes_per_traversal": 16,
                 },
                 "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
-                "checkpoint": {
-                    "directory": str(tmp_path / "extra-tracker"),
-                    "save_every": 0,
-                },
+                "checkpoint": {"save_every": 0},
             }
         ),
         LostCitiesConfig(seed=71),
+        run_dir=tmp_path / "extra-tracker",
         extra_trackers=[_CaptureTracker()],
     )
 
@@ -643,14 +632,12 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
                     "max_nodes_per_traversal": 32,
                 },
                 "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
-                "checkpoint": {
-                    "directory": str(checkpoint_dir),
-                    "save_every": 1,
-                },
+                "checkpoint": {"save_every": 1},
                 "evaluation": {"eval_every": 1, "games": 2, "opponents": ("random",)},
             }
         ),
         LostCitiesConfig(seed=41),
+        run_dir=checkpoint_dir,
     )
 
     metrics = trainer.train()
@@ -660,13 +647,11 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
             {
                 "run": {"seed": 41},
                 "network": {"hidden_size": 16},
-                "checkpoint": {
-                    "directory": str(checkpoint_dir),
-                    "save_every": 0,
-                },
+                "checkpoint": {"save_every": 0},
             }
         ),
         LostCitiesConfig(seed=41),
+        run_dir=checkpoint_dir,
     )
     restored.load_checkpoint(latest)
 
@@ -701,13 +686,11 @@ def test_deep_cfr_trainer_always_saves_latest_checkpoint(tmp_path) -> None:
                 "run": {"max_iterations": 1, "seed": 42},
                 "network": {"hidden_size": 16},
                 "traversal": {"traversals_per_player": 1, "max_depth": 1},
-                "checkpoint": {
-                    "directory": str(checkpoint_dir),
-                    "save_every": 10,
-                },
+                "checkpoint": {"save_every": 10},
             }
         ),
         LostCitiesConfig(seed=42),
+        run_dir=checkpoint_dir,
     )
 
     trainer.train()
@@ -724,20 +707,22 @@ def test_deep_cfr_exact_resume_is_explicitly_not_implemented(tmp_path) -> None:
                 "run": {"max_iterations": 1, "seed": 44},
                 "network": {"hidden_size": 16},
                 "traversal": {"traversals_per_player": 1, "max_depth": 1},
-                "checkpoint": {"directory": str(checkpoint_dir), "save_every": 1},
+                "checkpoint": {"save_every": 1},
             }
         ),
         LostCitiesConfig(seed=44),
+        run_dir=checkpoint_dir,
     )
     trainer.train()
     exact = DeepCFRTrainer(
         _deep_cfr_config(
             {
                 "network": {"hidden_size": 16},
-                "checkpoint": {"directory": str(checkpoint_dir), "exact_resume": True},
+                "checkpoint": {"exact_resume": True},
             }
         ),
         LostCitiesConfig(seed=44),
+        run_dir=checkpoint_dir,
     )
 
     try:
@@ -763,13 +748,11 @@ def test_deep_cfr_trainer_multiprocessing_smoke_run(tmp_path) -> None:
                     "progress_every_traversals": 1,
                 },
                 "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
-                "checkpoint": {
-                    "directory": str(tmp_path / "mp"),
-                    "save_every": 0,
-                },
+                "checkpoint": {"save_every": 0},
             }
         ),
         LostCitiesConfig(seed=43),
+        run_dir=tmp_path / "mp",
     )
 
     metrics = trainer.train()
@@ -827,13 +810,11 @@ def test_deep_cfr_self_play_league_records_snapshots(tmp_path) -> None:
                     "anchor_probability": 1.0,
                 },
                 "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
-                "checkpoint": {
-                    "directory": str(tmp_path / "league"),
-                    "save_every": 0,
-                },
+                "checkpoint": {"save_every": 0},
             }
         ),
         LostCitiesConfig(seed=53),
+        run_dir=tmp_path / "league",
     )
 
     metrics = trainer.train()
@@ -864,13 +845,11 @@ def test_deep_cfr_weighted_self_play_league_uses_snapshot_bucket(tmp_path) -> No
                     "recent_window": 1,
                 },
                 "optimization": {"advantage_batch_size": 2, "strategy_batch_size": 2},
-                "checkpoint": {
-                    "directory": str(tmp_path / "weighted-league"),
-                    "save_every": 0,
-                },
+                "checkpoint": {"save_every": 0},
             }
         ),
         LostCitiesConfig(seed=59),
+        run_dir=tmp_path / "weighted-league",
     )
 
     metrics = trainer.train()

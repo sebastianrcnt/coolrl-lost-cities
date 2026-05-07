@@ -217,15 +217,10 @@ class MemoryConfig(StrictModel):
 
 
 class CheckpointConfig(StrictModel):
-    directory: str = "runs/deep_cfr/default"
     save_every: int = 1
     save_latest: bool = True
     progress_interval_seconds: float = 20.0
     exact_resume: bool = False
-
-    @property
-    def path(self) -> Path:
-        return Path(self.directory)
 
 
 class EvaluationConfig(StrictModel):
@@ -277,10 +272,6 @@ class DeepCFRConfig(StrictModel):
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
-
-    @property
-    def checkpoint_path(self) -> Path:
-        return self.checkpoint.path
 
 
 def config_from_dict(data: Mapping[str, Any]) -> DeepCFRConfig:

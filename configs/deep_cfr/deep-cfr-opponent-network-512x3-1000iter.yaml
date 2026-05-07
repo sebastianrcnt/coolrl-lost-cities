@@ -1,7 +1,7 @@
 run:
-  experiment_name: lost_cities_deep_cfr_selfplay_full_depth_slot_playability_512x3_unbounded
+  experiment_name: lost-cities-deep-cfr-opponent-network-512x3-1000iter
   seed: 79
-  max_iterations: null
+  max_iterations: 1000
   max_minutes: null
   device: cuda
   use_amp: false
@@ -39,7 +39,7 @@ traversal:
   cutoff_rollouts: 0
   cutoff_rollout_policy: random
   cutoff_rollout_max_steps: 300
-  opponent_policy: self_play_league
+  opponent_policy: network
   strategy_sample_interval: 1
   store_strategy_on_traverser_nodes: true
   store_strategy_on_opponent_nodes: false
@@ -58,11 +58,11 @@ training_weighting:
 
 self_play:
   snapshot_every: 1
-  max_snapshots: 20
+  max_snapshots: 0
   anchor_probability: 0.0
-  current_weight: 0.5
-  recent_weight: 0.3
-  older_weight: 0.2
+  current_weight: 1.0
+  recent_weight: 0.0
+  older_weight: 0.0
   anchor_weight: 0.0
   recent_window: 5
 
@@ -71,8 +71,8 @@ optimization:
   strategy_updates_per_iteration: 1
   advantage_batch_size: 1024
   strategy_batch_size: 1024
-  advantage_updates_per_iteration: 256
-  strategy_updates_per_iteration: 256
+  advantage_updates_per_iteration: 512
+  strategy_updates_per_iteration: 512
   learning_rate: 0.00003
   weight_decay: 0.0001
   grad_clip: 1.0
@@ -82,7 +82,6 @@ memory:
   strategy_capacity: 2000000
 
 checkpoint:
-  directory: runs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability_512x3_unbounded
   save_latest: true
   save_every: 100
   progress_interval_seconds: 20.0

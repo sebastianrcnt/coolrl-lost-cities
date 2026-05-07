@@ -8,9 +8,14 @@ project environment and Cython extensions are built/loaded consistently.
 - `src/coolrl_lost_cities/games/classic/game.pyx`: Cython Lost Cities engine.
 - `src/coolrl_lost_cities/games/classic/deep_cfr/`: Deep CFR training,
   traversal, evaluation, analysis, and CLI code.
-- `configs/deep_cfr/`: Deep CFR YAML configs.
-- `runs/`: generated training runs. This path is gitignored and may be a
-  symlink to larger storage.
+- `configs/deep_cfr/`: Deep CFR YAML configs (kebab-case filenames).
+- `runs/`: generated training runs. Gitignored, may be a symlink to larger
+  storage. Layout:
+  - `runs/archive/`: past runs. **Do not modify or delete.**
+  - `runs/tmp/`: smoke, tests, throwaway. Free to `rm -rf` anytime.
+  - `runs/<YYYY-MM-DD_HHMMSS>_<kebab-name>/`: real experiments (flat).
+  Promote a `runs/<...>` directory to `runs/archive/` with a manual `mv`
+  once analysis is complete.
 - `docs/`: profiling notes, migration notes, and experiment documentation.
 
 ## Core Commands
@@ -47,62 +52,84 @@ uv run python -m coolrl_lost_cities.games.classic.deep_cfr.cli --help
 
 ## Deep CFR Training
 
-Main full config:
+The CLI auto-derives the run directory from `run.experiment_name` plus a
+timestamp. By default runs land under `runs/tmp/`; pass `--keep` for a real
+experiment that should live under `runs/`.
+
+Smoke / throwaway run (lands in `runs/tmp/`):
 
 ```bash
-uv run lost-cities-deep-cfr train \
-  --config configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml
+uv run lost-cities-deep-cfr train --config configs/deep_cfr/smoke.yaml
+# → runs/tmp/<YYYY-MM-DD_HHMMSS>_smoke/
 ```
 
-Unbounded config:
+Real experiment (lands in `runs/`):
 
 ```bash
 uv run lost-cities-deep-cfr train \
-  --config configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability_unbounded.yaml
+  --config configs/deep_cfr/deep-cfr-selfplay-full-depth-slot-playability.yaml \
+  --keep
+# → runs/<YYYY-MM-DD_HHMMSS>_lost-cities-deep-cfr-selfplay-full-depth-slot-playability/
+```
+
+Variant of the same config (override slug):
+
+```bash
+uv run lost-cities-deep-cfr train \
+  --config configs/deep_cfr/deep-cfr-color-shared-attention-512x3.yaml \
+  --keep \
+  --set run.experiment_name=color-attn-v2
+# → runs/<YYYY-MM-DD_HHMMSS>_color-attn-v2/
 ```
 
 Short fixed-iteration run:
 
 ```bash
 uv run lost-cities-deep-cfr train \
-  --config configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml \
+  --config configs/deep_cfr/deep-cfr-selfplay-full-depth-slot-playability.yaml \
   --set run.max_iterations=100 \
   --set run.max_minutes=null \
   --set checkpoint.save_every=0
 ```
 
-Use explicit run directories for experiments. Put Deep CFR runs under
-`runs/deep_cfr/` and prefix generated run names with the date:
+Resume (path required, no shortcut):
 
 ```bash
-RUN_DIR="runs/deep_cfr/$(date +%Y-%m-%d_%H%M%S)_deep_cfr_experiment_name"
 uv run lost-cities-deep-cfr train \
-  --config configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml \
-  --set checkpoint.directory="$RUN_DIR" \
-  --set run.max_iterations=100
+  --config configs/deep_cfr/deep-cfr-selfplay-full-depth-slot-playability.yaml \
+  --resume runs/<YYYY-MM-DD_HHMMSS>_<slug>/latest.pt
 ```
 
-Date-prefixed examples:
-
-- `runs/deep_cfr/YYYY-MM-DD_HHMMSS_deep_cfr_100iter`
-- `runs/deep_cfr/YYYY-MM-DD_HHMMSS_deep_cfr_unbounded`
+When `--resume` is given, the trainer reuses the resumed checkpoint's parent
+directory; no new timestamped folder is created.
 
 Useful train controls:
 
-- `--resume`: resume from `<checkpoint-dir>/latest.pt`.
-- `--resume PATH`: resume from a specific checkpoint.
-- `--set PATH=VALUE`: override config fields. It is repeatable and parses
-  values as YAML, e.g. `--set traversal.num_workers=4` or
-  `--set run.max_minutes=null`.
+- `--keep`: real experiment, write under `runs/` (default is `runs/tmp/`).
+- `--resume PATH`: resume from a specific checkpoint. `PATH` is required.
+- `--set PATH=VALUE`: override config fields. Repeatable, parses values as
+  YAML (e.g. `--set traversal.num_workers=4`, `--set run.max_minutes=null`).
 
 Common `--set` overrides:
 
 - `--set run.device=cuda`: set the trainer device.
+- `--set run.experiment_name=foo-v2`: change the slug used in the run dir
+  name (kebab-case).
 - `--set checkpoint.exact_resume=true`: require checkpoint config compatibility.
 - `--set checkpoint.save_latest=false --set checkpoint.save_every=0`:
   disable checkpoint writes.
 - `--set checkpoint.save_every=0`: keep only `latest.pt` (no archives).
 - `--set checkpoint.save_every=N`: archive every N iterations.
+
+## Naming Conventions
+
+- **Directory names, run dirs, config filenames, `experiment_name` values**:
+  kebab-case (`deep-cfr-color-shared-512x3.yaml`,
+  `runs/2026-05-08_103045_color-attn-v2/`).
+- **YAML keys, Python identifiers, config field names**: snake_case
+  (unchanged: `hidden_size`, `traversals_per_player`, `experiment_name`).
+- The CLI converts `run.experiment_name` to a kebab slug when building the
+  run directory, so values may contain spaces or mixed case.
 
 ## Long Runs
 
@@ -115,7 +142,8 @@ Start a long unbounded run:
 tmux new-session -s coolrl-deepcfr-unbounded \
   -c /home/coolguy/dev/coolrl-lost-cities \
   'uv run lost-cities-deep-cfr train \
-    --config configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability_unbounded.yaml'
+    --config configs/deep_cfr/deep-cfr-selfplay-full-depth-slot-playability-unbounded.yaml \
+    --keep'
 ```
 
 Attach later:
@@ -139,7 +167,7 @@ Ctrl+C
 Follow logs from another terminal:
 
 ```bash
-tail -f runs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability_unbounded/train.log
+tail -f runs/<YYYY-MM-DD_HHMMSS>_<slug>/train.log
 ```
 
 The unbounded config intentionally has:
@@ -162,7 +190,7 @@ Evaluate a checkpoint:
 
 ```bash
 uv run lost-cities-deep-cfr eval \
-  --checkpoint runs/deep_cfr/<run-name>/latest.pt \
+  --checkpoint runs/<run-dir>/latest.pt \
   --opponent random \
   --games 100 \
   --device cpu
@@ -172,26 +200,26 @@ Save evaluation game records:
 
 ```bash
 uv run lost-cities-deep-cfr eval \
-  --checkpoint runs/deep_cfr/<run-name>/latest.pt \
+  --checkpoint runs/<run-dir>/latest.pt \
   --opponent random \
   --games 100 \
   --device cpu \
-  --save-games runs/deep_cfr/<run-name>/eval_random_games.json
+  --save-games runs/<run-dir>/eval_random_games.json
 ```
 
 Generate analysis plots from `metrics.jsonl`:
 
 ```bash
 uv run lost-cities-deep-cfr analyze \
-  --run runs/deep_cfr/<run-name>
+  --run runs/<run-dir>
 ```
 
 Write plots to a separate directory:
 
 ```bash
 uv run lost-cities-deep-cfr analyze \
-  --run runs/deep_cfr/<run-name> \
-  --output-dir runs/deep_cfr/<run-name>/analysis
+  --run runs/<run-dir> \
+  --output-dir runs/<run-dir>/analysis
 ```
 
 The analyzer reads `metrics.jsonl` and writes PNG files grouped by diagnostic
@@ -203,7 +231,7 @@ For smoothing controls, run the analyzer module directly:
 
 ```bash
 uv run python -m coolrl_lost_cities.games.classic.deep_cfr.analyze \
-  --run runs/deep_cfr/<run-name> \
+  --run runs/<run-dir> \
   --smoothing-window 5
 ```
 

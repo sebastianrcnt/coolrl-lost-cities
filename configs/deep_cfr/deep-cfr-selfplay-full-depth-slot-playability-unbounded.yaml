@@ -1,5 +1,5 @@
 run:
-  experiment_name: lost_cities_deep_cfr_selfplay_full_depth_slot_playability_unbounded
+  experiment_name: lost-cities-deep-cfr-selfplay-full-depth-slot-playability-unbounded
   seed: 79
   max_iterations: null
   max_minutes: null
@@ -86,6 +86,5 @@ evaluation:
     - noisy_safe
 
 checkpoint:
-  directory: runs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability_unbounded
   save_every: 100
   progress_interval_seconds: 20.0
