@@ -1,7 +1,7 @@
 # Plan: Option B Per-Worker Interleaved Traversal
 
-**Status:** Phase 1 prototype started. Production trainer wiring has not begun;
-default behavior is unchanged.
+**Status:** Phase 2 non-default production prototype implemented. Default
+behavior is unchanged.
 **Owner:** Codex for prototype design and implementation; operator for long-run
 benchmarks on `home`.
 **Background:** Option A, the central traversal inference server, was implemented
@@ -195,7 +195,7 @@ Prototype parity: PASS for values, RNG outputs, aggregate traversal stats, and
 sample checksum within float tolerance. This proves the scheduling shape can
 form large policy batches. It does **not** yet prove production Cython parity.
 
-### Phase 2: Cython Prototype Behind Non-Default Flag
+### Phase 2: Non-Default Production Prototype
 
 - Add an interleaved traversal entry point beside the existing recursive one.
 - Keep the existing recursive path untouched and default.
@@ -204,6 +204,50 @@ form large policy batches. It does **not** yet prove production Cython parity.
 
 Success gate: `uv run pytest -q tests/games/classic/test_deep_cfr_trainer.py`
 and new interleaved traversal tests pass.
+
+### Phase 2 Result (2026-05-07)
+
+Implemented as a Python explicit-stack production path in
+`interleaved_traversal.py`, not a Cython rewrite. This is deliberate: the Phase
+1 prototype proved the scheduling shape, while a full Cython state-machine
+rewrite would duplicate a large fraction of `traversal.pyx` before we know that
+default-config wall-clock speedup survives trainer integration. The recursive
+Cython path remains untouched and default.
+
+Config surface added:
+
+```yaml
+traversal:
+  scheduler: recursive        # recursive | interleaved
+  interleave_width: 64
+  interleave_max_batch: 128
+```
+
+Current interleaved guardrails:
+
+- `sampling_mode: outcome`
+- `opponent_policy: network`
+- `cutoff_value_mode: score_diff`
+- `cutoff_rollouts: 0`
+- `inference_backend: local`
+
+Validation:
+
+- single-traversal parity against `run_cython_traversal_batch`: PASS for
+  aggregate stats and sample target checksums under identical RNG seed,
+- trainer smoke with `traversal.scheduler=interleaved`: PASS,
+- multiprocessing worker smoke via CLI: PASS,
+- emitted runtime metrics:
+  `interleaved/batches`, `interleaved/requests`,
+  `interleaved/avg_batch_size`, `interleaved/max_batch_size`,
+  `interleaved/scheduler_seconds`, and `interleaved/forward_seconds`.
+
+Important parity note: multi-traversal interleaving uses per-context RNG streams
+so request scheduling does not couple one traversal's random stream to another.
+That means exact recursive-batch RNG ordering is intentionally not preserved
+across multiple simultaneous traversals. Phase 3 must therefore gate on sample
+counts, traversal stats, learning stability, and wall-clock speedup, not
+byte-identical multi-traversal sample order.
 
 ### Phase 3: Benchmark
 

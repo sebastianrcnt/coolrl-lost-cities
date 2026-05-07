@@ -112,6 +112,9 @@ class TraversalConfig(StrictModel):
     endpoint_depth_bucket_width: int = 100
     endpoint_depth_bucket_max: int = 1000
     inference_backend: str = "local"
+    scheduler: str = "recursive"
+    interleave_width: int = 64
+    interleave_max_batch: int = 128
 
     @field_validator("sampling_mode")
     @classmethod
@@ -159,6 +162,14 @@ class TraversalConfig(StrictModel):
             raise ValueError("must be 'local' or 'server'")
         return token
 
+    @field_validator("scheduler")
+    @classmethod
+    def _validate_scheduler(cls, value: str) -> str:
+        token = value.strip().lower()
+        if token not in {"recursive", "interleaved"}:
+            raise ValueError("must be 'recursive' or 'interleaved'")
+        return token
+
     @model_validator(mode="after")
     def _validate_external_strategy_memory_convention(self) -> TraversalConfig:
         if self.sampling_mode == "external" and (
@@ -173,6 +184,26 @@ class TraversalConfig(StrictModel):
                 "average-policy estimate. See "
                 "docs/research/strategy-memory-location.md."
             )
+        if self.scheduler == "interleaved":
+            if self.sampling_mode != "outcome":
+                raise ValueError("scheduler='interleaved' currently supports only outcome sampling")
+            if self.opponent_policy != "network":
+                raise ValueError(
+                    "scheduler='interleaved' currently supports only opponent_policy='network'"
+                )
+            if self.cutoff_rollouts != 0 or self.cutoff_value_mode != "score_diff":
+                raise ValueError(
+                    "scheduler='interleaved' currently requires cutoff_value_mode='score_diff' "
+                    "and cutoff_rollouts=0"
+                )
+            if self.inference_backend != "local":
+                raise ValueError(
+                    "scheduler='interleaved' currently requires inference_backend='local'"
+                )
+            if self.interleave_width <= 0:
+                raise ValueError("interleave_width must be positive")
+            if self.interleave_max_batch <= 0:
+                raise ValueError("interleave_max_batch must be positive")
         return self
 
     def resolved_num_workers(self, batches: int | None = None) -> int:

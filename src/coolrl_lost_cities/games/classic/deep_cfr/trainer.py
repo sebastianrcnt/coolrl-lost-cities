@@ -27,6 +27,9 @@ from coolrl_lost_cities.games.classic.deep_cfr.inference_server import (
     BatchStatsMessage,
     InferenceServerController,
 )
+from coolrl_lost_cities.games.classic.deep_cfr.interleaved_traversal import (
+    run_interleaved_traversal_batch,
+)
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.networks import DeepCFRMLP
 from coolrl_lost_cities.games.classic.deep_cfr.tracking import (
@@ -394,51 +397,87 @@ class DeepCFRTrainer:
                 self.config.run.seed + iteration * 10_000 + traversal_index * 10 + player
                 for traversal_index in range(traversals_per_player)
             ]
-            stats, advantage_samples, strategy_samples = run_cython_traversal_batch(
-                self.advantage_networks,
-                self.game_config,
-                seeds,
-                player,
-                iteration,
-                device=self.device,
-                strategy_network=(
-                    self.strategy_network
-                    if self.config.traversal.opponent_policy == "average_strategy"
-                    else None
-                ),
-                action_size=self.action_size,
-                encoding=self.config.encoding,
-                epsilon=self.config.traversal.regret_matching_epsilon,
-                strategy_sample_interval=self.config.traversal.strategy_sample_interval,
-                store_strategy_on_traverser_nodes=(
-                    self.config.traversal.store_strategy_on_traverser_nodes
-                ),
-                store_strategy_on_opponent_nodes=(
-                    self.config.traversal.store_strategy_on_opponent_nodes
-                ),
-                max_depth=self.config.traversal.max_depth,
-                max_nodes=self.config.traversal.max_nodes_per_traversal,
-                sampling_mode=self.config.traversal.sampling_mode,
-                outcome_sampling_epsilon=self.config.traversal.outcome_sampling_epsilon,
-                outcome_sampling_value_clip=self.config.traversal.outcome_sampling_value_clip,
-                outcome_unsampled_regret=self.config.traversal.outcome_unsampled_regret,
-                cutoff_value_mode=self.config.traversal.cutoff_value_mode,
-                cutoff_rollouts=self.config.traversal.cutoff_rollouts,
-                cutoff_rollout_policy=self.config.traversal.cutoff_rollout_policy,
-                cutoff_rollout_max_steps=self.config.traversal.cutoff_rollout_max_steps,
-                opponent_policy=self.config.traversal.opponent_policy,
-                all_negative_fallback=self.config.regret_matching.all_negative_fallback,
-                league_advantage_networks=league_networks,
-                self_play_anchor_probability=self.config.self_play.anchor_probability,
-                self_play_current_weight=self.config.self_play.current_weight,
-                self_play_recent_weight=self.config.self_play.recent_weight,
-                self_play_older_weight=self.config.self_play.older_weight,
-                self_play_anchor_weight=self.config.self_play.anchor_weight,
-                self_play_recent_window=self.config.self_play.recent_window,
-                endpoint_depth_bucket_width=self.config.traversal.endpoint_depth_bucket_width,
-                endpoint_depth_bucket_max=self.config.traversal.endpoint_depth_bucket_max,
-                seed=self.config.run.seed + iteration * 1_000_003 + player,
-            )
+            if self.config.traversal.scheduler == "interleaved":
+                stats, advantage_samples, strategy_samples, runtime_metrics = (
+                    run_interleaved_traversal_batch(
+                        self.advantage_networks,
+                        self.game_config,
+                        seeds,
+                        player,
+                        iteration,
+                        device=self.device,
+                        action_size=self.action_size,
+                        encoding=self.config.encoding,
+                        epsilon=self.config.traversal.regret_matching_epsilon,
+                        strategy_sample_interval=self.config.traversal.strategy_sample_interval,
+                        store_strategy_on_traverser_nodes=(
+                            self.config.traversal.store_strategy_on_traverser_nodes
+                        ),
+                        store_strategy_on_opponent_nodes=(
+                            self.config.traversal.store_strategy_on_opponent_nodes
+                        ),
+                        max_depth=self.config.traversal.max_depth,
+                        max_nodes=self.config.traversal.max_nodes_per_traversal,
+                        outcome_sampling_epsilon=self.config.traversal.outcome_sampling_epsilon,
+                        outcome_sampling_value_clip=(
+                            self.config.traversal.outcome_sampling_value_clip
+                        ),
+                        endpoint_depth_bucket_width=(
+                            self.config.traversal.endpoint_depth_bucket_width
+                        ),
+                        endpoint_depth_bucket_max=self.config.traversal.endpoint_depth_bucket_max,
+                        seed=self.config.run.seed + iteration * 1_000_003 + player,
+                        interleave_width=self.config.traversal.interleave_width,
+                        interleave_max_batch=self.config.traversal.interleave_max_batch,
+                    )
+                )
+                self._record_interleaved_metrics(runtime_metrics)
+            else:
+                stats, advantage_samples, strategy_samples = run_cython_traversal_batch(
+                    self.advantage_networks,
+                    self.game_config,
+                    seeds,
+                    player,
+                    iteration,
+                    device=self.device,
+                    strategy_network=(
+                        self.strategy_network
+                        if self.config.traversal.opponent_policy == "average_strategy"
+                        else None
+                    ),
+                    action_size=self.action_size,
+                    encoding=self.config.encoding,
+                    epsilon=self.config.traversal.regret_matching_epsilon,
+                    strategy_sample_interval=self.config.traversal.strategy_sample_interval,
+                    store_strategy_on_traverser_nodes=(
+                        self.config.traversal.store_strategy_on_traverser_nodes
+                    ),
+                    store_strategy_on_opponent_nodes=(
+                        self.config.traversal.store_strategy_on_opponent_nodes
+                    ),
+                    max_depth=self.config.traversal.max_depth,
+                    max_nodes=self.config.traversal.max_nodes_per_traversal,
+                    sampling_mode=self.config.traversal.sampling_mode,
+                    outcome_sampling_epsilon=self.config.traversal.outcome_sampling_epsilon,
+                    outcome_sampling_value_clip=self.config.traversal.outcome_sampling_value_clip,
+                    outcome_unsampled_regret=self.config.traversal.outcome_unsampled_regret,
+                    cutoff_value_mode=self.config.traversal.cutoff_value_mode,
+                    cutoff_rollouts=self.config.traversal.cutoff_rollouts,
+                    cutoff_rollout_policy=self.config.traversal.cutoff_rollout_policy,
+                    cutoff_rollout_max_steps=self.config.traversal.cutoff_rollout_max_steps,
+                    opponent_policy=self.config.traversal.opponent_policy,
+                    all_negative_fallback=self.config.regret_matching.all_negative_fallback,
+                    league_advantage_networks=league_networks,
+                    self_play_anchor_probability=self.config.self_play.anchor_probability,
+                    self_play_current_weight=self.config.self_play.current_weight,
+                    self_play_recent_weight=self.config.self_play.recent_weight,
+                    self_play_older_weight=self.config.self_play.older_weight,
+                    self_play_anchor_weight=self.config.self_play.anchor_weight,
+                    self_play_recent_window=self.config.self_play.recent_window,
+                    endpoint_depth_bucket_width=self.config.traversal.endpoint_depth_bucket_width,
+                    endpoint_depth_bucket_max=self.config.traversal.endpoint_depth_bucket_max,
+                    seed=self.config.run.seed + iteration * 1_000_003 + player,
+                )
             total_stats.accumulate(stats)
             memory_add_started = time.perf_counter()
             self._add_advantage_samples(advantage_samples)
@@ -514,6 +553,7 @@ class DeepCFRTrainer:
                     result = future.result()
                     completed_batches += 1
                     total_stats.accumulate(result.stats)
+                    self._record_interleaved_metrics(result.runtime_metrics)
                     memory_add_started = time.perf_counter()
                     self._add_advantage_samples(result.advantage_samples)
                     self.strategy_memory.add_many(result.strategy_samples, self.rng)
@@ -547,6 +587,28 @@ class DeepCFRTrainer:
         ):
             self._record_inference_batch_stats(self._inference_server.drain_batch_stats())
         return total_stats
+
+    def _record_interleaved_metrics(self, metrics: dict[str, float | int] | None) -> None:
+        if not metrics:
+            return
+        for key in (
+            "interleaved/batches",
+            "interleaved/requests",
+            "interleaved/scheduler_seconds",
+            "interleaved/forward_seconds",
+        ):
+            self._runtime_metrics[key] = float(self._runtime_metrics.get(key, 0.0)) + float(
+                metrics.get(key, 0.0)
+            )
+        self._runtime_metrics["interleaved/max_batch_size"] = max(
+            int(self._runtime_metrics.get("interleaved/max_batch_size", 0)),
+            int(metrics.get("interleaved/max_batch_size", 0)),
+        )
+        batches = float(self._runtime_metrics.get("interleaved/batches", 0.0))
+        requests = float(self._runtime_metrics.get("interleaved/requests", 0.0))
+        self._runtime_metrics["interleaved/avg_batch_size"] = (
+            requests / batches if batches > 0.0 else 0.0
+        )
 
     def _worker_batches(self, iteration: int) -> list[TraversalWorkerBatch]:
         batches: list[TraversalWorkerBatch] = []
