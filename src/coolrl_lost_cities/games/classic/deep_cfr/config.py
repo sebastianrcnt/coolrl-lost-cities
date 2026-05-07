@@ -70,9 +70,20 @@ class EncodingConfig(StrictModel):
 
 
 class NetworkConfig(StrictModel):
+    kind: str = "mlp"
     hidden_size: int = 64
     num_layers: int = 2
     activation: str = "relu"
+    color_attention_layers: int = 0
+    color_attention_heads: int = 4
+
+    @field_validator("kind")
+    @classmethod
+    def _validate_kind(cls, value: str) -> str:
+        token = value.strip().lower()
+        if token not in {"mlp", "color_shared"}:
+            raise ValueError("must be 'mlp' or 'color_shared'")
+        return token
 
     @field_validator("activation")
     @classmethod
