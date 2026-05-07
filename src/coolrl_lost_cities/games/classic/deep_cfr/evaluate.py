@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -166,6 +167,8 @@ class _EvalGame:
     policy_player: int
     diagnostics: PolicyEvalDiagnostics
     first_open_recoverable_by_color: dict[int, float]
+    game_index: int = 0
+    game_seed: int = 0
     steps: int = 0
     done: bool = False
 
@@ -293,6 +296,7 @@ def evaluate_strategy_network(
     max_steps: int = 10_000,
     encoding: EncodingConfig | None = None,
     batch_size: int = 64,
+    save_games_path: str | None = None,
 ) -> dict[str, float | int]:
     strategy_network.eval()
     return _evaluate_strategy_network_with_diagnostics(
@@ -305,6 +309,7 @@ def evaluate_strategy_network(
         max_steps=max_steps,
         encoding=encoding,
         batch_size=batch_size,
+        save_games_path=save_games_path,
     )
 
 
@@ -319,10 +324,12 @@ def _evaluate_strategy_network_with_diagnostics(
     max_steps: int,
     encoding: EncodingConfig | None,
     batch_size: int,
+    save_games_path: str | None = None,
 ) -> dict[str, float | int]:
     if games <= 0:
         raise ValueError(f"games must be positive, got {games}")
     diagnostics = PolicyEvalDiagnostics()
+    game_records: list[dict] = [] if save_games_path else None
     policy = StrategyNetPolicy(
         strategy_network,
         device=device,
@@ -344,6 +351,8 @@ def _evaluate_strategy_network_with_diagnostics(
                 policy_player=policy_player,
                 diagnostics=PolicyEvalDiagnostics(games=1),
                 first_open_recoverable_by_color={},
+                game_index=index,
+                game_seed=game_seed,
             )
         )
 
@@ -353,6 +362,7 @@ def _evaluate_strategy_network_with_diagnostics(
         for game in active_games:
             if _finalize_if_done(game, max_steps=max_steps):
                 _accumulate_game_diagnostics(diagnostics, game.diagnostics)
+                _record_game_if_needed(game, game_records, opponent)
                 continue
             state = game.state
             if state.current_player == game.policy_player and isinstance(
@@ -363,6 +373,7 @@ def _evaluate_strategy_network_with_diagnostics(
                 _advance_opponent_turn(game)
                 if _finalize_if_done(game, max_steps=max_steps):
                     _accumulate_game_diagnostics(diagnostics, game.diagnostics)
+                    _record_game_if_needed(game, game_records, opponent)
                 else:
                     next_active_games.append(game)
 
@@ -373,10 +384,15 @@ def _evaluate_strategy_network_with_diagnostics(
                 _advance_policy_turn(game, action, entropy)
                 if _finalize_if_done(game, max_steps=max_steps):
                     _accumulate_game_diagnostics(diagnostics, game.diagnostics)
+                    _record_game_if_needed(game, game_records, opponent)
                 else:
                     next_active_games.append(game)
 
         active_games = next_active_games
+
+    if game_records is not None:
+        Path(save_games_path).write_text(json.dumps(game_records, indent=2))
+
     diagnostics.runtime.accumulate(policy.runtime)
     return diagnostics.to_dict(time.perf_counter() - started)
 
@@ -710,3 +726,35 @@ def load_strategy_policy_from_checkpoint(
         StrategyNetPolicy(network, device=device, sample=sample, seed=seed, encoding=cfg.encoding),
         game_config,
     )
+
+
+def _record_game_if_needed(
+    game: _EvalGame,
+    game_records: list[dict] | None,
+    opponent: str,
+) -> None:
+    if game_records is None:
+        return
+    policy_player_score = game.state.total_score(game.policy_player)
+    opponent_player = 1 - game.policy_player
+    opponent_score = game.state.total_score(opponent_player)
+
+    if policy_player_score > opponent_score:
+        winner = game.policy_player
+    elif opponent_score > policy_player_score:
+        winner = opponent_player
+    else:
+        winner = -1
+
+    record = {
+        "game_index": game.game_index,
+        "seed": game.game_seed,
+        "policy_player": game.policy_player,
+        "winner": winner,
+        "score_policy": policy_player_score,
+        "score_opponent": opponent_score,
+        "score_diff_policy": policy_player_score - opponent_score,
+        "steps": game.steps,
+        "opponent": opponent,
+    }
+    game_records.append(record)

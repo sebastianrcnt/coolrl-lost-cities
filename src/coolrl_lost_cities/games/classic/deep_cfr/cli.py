@@ -135,8 +135,11 @@ def eval_command(args: argparse.Namespace) -> None:
         device=args.device,
         max_steps=args.max_steps,
         encoding=policy.encoding,
+        save_games_path=args.save_games,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
+    if args.save_games:
+        print(f"Game records saved to: {args.save_games}")
 
 
 def benchmark_command(args: argparse.Namespace) -> None:
@@ -245,6 +248,7 @@ def main(argv: list[str] | None = None) -> None:
     evaluate.add_argument("--seed", type=int, default=1)
     evaluate.add_argument("--max-steps", type=int, default=10_000)
     evaluate.add_argument("--device", default="cpu")
+    evaluate.add_argument("--save-games", help="Path to save game records as JSON")
     evaluate.set_defaults(func=eval_command)
 
     benchmark = subparsers.add_parser("benchmark")
