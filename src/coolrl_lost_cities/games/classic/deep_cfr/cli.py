@@ -80,52 +80,6 @@ def _resolve_resume_path(config: DeepCFRConfig, resume: str | None) -> str | Non
 
 def _train_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
     overrides: dict[str, Any] = {}
-    if args.no_save and (args.save_latest_only or args.save_iteration_interval is not None):
-        raise ValueError("--no-save cannot be combined with checkpoint save overrides")
-    run_overrides = overrides.setdefault("run", {})
-    if args.iterations is not None:
-        run_overrides["iterations"] = args.iterations
-        if args.max_hours is None and args.max_iterations is None:
-            run_overrides["max_hours"] = None
-            run_overrides["max_iterations"] = None
-    if args.max_hours is not None:
-        run_overrides["max_hours"] = args.max_hours
-    if args.max_iterations is not None:
-        run_overrides["max_iterations"] = args.max_iterations
-    if args.seed is not None:
-        run_overrides["seed"] = args.seed
-    if args.traversals_per_iteration is not None:
-        traversal_overrides = overrides.setdefault("traversal", {})
-        traversal_overrides["traversals_per_iteration"] = args.traversals_per_iteration
-        traversal_overrides["traversals_per_player"] = None
-    if args.num_workers is not None:
-        overrides.setdefault("traversal", {})["num_workers"] = args.num_workers
-    if args.checkpoint_dir is not None:
-        overrides.setdefault("checkpoint", {})["directory"] = args.checkpoint_dir
-    if args.eval_every is not None:
-        overrides.setdefault("evaluation", {})["eval_every"] = args.eval_every
-    if args.eval_games is not None:
-        overrides.setdefault("evaluation", {})["games"] = args.eval_games
-    if args.regret_fallback is not None:
-        overrides.setdefault("regret_matching", {})["all_negative_fallback"] = args.regret_fallback
-    if args.training_weighting is not None:
-        overrides.setdefault("training_weighting", {})["mode"] = args.training_weighting
-    if args.no_save:
-        checkpoint_overrides = overrides.setdefault("checkpoint", {})
-        checkpoint_overrides["save_latest"] = False
-        checkpoint_overrides["save_every_iteration"] = False
-        checkpoint_overrides["save_iteration_interval"] = 0
-    if args.save_latest_only:
-        checkpoint_overrides = overrides.setdefault("checkpoint", {})
-        checkpoint_overrides["save_latest"] = True
-        checkpoint_overrides["save_latest_only"] = True
-        checkpoint_overrides["save_every_iteration"] = False
-    if args.save_iteration_interval is not None:
-        overrides.setdefault("checkpoint", {})["save_iteration_interval"] = (
-            args.save_iteration_interval
-        )
-    if args.exact_resume:
-        overrides.setdefault("checkpoint", {})["exact_resume"] = True
     for assignment in getattr(args, "config_overrides", None) or ():
         _set_path_override(overrides, assignment)
     return overrides
@@ -249,39 +203,19 @@ def main(argv: list[str] | None = None) -> None:
 
     train = subparsers.add_parser("train")
     train.add_argument("--config")
-    train.add_argument("--iterations", type=int)
-    train.add_argument("--max-hours", type=float)
-    train.add_argument("--max-iterations", type=int)
-    train.add_argument("--traversals-per-iteration", type=int)
-    train.add_argument("--num-workers")
-    train.add_argument("--checkpoint-dir")
     train.add_argument("--resume", nargs="?", const=_RESUME_LATEST, default=None)
-    train.add_argument("--exact-resume", action="store_true")
     train.add_argument("--device")
-    train.add_argument("--eval-every", type=int)
-    train.add_argument("--eval-games", type=int)
-    train.add_argument(
-        "--regret-fallback",
-        choices=("uniform", "argmax_tiebreak"),
-        help="Override regret_matching.all_negative_fallback.",
-    )
-    train.add_argument(
-        "--training-weighting",
-        choices=("none", "lcfr", "dcfr"),
-        help="Override training_weighting.mode.",
-    )
-    train.add_argument("--seed", type=int)
     train.add_argument(
         "--set",
         action="append",
         default=[],
         dest="config_overrides",
         metavar="PATH=VALUE",
-        help="Override any config field using dotted paths, e.g. traversal.sampling_mode=external.",
+        help=(
+            "Override config fields using dotted paths. Repeatable. VALUE is parsed as "
+            "YAML, e.g. --set traversal.num_workers=4 --set run.max_hours=null."
+        ),
     )
-    train.add_argument("--no-save", action="store_true")
-    train.add_argument("--save-latest-only", action="store_true")
-    train.add_argument("--save-iteration-interval", type=int)
     train.add_argument(
         "--wandb",
         action="store_true",

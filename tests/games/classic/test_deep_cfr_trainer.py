@@ -74,26 +74,24 @@ def test_deep_cfr_loads_mapped_legacy_reproduction_config() -> None:
     )
 
 
-def test_deep_cfr_train_cli_count_overrides_disable_duration_limits() -> None:
+def test_deep_cfr_train_cli_accepts_run_and_traversal_config_overrides() -> None:
     args = type(
         "Args",
         (),
         {
-            "iterations": 1,
-            "max_hours": None,
-            "max_iterations": None,
-            "seed": None,
-            "traversals_per_iteration": 1,
-            "num_workers": "0",
-            "checkpoint_dir": None,
-            "eval_every": None,
-            "eval_games": None,
-            "regret_fallback": "argmax_tiebreak",
-            "training_weighting": "lcfr",
-            "no_save": True,
-            "save_latest_only": False,
-            "save_iteration_interval": None,
-            "exact_resume": False,
+            "config_overrides": [
+                "run.iterations=1",
+                "run.max_hours=null",
+                "run.max_iterations=null",
+                "traversal.traversals_per_iteration=1",
+                "traversal.traversals_per_player=null",
+                "traversal.num_workers=0",
+                "regret_matching.all_negative_fallback=argmax_tiebreak",
+                "training_weighting.mode=lcfr",
+                "checkpoint.save_latest=false",
+                "checkpoint.save_every_iteration=false",
+                "checkpoint.save_iteration_interval=0",
+            ],
         },
     )()
     config = load_config("configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml")
@@ -123,21 +121,12 @@ def test_deep_cfr_train_cli_checkpoint_save_overrides() -> None:
         "Args",
         (),
         {
-            "iterations": None,
-            "max_hours": None,
-            "max_iterations": None,
-            "seed": None,
-            "traversals_per_iteration": None,
-            "num_workers": None,
-            "checkpoint_dir": None,
-            "eval_every": None,
-            "eval_games": None,
-            "regret_fallback": None,
-            "training_weighting": None,
-            "no_save": False,
-            "save_latest_only": True,
-            "save_iteration_interval": 1,
-            "exact_resume": False,
+            "config_overrides": [
+                "checkpoint.save_latest=true",
+                "checkpoint.save_latest_only=true",
+                "checkpoint.save_every_iteration=false",
+                "checkpoint.save_iteration_interval=1",
+            ],
         },
     )()
 
@@ -154,21 +143,6 @@ def test_deep_cfr_train_cli_accepts_generic_config_overrides() -> None:
         "Args",
         (),
         {
-            "iterations": None,
-            "max_hours": None,
-            "max_iterations": None,
-            "seed": None,
-            "traversals_per_iteration": None,
-            "num_workers": None,
-            "checkpoint_dir": None,
-            "eval_every": None,
-            "eval_games": None,
-            "regret_fallback": None,
-            "training_weighting": None,
-            "no_save": False,
-            "save_latest_only": False,
-            "save_iteration_interval": None,
-            "exact_resume": False,
             "config_overrides": [
                 "traversal.sampling_mode=external",
                 "traversal.max_depth=null",

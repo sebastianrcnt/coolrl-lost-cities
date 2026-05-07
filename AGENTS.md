@@ -66,8 +66,11 @@ Short fixed-iteration run:
 ```bash
 uv run lost-cities-deep-cfr train \
   --config configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml \
-  --iterations 100 \
-  --save-latest-only
+  --set run.iterations=100 \
+  --set run.max_hours=null \
+  --set run.max_iterations=null \
+  --set checkpoint.save_latest_only=true \
+  --set checkpoint.save_every_iteration=false
 ```
 
 Use explicit run directories for experiments. Put Deep CFR runs under
@@ -77,8 +80,8 @@ Use explicit run directories for experiments. Put Deep CFR runs under
 RUN_DIR="runs/deep_cfr/$(date +%Y-%m-%d_%H%M%S)_deep_cfr_experiment_name"
 uv run lost-cities-deep-cfr train \
   --config configs/deep_cfr/deep_cfr_selfplay_full_depth_slot_playability.yaml \
-  --checkpoint-dir "$RUN_DIR" \
-  --max-iterations 100
+  --set checkpoint.directory="$RUN_DIR" \
+  --set run.max_iterations=100
 ```
 
 Date-prefixed examples:
@@ -86,16 +89,23 @@ Date-prefixed examples:
 - `runs/deep_cfr/YYYY-MM-DD_HHMMSS_deep_cfr_100iter`
 - `runs/deep_cfr/YYYY-MM-DD_HHMMSS_deep_cfr_unbounded`
 
-Useful train overrides:
+Useful train controls:
 
 - `--resume`: resume from `<checkpoint-dir>/latest.pt`.
 - `--resume PATH`: resume from a specific checkpoint.
-- `--exact-resume`: require checkpoint config compatibility for exact resume.
-- `--no-save`: disable checkpoint writes.
-- `--save-latest-only`: keep only `latest.pt`.
-- `--save-iteration-interval N`: archive every N iterations.
-- `--set PATH=VALUE`: override arbitrary config fields, e.g.
-  `--set traversal.num_workers=4`.
+- `--device DEVICE`: override the trainer device for this invocation.
+- `--set PATH=VALUE`: override config fields. It is repeatable and parses
+  values as YAML, e.g. `--set traversal.num_workers=4` or
+  `--set run.max_hours=null`.
+
+Common `--set` overrides:
+
+- `--set checkpoint.exact_resume=true`: require checkpoint config compatibility.
+- `--set checkpoint.save_latest=false --set checkpoint.save_every_iteration=false
+  --set checkpoint.save_iteration_interval=0`: disable checkpoint writes.
+- `--set checkpoint.save_latest_only=true --set checkpoint.save_every_iteration=false`:
+  keep only `latest.pt`.
+- `--set checkpoint.save_iteration_interval=N`: archive every N iterations.
 
 ## Long Runs
 
@@ -147,8 +157,8 @@ checkpoint:
 ```
 
 `latest.pt` is updated continuously; archive checkpoints are written every 100
-iterations. If disk is tight, prefer `--save-latest-only` or increase
-`save_iteration_interval`.
+iterations. If disk is tight, prefer `--set checkpoint.save_latest_only=true` or
+increase `save_iteration_interval`.
 
 ## Evaluation And Analysis
 
