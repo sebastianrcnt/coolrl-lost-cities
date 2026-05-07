@@ -26,10 +26,8 @@ network:
   activation: relu
 
 traversal:
-  traversals_per_player: 2
-  traversals_per_player: 70
+  traversals_per_player: 280
   max_depth: null
-  max_nodes_per_traversal: 10000
   max_nodes_per_traversal: 1000
   regret_matching_epsilon: 0.0001
   outcome_sampling_epsilon: 0.2
@@ -44,7 +42,6 @@ traversal:
   store_strategy_on_traverser_nodes: true
   store_strategy_on_opponent_nodes: false
   num_workers: 8
-  worker_chunk_size: 4
   worker_chunk_size: 8
   progress_every_traversals: 10
   endpoint_depth_bucket_width: 100
@@ -54,7 +51,7 @@ regret_matching:
   all_negative_fallback: argmax_tiebreak
 
 training_weighting:
-  mode: none
+  mode: lcfr
 
 self_play:
   snapshot_every: 1
@@ -67,13 +64,11 @@ self_play:
   recent_window: 5
 
 optimization:
-  advantage_updates_per_iteration: 1
-  strategy_updates_per_iteration: 1
-  advantage_batch_size: 1024
-  strategy_batch_size: 1024
   advantage_updates_per_iteration: 512
   strategy_updates_per_iteration: 512
-  learning_rate: 0.00003
+  advantage_batch_size: 1024
+  strategy_batch_size: 1024
+  learning_rate: 1.0e-4
   weight_decay: 0.0001
   grad_clip: 1.0
 
@@ -88,7 +83,7 @@ checkpoint:
   exact_resume: false
 
 evaluation:
-  eval_every: 5
+  eval_every: 25
   games: 100
   opponents:
     - random
