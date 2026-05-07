@@ -149,6 +149,43 @@ def test_deep_cfr_train_cli_checkpoint_save_overrides() -> None:
     assert overridden.checkpoint.save_iteration_interval == 1
 
 
+def test_deep_cfr_train_cli_accepts_generic_config_overrides() -> None:
+    args = type(
+        "Args",
+        (),
+        {
+            "iterations": None,
+            "max_hours": None,
+            "max_iterations": None,
+            "seed": None,
+            "traversals_per_iteration": None,
+            "num_workers": None,
+            "checkpoint_dir": None,
+            "eval_every": None,
+            "eval_games": None,
+            "regret_fallback": None,
+            "training_weighting": None,
+            "no_save": False,
+            "save_latest_only": False,
+            "save_iteration_interval": None,
+            "exact_resume": False,
+            "config_overrides": [
+                "traversal.sampling_mode=external",
+                "traversal.max_depth=null",
+                "optimization.batch_size=64",
+                "checkpoint.save_latest_only=true",
+            ],
+        },
+    )()
+
+    overridden = _with_overrides(DeepCFRConfig(), _train_overrides_from_args(args))
+
+    assert overridden.traversal.sampling_mode == "external"
+    assert overridden.traversal.max_depth is None
+    assert overridden.optimization.batch_size == 64
+    assert overridden.checkpoint.save_latest_only is True
+
+
 def test_deep_cfr_iteration_weights_use_sample_age() -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(

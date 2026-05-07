@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from coolrl_lost_cities.games.classic.deep_cfr.analyze import analyze_run
 from coolrl_lost_cities.games.classic.deep_cfr.benchmark import (
     benchmark_traversal,
@@ -45,6 +47,23 @@ def _with_overrides(config: DeepCFRConfig, overrides: dict[str, Any]) -> DeepCFR
     data = config.model_dump(mode="python")
     _deep_update(data, overrides)
     return DeepCFRConfig.model_validate(data)
+
+
+def _set_path_override(overrides: dict[str, Any], assignment: str) -> None:
+    if "=" not in assignment:
+        raise ValueError(f"config override must be PATH=VALUE: {assignment}")
+    path, raw_value = assignment.split("=", 1)
+    keys = path.split(".")
+    if any(not key for key in keys):
+        raise ValueError(f"config override path must use non-empty dotted keys: {path}")
+    value = yaml.safe_load(raw_value)
+    cursor = overrides
+    for key in keys[:-1]:
+        next_cursor = cursor.setdefault(key, {})
+        if not isinstance(next_cursor, dict):
+            raise ValueError(f"config override path conflicts with scalar value: {path}")
+        cursor = next_cursor
+    cursor[keys[-1]] = value
 
 
 def _resolve_resume_path(config: DeepCFRConfig, resume: str | None) -> str | None:
@@ -106,6 +125,8 @@ def _train_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
         )
     if args.exact_resume:
         overrides.setdefault("checkpoint", {})["exact_resume"] = True
+    for assignment in getattr(args, "config_overrides", None) or ():
+        _set_path_override(overrides, assignment)
     return overrides
 
 
@@ -236,6 +257,14 @@ def main(argv: list[str] | None = None) -> None:
         help="Override training_weighting.mode.",
     )
     train.add_argument("--seed", type=int)
+    train.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        dest="config_overrides",
+        metavar="PATH=VALUE",
+        help="Override any config field using dotted paths, e.g. traversal.sampling_mode=external.",
+    )
     train.add_argument("--no-save", action="store_true")
     train.add_argument("--save-latest-only", action="store_true")
     train.add_argument("--save-iteration-interval", type=int)
