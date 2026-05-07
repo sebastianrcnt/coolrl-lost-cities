@@ -137,6 +137,9 @@ def _format_iteration_summary(metrics: IterationMetrics, data: dict[str, float |
         f"advantage_loss={_format_summary_value(metrics.advantage_loss)}",
         f"strategy_loss={_format_summary_value(metrics.strategy_loss)}",
         f"iteration_seconds={_format_summary_value(data['iteration_seconds'])}",
+        f"iters_per_hour={3600.0 / data['iteration_seconds']:.1f}"
+        if data.get("iteration_seconds", 0.0)
+        else "iters_per_hour=n/a",
     ]
     if metrics.eval_metrics:
         eval_seconds = float(data.get("evaluation_seconds", 0.0) or 0.0)
