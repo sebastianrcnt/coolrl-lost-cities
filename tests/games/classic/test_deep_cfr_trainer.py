@@ -670,14 +670,14 @@ def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None
     assert "[i=1]" in train_log
     assert "reservoir memories and RNG state are not restored" in train_log
     assert restored.iteration == 1
-    assert "eval_random_games" in metrics[0].eval_metrics
-    assert "eval_random_play_action_rate" in metrics[0].eval_metrics
-    assert "eval_random_policy_entropy" in metrics[0].eval_metrics
-    assert "eval_random_avg_opened_colors" in metrics[0].eval_metrics
-    assert "eval_random_bad_open_actions" in metrics[0].eval_metrics
-    assert "eval_random_positive_expedition_rate" in metrics[0].eval_metrics
+    assert "eval/random/games" in metrics[0].eval_metrics
+    assert "eval/random/play_action_rate" in metrics[0].eval_metrics
+    assert "eval/random/policy_entropy" in metrics[0].eval_metrics
+    assert "eval/random/avg_opened_colors" in metrics[0].eval_metrics
+    assert "eval/random/bad_open_actions" in metrics[0].eval_metrics
+    assert "eval/random/positive_expedition_rate" in metrics[0].eval_metrics
     assert (
-        "eval_random_first_open_recoverable_score_mean_for_positive_final"
+        "eval/random/first_open_recoverable_score_mean_for_positive_final"
         in metrics[0].eval_metrics
     )
 

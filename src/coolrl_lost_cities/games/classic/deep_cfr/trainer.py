@@ -107,20 +107,20 @@ class IterationMetrics:
     def to_dict(self) -> dict[str, float | int]:
         data = {
             "iteration": self.iteration,
-            "advantage_samples": self.advantage_samples,
-            "strategy_samples": self.strategy_samples,
-            "advantage_loss": self.advantage_loss,
-            "strategy_loss": self.strategy_loss,
-            "traversal_nodes": self.traversal_nodes,
-            "traversal_terminals": self.traversal_terminals,
-            "traversal_depth_cutoffs": self.traversal_depth_cutoffs,
-            "traversal_node_limit_cutoffs": self.traversal_node_limit_cutoffs,
-            "traversal_max_depth_reached": self.traversal_max_depth_reached,
-            "traversal_endpoint_depth_sum": self.traversal_endpoint_depth_sum,
-            "traversal_endpoints": self.traversal_endpoints,
-            "traversal_avg_endpoint_depth": self.traversal_avg_endpoint_depth,
+            "samples/advantage": self.advantage_samples,
+            "samples/strategy": self.strategy_samples,
+            "loss/advantage": self.advantage_loss,
+            "loss/strategy": self.strategy_loss,
+            "traversal/nodes": self.traversal_nodes,
+            "traversal/terminals": self.traversal_terminals,
+            "traversal/depth_cutoffs": self.traversal_depth_cutoffs,
+            "traversal/node_limit_cutoffs": self.traversal_node_limit_cutoffs,
+            "traversal/max_depth_reached": self.traversal_max_depth_reached,
+            "traversal/endpoint_depth_sum": self.traversal_endpoint_depth_sum,
+            "traversal/endpoints": self.traversal_endpoints,
+            "traversal/avg_endpoint_depth": self.traversal_avg_endpoint_depth,
             **{
-                f"traversal_endpoint_depth_bucket_{key}": value
+                f"traversal/endpoint_depth_bucket_{key}": value
                 for key, value in self.traversal_endpoint_depth_buckets.items()
             },
         }
@@ -130,24 +130,24 @@ class IterationMetrics:
 
 
 def _format_iteration_summary(metrics: IterationMetrics, data: dict[str, float | int]) -> str:
+    iteration_seconds = float(data.get("time/iteration_seconds", 0.0) or 0.0)
     parts = [
         f"[i={metrics.iteration}] Iteration complete",
         f"traversal_nodes={metrics.traversal_nodes}",
-        f"nodes_per_second={_format_summary_value(data['nodes_per_second'])}",
+        f"nodes_per_second={_format_summary_value(data['time/nodes_per_second'])}",
         f"advantage_loss={_format_summary_value(metrics.advantage_loss)}",
         f"strategy_loss={_format_summary_value(metrics.strategy_loss)}",
-        f"iteration_seconds={_format_summary_value(data['iteration_seconds'])}",
-        f"iters_per_hour={3600.0 / data['iteration_seconds']:.1f}"
-        if data.get("iteration_seconds", 0.0)
+        f"iteration_seconds={_format_summary_value(iteration_seconds)}",
+        f"iters_per_hour={3600.0 / iteration_seconds:.1f}"
+        if iteration_seconds
         else "iters_per_hour=n/a",
     ]
     if metrics.eval_metrics:
-        eval_seconds = float(data.get("evaluation_seconds", 0.0) or 0.0)
-        iter_seconds = float(data.get("iteration_seconds", 0.0) or 0.0)
-        fraction = eval_seconds / iter_seconds if iter_seconds > 0.0 else 0.0
+        eval_seconds = float(data.get("time/evaluation_seconds", 0.0) or 0.0)
+        fraction = eval_seconds / iteration_seconds if iteration_seconds > 0.0 else 0.0
         parts.append(f"eval_seconds={_format_summary_value(eval_seconds)}({fraction * 100:.0f}%)")
     for key in sorted(metrics.eval_metrics):
-        if key.endswith("_win_rate0") or key.endswith("_avg_score_diff0"):
+        if key.endswith("/win_rate0") or key.endswith("/avg_score_diff0"):
             parts.append(f"{key}={_format_summary_value(metrics.eval_metrics[key])}")
     return " ".join(parts)
 
@@ -313,27 +313,33 @@ class DeepCFRTrainer:
             total_stats = self._run_traversals_parallel(iteration)
         else:
             total_stats = self._run_traversals_single_process(iteration)
-        self._runtime_metrics["traversal_seconds"] = time.perf_counter() - traversal_started
+        self._runtime_metrics["time/traversal_seconds"] = time.perf_counter() - traversal_started
 
         advantage_started = time.perf_counter()
         advantage_loss = self._train_advantage_networks()
-        self._runtime_metrics["advantage_train_seconds"] = time.perf_counter() - advantage_started
+        self._runtime_metrics["time/advantage_train_seconds"] = (
+            time.perf_counter() - advantage_started
+        )
 
         strategy_started = time.perf_counter()
         strategy_loss = self._train_strategy_network()
-        self._runtime_metrics["strategy_train_seconds"] = time.perf_counter() - strategy_started
+        self._runtime_metrics["time/strategy_train_seconds"] = (
+            time.perf_counter() - strategy_started
+        )
 
         eval_started = time.perf_counter()
         eval_metrics = self._evaluate(iteration)
         if eval_metrics:
-            self._runtime_metrics["evaluation_seconds"] = time.perf_counter() - eval_started
-        self._runtime_metrics["advantage_memory_size"] = self._advantage_memory_size()
+            self._runtime_metrics["time/evaluation_seconds"] = time.perf_counter() - eval_started
+        self._runtime_metrics["memory/advantage"] = self._advantage_memory_size()
         for player, memory in enumerate(self.advantage_memories):
-            self._runtime_metrics[f"advantage_player_{player}_memory_size"] = len(memory)
-        self._runtime_metrics["strategy_memory_size"] = len(self.strategy_memory)
+            self._runtime_metrics[f"memory/advantage_player_{player}"] = len(memory)
+        self._runtime_metrics["memory/strategy"] = len(self.strategy_memory)
         for key, value in total_stats.to_dict().items():
-            if key.startswith("traversal_regret_") or key == "traversal_sampled_actions":
-                self._runtime_metrics[key] = value
+            if key.startswith("traversal_regret_"):
+                self._runtime_metrics["traversal/" + key[len("traversal_") :]] = value
+            elif key == "traversal_sampled_actions":
+                self._runtime_metrics["traversal/sampled_actions"] = value
         return IterationMetrics(
             iteration=iteration,
             advantage_samples=self._advantage_memory_size(),
@@ -416,8 +422,8 @@ class DeepCFRTrainer:
             memory_add_started = time.perf_counter()
             self._add_advantage_samples(advantage_samples)
             self.strategy_memory.add_many(strategy_samples, self.rng)
-            self._runtime_metrics["memory_add_seconds"] = (
-                float(self._runtime_metrics.get("memory_add_seconds", 0.0))
+            self._runtime_metrics["time/memory_add_seconds"] = (
+                float(self._runtime_metrics.get("time/memory_add_seconds", 0.0))
                 + time.perf_counter()
                 - memory_add_started
             )
@@ -475,8 +481,8 @@ class DeepCFRTrainer:
                     memory_add_started = time.perf_counter()
                     self._add_advantage_samples(result.advantage_samples)
                     self.strategy_memory.add_many(result.strategy_samples, self.rng)
-                    self._runtime_metrics["memory_add_seconds"] = (
-                        float(self._runtime_metrics.get("memory_add_seconds", 0.0))
+                    self._runtime_metrics["time/memory_add_seconds"] = (
+                        float(self._runtime_metrics.get("time/memory_add_seconds", 0.0))
                         + time.perf_counter()
                         - memory_add_started
                     )
@@ -591,7 +597,7 @@ class DeepCFRTrainer:
                 self._maybe_record_self_play_snapshot(iteration)
                 checkpoint_started = time.perf_counter()
                 self._save_iteration_checkpoints(iteration, item)
-                item.runtime_metrics["checkpoint_seconds"] = (
+                item.runtime_metrics["time/checkpoint_seconds"] = (
                     time.perf_counter() - checkpoint_started
                 )
                 elapsed = time.perf_counter() - started
@@ -648,8 +654,8 @@ class DeepCFRTrainer:
 
     def _append_metrics(self, metrics: IterationMetrics, iteration_seconds: float) -> None:
         data = metrics.to_dict()
-        data["iteration_seconds"] = iteration_seconds
-        data["nodes_per_second"] = metrics.traversal_nodes / max(iteration_seconds, 1.0e-12)
+        data["time/iteration_seconds"] = iteration_seconds
+        data["time/nodes_per_second"] = metrics.traversal_nodes / max(iteration_seconds, 1.0e-12)
         self.tracker.log_metrics(data, step=metrics.iteration)
         self.tracker.log_event(_format_iteration_summary(metrics, data))
 
@@ -677,7 +683,7 @@ class DeepCFRTrainer:
                 batch_size=self.config.evaluation.batch_size,
             )
             for key, value in result.items():
-                results[f"eval_{opponent}_{key}"] = value
+                results[f"eval/{opponent}/{key}"] = value
         return results
 
     def _evaluate_parallel(
@@ -719,7 +725,7 @@ class DeepCFRTrainer:
             for future in as_completed(futures):
                 opponent, result = future.result()
                 for key, value in result.items():
-                    results[f"eval_{opponent}_{key}"] = value
+                    results[f"eval/{opponent}/{key}"] = value
         return results
 
     def _evaluation_device(self) -> torch.device:
@@ -747,14 +753,14 @@ class DeepCFRTrainer:
         for player, (network, memory) in enumerate(
             zip(self.advantage_networks, self.advantage_memories, strict=True)
         ):
-            self._runtime_metrics[f"advantage_player_{player}_sample_count"] = len(memory)
+            self._runtime_metrics[f"samples/advantage_player_{player}"] = len(memory)
             if len(memory) == 0:
                 continue
             losses.append(self._train_advantage(player, network, self.advantage_optimizers[player]))
         return float(np.mean(losses)) if losses else 0.0
 
     def _train_strategy_network(self) -> float:
-        self._runtime_metrics["strategy_sample_count"] = len(self.strategy_memory)
+        self._runtime_metrics["samples/strategy"] = len(self.strategy_memory)
         if len(self.strategy_memory) == 0:
             return 0.0
         return self._train_strategy(self.strategy_network, self.strategy_optimizer)
@@ -784,8 +790,8 @@ class DeepCFRTrainer:
             dtype=torch.float32,
             device=self.device,
         )
-        self._runtime_metrics["batch_tensor_seconds"] = (
-            float(self._runtime_metrics.get("batch_tensor_seconds", 0.0))
+        self._runtime_metrics["time/batch_tensor_seconds"] = (
+            float(self._runtime_metrics.get("time/batch_tensor_seconds", 0.0))
             + time.perf_counter()
             - started
         )
@@ -812,8 +818,10 @@ class DeepCFRTrainer:
                 self.config.optimization.advantage_batch_size,
                 self.rng,
             )
-            self._runtime_metrics[f"advantage_player_{player}_sample_seconds"] = (
-                float(self._runtime_metrics.get(f"advantage_player_{player}_sample_seconds", 0.0))
+            self._runtime_metrics[f"time/advantage_player_{player}_sample_seconds"] = (
+                float(
+                    self._runtime_metrics.get(f"time/advantage_player_{player}_sample_seconds", 0.0)
+                )
                 + time.perf_counter()
                 - sample_started
             )
@@ -866,8 +874,8 @@ class DeepCFRTrainer:
             batch = self.strategy_memory.sample(
                 self.config.optimization.strategy_batch_size, self.rng
             )
-            self._runtime_metrics["strategy_sample_seconds"] = (
-                float(self._runtime_metrics.get("strategy_sample_seconds", 0.0))
+            self._runtime_metrics["time/strategy_sample_seconds"] = (
+                float(self._runtime_metrics.get("time/strategy_sample_seconds", 0.0))
                 + time.perf_counter()
                 - sample_started
             )

@@ -32,17 +32,17 @@ SECTIONS: tuple[SectionSpec, ...] = (
         "Loss",
         "analysis_01_loss.png",
         (
-            PlotSpec("Advantage Loss", ("advantage_loss",), "loss", kind="train"),
-            PlotSpec("Strategy Loss", ("strategy_loss",), "loss", kind="train"),
+            PlotSpec("Advantage Loss", ("loss/advantage",), "loss", kind="train"),
+            PlotSpec("Strategy Loss", ("loss/strategy",), "loss", kind="train"),
             PlotSpec(
                 "Samples",
-                ("advantage_samples", "strategy_samples"),
+                ("samples/advantage", "samples/strategy"),
                 "samples",
                 kind="train",
             ),
             PlotSpec(
                 "Memory Size",
-                ("advantage_memory_size", "strategy_memory_size"),
+                ("memory/advantage", "memory/strategy"),
                 "samples",
                 kind="train",
             ),
@@ -209,36 +209,36 @@ SECTIONS: tuple[SectionSpec, ...] = (
         "Traversal",
         "analysis_08_traversal.png",
         (
-            PlotSpec("Iteration Time", ("iteration_seconds",), "seconds", kind="train"),
-            PlotSpec("Throughput", ("nodes_per_second",), "nodes / second", kind="train"),
+            PlotSpec("Iteration Time", ("time/iteration_seconds",), "seconds", kind="train"),
+            PlotSpec("Throughput", ("time/nodes_per_second",), "nodes / second", kind="train"),
             PlotSpec(
                 "Traversal Depth",
-                ("traversal_avg_endpoint_depth", "traversal_max_depth_reached"),
+                ("traversal/avg_endpoint_depth", "traversal/max_depth_reached"),
                 "depth",
                 kind="train",
             ),
             PlotSpec(
                 "Traversal Endpoints",
-                ("traversal_terminals", "traversal_node_limit_cutoffs", "traversal_depth_cutoffs"),
+                ("traversal/terminals", "traversal/node_limit_cutoffs", "traversal/depth_cutoffs"),
                 "count",
                 kind="train",
             ),
             PlotSpec(
                 "Traversal Endpoint Rates",
                 (
-                    "traversal_terminal_rate",
-                    "traversal_node_limit_cutoff_rate",
-                    "traversal_depth_cutoff_rate",
+                    "traversal/terminal_rate",
+                    "traversal/node_limit_cutoff_rate",
+                    "traversal/depth_cutoff_rate",
                 ),
                 "rate (%)",
                 scale=100.0,
                 kind="train",
                 fixed_ylim=(0, 100),
             ),
-            PlotSpec("Traversal Nodes", ("traversal_nodes",), "nodes", kind="train"),
+            PlotSpec("Traversal Nodes", ("traversal/nodes",), "nodes", kind="train"),
             PlotSpec(
                 "Regret Fallback Rate",
-                ("traversal_regret_fallback_rate",),
+                ("traversal/regret_fallback_rate",),
                 "rate (%)",
                 scale=100.0,
                 kind="train",
@@ -246,18 +246,18 @@ SECTIONS: tuple[SectionSpec, ...] = (
             ),
             PlotSpec(
                 "Regret Fallback Count",
-                ("traversal_regret_fallback_count",),
+                ("traversal/regret_fallback_count",),
                 "count",
                 kind="train",
             ),
             PlotSpec(
                 "Fallback Selected Actions",
                 (
-                    "traversal_regret_fallback_action_play_existing",
-                    "traversal_regret_fallback_action_open_new",
-                    "traversal_regret_fallback_action_discard",
-                    "traversal_regret_fallback_action_draw_deck",
-                    "traversal_regret_fallback_action_draw_pile",
+                    "traversal/regret_fallback_action_play_existing",
+                    "traversal/regret_fallback_action_open_new",
+                    "traversal/regret_fallback_action_discard",
+                    "traversal/regret_fallback_action_draw_deck",
+                    "traversal/regret_fallback_action_draw_pile",
                 ),
                 "count",
                 kind="train",
@@ -265,8 +265,8 @@ SECTIONS: tuple[SectionSpec, ...] = (
             PlotSpec(
                 "Fallback Open-New Rates",
                 (
-                    "traversal_regret_fallback_open_new_available_rate",
-                    "traversal_regret_fallback_open_new_selected_rate",
+                    "traversal/regret_fallback_open_new_available_rate",
+                    "traversal/regret_fallback_open_new_selected_rate",
                 ),
                 "rate (%)",
                 scale=100.0,
@@ -275,34 +275,34 @@ SECTIONS: tuple[SectionSpec, ...] = (
             ),
             PlotSpec(
                 "Fallback Open-New Bias",
-                ("traversal_regret_fallback_open_new_selection_over_availability",),
+                ("traversal/regret_fallback_open_new_selection_over_availability",),
                 "selected / available",
                 kind="train",
             ),
             PlotSpec(
                 "Fallback Avg Depth",
-                ("traversal_regret_fallback_avg_depth",),
+                ("traversal/regret_fallback_avg_depth",),
                 "depth",
                 kind="train",
             ),
             PlotSpec(
                 "Fallback Opened Colors Before Action",
-                ("traversal_regret_fallback_avg_opened_colors_before_action",),
+                ("traversal/regret_fallback_avg_opened_colors_before_action",),
                 "colors",
                 kind="train",
             ),
             PlotSpec(
                 "Fallback Legal Actions Mean",
-                ("traversal_regret_fallback_legal_actions_mean",),
+                ("traversal/regret_fallback_legal_actions_mean",),
                 "value",
                 kind="train",
             ),
             PlotSpec(
                 "Argmax Tie Diagnostics",
                 (
-                    "traversal_regret_fallback_argmax_tie_rate",
-                    "traversal_regret_fallback_argmax_full_tie_rate",
-                    "traversal_regret_fallback_argmax_tie_size_mean",
+                    "traversal/regret_fallback_argmax_tie_rate",
+                    "traversal/regret_fallback_argmax_full_tie_rate",
+                    "traversal/regret_fallback_argmax_tie_size_mean",
                 ),
                 "rate / size",
                 kind="train",
@@ -349,33 +349,33 @@ OPPONENT_COLORS: dict[str, str] = {
 }
 
 TRAVERSAL_COLORS: dict[str, str] = {
-    "iteration_seconds": "#4c78a8",
-    "nodes_per_second": "#4c78a8",
-    "traversal_avg_endpoint_depth": "#72b7b2",
-    "traversal_max_depth_reached": "#f58518",
-    "traversal_terminals": "#54a24b",
-    "traversal_node_limit_cutoffs": "#e45756",
-    "traversal_depth_cutoffs": "#b279a2",
-    "traversal_terminal_rate": "#54a24b",
-    "traversal_node_limit_cutoff_rate": "#e45756",
-    "traversal_depth_cutoff_rate": "#b279a2",
-    "traversal_nodes": "#4c78a8",
-    "traversal_regret_fallback_rate": "#e45756",
-    "traversal_regret_fallback_count": "#e45756",
-    "traversal_regret_fallback_action_play_existing": "#4c78a8",
-    "traversal_regret_fallback_action_open_new": "#f58518",
-    "traversal_regret_fallback_action_discard": "#54a24b",
-    "traversal_regret_fallback_action_draw_deck": "#b279a2",
-    "traversal_regret_fallback_action_draw_pile": "#72b7b2",
-    "traversal_regret_fallback_open_new_available_rate": "#9d755d",
-    "traversal_regret_fallback_open_new_selected_rate": "#f58518",
-    "traversal_regret_fallback_open_new_selection_over_availability": "#f58518",
-    "traversal_regret_fallback_avg_depth": "#72b7b2",
-    "traversal_regret_fallback_avg_opened_colors_before_action": "#f58518",
-    "traversal_regret_fallback_legal_actions_mean": "#54a24b",
-    "traversal_regret_fallback_argmax_tie_rate": "#e45756",
-    "traversal_regret_fallback_argmax_full_tie_rate": "#b279a2",
-    "traversal_regret_fallback_argmax_tie_size_mean": "#4c78a8",
+    "time/iteration_seconds": "#4c78a8",
+    "time/nodes_per_second": "#4c78a8",
+    "traversal/avg_endpoint_depth": "#72b7b2",
+    "traversal/max_depth_reached": "#f58518",
+    "traversal/terminals": "#54a24b",
+    "traversal/node_limit_cutoffs": "#e45756",
+    "traversal/depth_cutoffs": "#b279a2",
+    "traversal/terminal_rate": "#54a24b",
+    "traversal/node_limit_cutoff_rate": "#e45756",
+    "traversal/depth_cutoff_rate": "#b279a2",
+    "traversal/nodes": "#4c78a8",
+    "traversal/regret_fallback_rate": "#e45756",
+    "traversal/regret_fallback_count": "#e45756",
+    "traversal/regret_fallback_action_play_existing": "#4c78a8",
+    "traversal/regret_fallback_action_open_new": "#f58518",
+    "traversal/regret_fallback_action_discard": "#54a24b",
+    "traversal/regret_fallback_action_draw_deck": "#b279a2",
+    "traversal/regret_fallback_action_draw_pile": "#72b7b2",
+    "traversal/regret_fallback_open_new_available_rate": "#9d755d",
+    "traversal/regret_fallback_open_new_selected_rate": "#f58518",
+    "traversal/regret_fallback_open_new_selection_over_availability": "#f58518",
+    "traversal/regret_fallback_avg_depth": "#72b7b2",
+    "traversal/regret_fallback_avg_opened_colors_before_action": "#f58518",
+    "traversal/regret_fallback_legal_actions_mean": "#54a24b",
+    "traversal/regret_fallback_argmax_tie_rate": "#e45756",
+    "traversal/regret_fallback_argmax_full_tie_rate": "#b279a2",
+    "traversal/regret_fallback_argmax_tie_size_mean": "#4c78a8",
 }
 
 ACTION_RATE_METRICS = {
@@ -400,13 +400,11 @@ def opponent_names(rows: list[dict[str, Any]]) -> list[str]:
     names: set[str] = set()
     for row in rows:
         for key in row:
-            if not key.startswith("eval_"):
+            if not key.startswith("eval/"):
                 continue
-            rest = key[len("eval_") :]
-            for metric in _all_eval_metrics():
-                suffix = f"_{metric}"
-                if rest.endswith(suffix):
-                    names.add(rest[: -len(suffix)])
+            parts = key.split("/", 2)
+            if len(parts) == 3:
+                names.add(parts[1])
     return sorted(names)
 
 
@@ -653,12 +651,12 @@ def _plot_train_spec(
 
 
 def _train_value(row: dict[str, Any], metric: str) -> float | None:
-    if metric == "traversal_terminal_rate":
-        return _ratio(row, "traversal_terminals", "traversal_endpoints")
-    if metric == "traversal_node_limit_cutoff_rate":
-        return _ratio(row, "traversal_node_limit_cutoffs", "traversal_endpoints")
-    if metric == "traversal_depth_cutoff_rate":
-        return _ratio(row, "traversal_depth_cutoffs", "traversal_endpoints")
+    if metric == "traversal/terminal_rate":
+        return _ratio(row, "traversal/terminals", "traversal/endpoints")
+    if metric == "traversal/node_limit_cutoff_rate":
+        return _ratio(row, "traversal/node_limit_cutoffs", "traversal/endpoints")
+    if metric == "traversal/depth_cutoff_rate":
+        return _ratio(row, "traversal/depth_cutoffs", "traversal/endpoints")
     value = row.get(metric)
     if value is None:
         return None
@@ -789,7 +787,7 @@ def _first_existing_eval(
     row: dict[str, Any], opponent: str, metrics: tuple[str, ...]
 ) -> float | None:
     for metric in metrics:
-        value = row.get(f"eval_{opponent}_{metric}")
+        value = row.get(f"eval/{opponent}/{metric}")
         if value is not None:
             return float(value)
     return None
@@ -921,37 +919,37 @@ def _label(metric: str) -> str:
 
 def _train_metric_label(metric: str) -> str:
     labels = {
-        "advantage_memory_size": "advantage",
-        "advantage_samples": "advantage",
-        "iteration_seconds": "iteration",
-        "nodes_per_second": "nodes/sec",
-        "strategy_memory_size": "strategy",
-        "strategy_samples": "strategy",
-        "traversal_avg_endpoint_depth": "avg endpoint depth",
-        "traversal_depth_cutoff_rate": "depth cutoff",
-        "traversal_depth_cutoffs": "depth cutoff",
-        "traversal_max_depth_reached": "max depth",
-        "traversal_node_limit_cutoff_rate": "node limit cutoff",
-        "traversal_node_limit_cutoffs": "node limit cutoff",
-        "traversal_nodes": "nodes",
-        "traversal_regret_fallback_action_discard": "discard",
-        "traversal_regret_fallback_action_draw_deck": "draw deck",
-        "traversal_regret_fallback_action_draw_pile": "draw pile",
-        "traversal_regret_fallback_action_open_new": "open new",
-        "traversal_regret_fallback_action_play_existing": "play existing",
-        "traversal_regret_fallback_argmax_full_tie_rate": "full tie rate",
-        "traversal_regret_fallback_argmax_tie_rate": "tie rate",
-        "traversal_regret_fallback_argmax_tie_size_mean": "tie size",
-        "traversal_regret_fallback_avg_depth": "avg depth",
-        "traversal_regret_fallback_avg_opened_colors_before_action": "opened colors",
-        "traversal_regret_fallback_count": "fallbacks",
-        "traversal_regret_fallback_legal_actions_mean": "legal actions",
-        "traversal_regret_fallback_open_new_available_rate": "available",
-        "traversal_regret_fallback_open_new_selected_rate": "selected",
-        "traversal_regret_fallback_open_new_selection_over_availability": "selected / available",
-        "traversal_regret_fallback_rate": "fallback rate",
-        "traversal_terminal_rate": "terminal",
-        "traversal_terminals": "terminal",
+        "memory/advantage": "advantage",
+        "samples/advantage": "advantage",
+        "time/iteration_seconds": "iteration",
+        "time/nodes_per_second": "nodes/sec",
+        "memory/strategy": "strategy",
+        "samples/strategy": "strategy",
+        "traversal/avg_endpoint_depth": "avg endpoint depth",
+        "traversal/depth_cutoff_rate": "depth cutoff",
+        "traversal/depth_cutoffs": "depth cutoff",
+        "traversal/max_depth_reached": "max depth",
+        "traversal/node_limit_cutoff_rate": "node limit cutoff",
+        "traversal/node_limit_cutoffs": "node limit cutoff",
+        "traversal/nodes": "nodes",
+        "traversal/regret_fallback_action_discard": "discard",
+        "traversal/regret_fallback_action_draw_deck": "draw deck",
+        "traversal/regret_fallback_action_draw_pile": "draw pile",
+        "traversal/regret_fallback_action_open_new": "open new",
+        "traversal/regret_fallback_action_play_existing": "play existing",
+        "traversal/regret_fallback_argmax_full_tie_rate": "full tie rate",
+        "traversal/regret_fallback_argmax_tie_rate": "tie rate",
+        "traversal/regret_fallback_argmax_tie_size_mean": "tie size",
+        "traversal/regret_fallback_avg_depth": "avg depth",
+        "traversal/regret_fallback_avg_opened_colors_before_action": "opened colors",
+        "traversal/regret_fallback_count": "fallbacks",
+        "traversal/regret_fallback_legal_actions_mean": "legal actions",
+        "traversal/regret_fallback_open_new_available_rate": "available",
+        "traversal/regret_fallback_open_new_selected_rate": "selected",
+        "traversal/regret_fallback_open_new_selection_over_availability": "selected / available",
+        "traversal/regret_fallback_rate": "fallback rate",
+        "traversal/terminal_rate": "terminal",
+        "traversal/terminals": "terminal",
     }
     return labels.get(metric, _label(metric))
 
