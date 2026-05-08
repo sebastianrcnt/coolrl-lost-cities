@@ -105,6 +105,8 @@ def train_command(args: argparse.Namespace) -> None:
                 mode=args.wandb_mode,
                 config=config.to_dict(),
                 run_dir=str(run_dir),
+                group=args.wandb_group,
+                job_type=args.wandb_job_type,
                 tags=list(args.wandb_tag) if args.wandb_tag else None,
                 notes=args.wandb_notes,
             )
@@ -245,6 +247,14 @@ def main(argv: list[str] | None = None) -> None:
         "--wandb-mode",
         choices=("online", "offline", "disabled"),
         default="online",
+    )
+    train.add_argument(
+        "--wandb-group",
+        help="W&B group for related runs in the same experiment or hypothesis.",
+    )
+    train.add_argument(
+        "--wandb-job-type",
+        help="W&B job type, e.g. train, eval, sweep, or smoke.",
     )
     train.add_argument(
         "--wandb-tag",

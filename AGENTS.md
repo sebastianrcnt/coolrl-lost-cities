@@ -320,17 +320,24 @@ Flags:
 - `--wandb-project <name>`: defaults to `coolrl-lost-cities`.
 - `--wandb-name <name>`: W&B run name; defaults to `run.experiment_name`.
 - `--wandb-mode {online,offline,disabled}`: default `online`.
+- `--wandb-group <name>`: group related runs from one experiment/hypothesis.
+- `--wandb-job-type <type>`: role of this run, e.g. `train`, `eval`, `sweep`, or `smoke`.
 - `--wandb-tag <tag>`: tag the run; repeatable.
 
 W&B is purely additive — `metrics.jsonl` remains the source of truth, and
 `analyze` reads `metrics.jsonl`, not W&B. Disabling W&B never breaks
 training, resume, or analysis.
 
-### Notes and tags
+### Groups, notes, and tags
 
-Use `--wandb-notes` for the run's *purpose* (free-form prose) and
-`--wandb-tag` for *categories you might filter on later* (short kebab-case
-keywords, repeatable). Otherwise use them however you like. Just avoid:
+Use `--wandb-group` for the experiment or hypothesis family, e.g.
+`model-size-grid-2026-05-08` or `strict-curriculum-v1`. Use `--wandb-name`
+for the individual run, e.g. `512x3-seed79`, and `--wandb-job-type` for the
+run role (`train`, `eval`, `sweep`, `smoke`).
+
+Use `--wandb-notes` for the run's *purpose* (free-form prose) and `--wandb-tag`
+for *categories you might filter on later* (short kebab-case keywords,
+repeatable). Otherwise use them however you like. Just avoid:
 
 - Tags that duplicate `config` (`lr-1e-4`, `traversal-280`) — W&B already
   indexes config fields.
@@ -348,8 +355,9 @@ notes; don't paste them in.
 
 Default is **sequential, single seed**. Run baseline first, then the
 treatment with exactly one config change, both with the same `run.seed`.
-Tag both with a shared hypothesis tag (e.g. `--wandb-tag lr-bump`) so
-they show up together in W&B's Compare Runs view.
+Put both in the same W&B group (e.g. `--wandb-group lr-bump-v1`) and optionally
+tag both with a shared hypothesis tag (e.g. `--wandb-tag lr-bump`) so they show
+up together in W&B's Compare Runs view.
 
 Do **not** run multiple seeds per condition unless explicitly asked —
 that doubles or quintuples wall-clock and isn't the default protocol.

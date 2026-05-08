@@ -70,6 +70,8 @@ class WandbRunTracker:
         name: str | None = None,
         mode: str | None = None,
         config: dict[str, Any] | None = None,
+        group: str | None = None,
+        job_type: str | None = None,
         tags: list[str] | None = None,
         notes: str | None = None,
     ):
@@ -88,6 +90,8 @@ class WandbRunTracker:
             mode=mode,
             config=config or {},
             dir=str(run_dir_path),
+            group=group,
+            job_type=job_type,
             tags=tags,
             notes=notes,
             reinit=True,
