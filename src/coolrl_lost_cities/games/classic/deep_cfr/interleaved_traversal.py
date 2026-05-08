@@ -106,6 +106,7 @@ class InterleavedTraversalConfig:
     epsilon: float
     outcome_sampling_epsilon: float
     outcome_sampling_value_clip: float | None
+    outcome_unsampled_regret: str
     max_depth: int | None
     max_nodes: int | None
     strategy_sample_interval: int
@@ -384,7 +385,8 @@ class InterleavedContext:
         node_value = float(frame.policy[frame.action]) * sampled_action_value
         if frame.player == self.traverser:
             target = np.zeros(self.cfg.action_size, dtype=np.float32)
-            target[frame.legal_mask] = -node_value
+            if self.cfg.outcome_unsampled_regret == "negative_node_value":
+                target[frame.legal_mask] = -node_value
             target[frame.action] = sampled_action_value - node_value
             self.samples.advantage.append(
                 TrainingSample(
@@ -616,6 +618,7 @@ def run_interleaved_traversal_batch(
     max_nodes: int | None,
     outcome_sampling_epsilon: float,
     outcome_sampling_value_clip: float | None,
+    outcome_unsampled_regret: str,
     opponent_policy: str,
     endpoint_depth_bucket_width: int,
     endpoint_depth_bucket_max: int,
@@ -631,6 +634,7 @@ def run_interleaved_traversal_batch(
         epsilon=epsilon,
         outcome_sampling_epsilon=outcome_sampling_epsilon,
         outcome_sampling_value_clip=outcome_sampling_value_clip,
+        outcome_unsampled_regret=outcome_unsampled_regret,
         max_depth=max_depth,
         max_nodes=max_nodes,
         strategy_sample_interval=strategy_sample_interval,
