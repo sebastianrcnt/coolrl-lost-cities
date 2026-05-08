@@ -83,12 +83,12 @@ memory:
 
 checkpoint:
   save_latest: true
-  save_every: 100
+  save_every: 50
   progress_interval_seconds: 20.0
   exact_resume: false
 
 evaluation:
-  eval_every: 25
+  eval_every: 5
   games: 100
   opponents:
     - random
