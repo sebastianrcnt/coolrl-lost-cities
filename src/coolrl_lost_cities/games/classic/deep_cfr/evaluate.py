@@ -182,12 +182,14 @@ class StrategyNetPolicy(LostCitiesPolicy):
         sample: bool = False,
         seed: int | None = None,
         encoding: EncodingConfig | None = None,
+        deterministic: bool = False,
     ) -> None:
         self.strategy_network = strategy_network
         self.device = torch.device(device)
         self.sample = sample
         self.rng = np.random.default_rng(seed)
         self.encoding = encoding
+        self.deterministic = deterministic
         self.runtime = EvalRuntimeCounters()
 
     def select_actions_batch(self, states: list[GameState]) -> list[tuple[int, float]]:
@@ -209,8 +211,19 @@ class StrategyNetPolicy(LostCitiesPolicy):
 
         network_started = time.perf_counter()
         with torch.inference_mode():
-            x = torch.as_tensor(np.stack(infos), dtype=torch.float32, device=self.device)
-            logits = self.strategy_network(x)
+            if self.deterministic:
+                logits = torch.cat(
+                    [
+                        self.strategy_network(
+                            torch.as_tensor(info[None, :], dtype=torch.float32, device=self.device)
+                        )
+                        for info in infos
+                    ],
+                    dim=0,
+                )
+            else:
+                x = torch.as_tensor(np.stack(infos), dtype=torch.float32, device=self.device)
+                logits = self.strategy_network(x)
         self.runtime.policy_network_seconds += time.perf_counter() - network_started
 
         postprocess_started = time.perf_counter()
@@ -297,6 +310,7 @@ def evaluate_strategy_network(
     encoding: EncodingConfig | None = None,
     batch_size: int = 64,
     save_games_path: str | None = None,
+    deterministic: bool = False,
 ) -> dict[str, float | int]:
     strategy_network.eval()
     return _evaluate_strategy_network_with_diagnostics(
@@ -310,6 +324,7 @@ def evaluate_strategy_network(
         encoding=encoding,
         batch_size=batch_size,
         save_games_path=save_games_path,
+        deterministic=deterministic,
     )
 
 
@@ -325,6 +340,7 @@ def _evaluate_strategy_network_with_diagnostics(
     encoding: EncodingConfig | None,
     batch_size: int,
     save_games_path: str | None = None,
+    deterministic: bool = False,
 ) -> dict[str, float | int]:
     if games <= 0:
         raise ValueError(f"games must be positive, got {games}")
@@ -335,6 +351,7 @@ def _evaluate_strategy_network_with_diagnostics(
         device=device,
         seed=seed * 2,
         encoding=encoding,
+        deterministic=deterministic,
     )
     started = time.perf_counter()
     active_games: list[_EvalGame] = []

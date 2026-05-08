@@ -5,6 +5,7 @@ run:
   max_minutes: null
   device: cuda
   use_amp: false
+  deterministic: false
 
 rules:
   n_colors: 5

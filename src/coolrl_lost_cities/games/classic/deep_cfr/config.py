@@ -23,6 +23,7 @@ class RunConfig(StrictModel):
     seed: int = 1
     device: str = "auto"
     use_amp: bool = False
+    deterministic: bool = False
 
     @field_validator("device")
     @classmethod

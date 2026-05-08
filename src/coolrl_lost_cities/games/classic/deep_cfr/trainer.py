@@ -69,9 +69,22 @@ class EvaluationWorkerJob:
     device: str
     max_steps: int
     batch_size: int
+    deterministic: bool = False
+
+
+def configure_torch_determinism(enabled: bool) -> None:
+    torch.use_deterministic_algorithms(bool(enabled))
+    if not enabled:
+        return
+    if torch.backends.cudnn.is_available():
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.allow_tf32 = False
+    if hasattr(torch.backends, "cuda") and hasattr(torch.backends.cuda, "matmul"):
+        torch.backends.cuda.matmul.allow_tf32 = False
 
 
 def run_evaluation_worker(job: EvaluationWorkerJob) -> tuple[str, dict[str, float | int]]:
+    configure_torch_determinism(job.deterministic)
     device = _resolve_torch_device(job.device)
     game_config = LostCitiesConfig(**job.game_config)
     network_config = NetworkConfig.model_validate(job.network_config)
@@ -89,6 +102,7 @@ def run_evaluation_worker(job: EvaluationWorkerJob) -> tuple[str, dict[str, floa
         max_steps=job.max_steps,
         encoding=encoding_config,
         batch_size=job.batch_size,
+        deterministic=job.deterministic,
     )
     return job.opponent, result
 
@@ -201,6 +215,7 @@ class DeepCFRTrainer:
         extra_trackers: list[RunTracker] | None = None,
     ) -> None:
         self.config = config or DeepCFRConfig()
+        configure_torch_determinism(self.config.run.deterministic)
         self.game_config = game_config or self.config.rules.to_lost_cities_config(
             seed=self.config.run.seed
         )
@@ -327,9 +342,11 @@ class DeepCFRTrainer:
             self._ensure_inference_server()
             self._maybe_sync_inference_server(iteration)
         traversal_started = time.perf_counter()
+        worker_count = self.config.traversal.resolved_num_workers()
         if (
-            self.config.traversal.resolved_num_workers() > 1
+            worker_count > 1
             or self.config.traversal.inference_backend == "server"
+            or (self.config.run.deterministic and worker_count > 0)
         ):
             total_stats = self._run_traversals_parallel(iteration)
         else:
@@ -435,6 +452,7 @@ class DeepCFRTrainer:
                         seed=self.config.run.seed + iteration * 1_000_003 + player,
                         interleave_width=self.config.traversal.interleave_width,
                         interleave_max_batch=self.config.traversal.interleave_max_batch,
+                        deterministic=self.config.run.deterministic,
                     )
                 )
                 self._record_interleaved_metrics(runtime_metrics)
@@ -545,6 +563,7 @@ class DeepCFRTrainer:
                 for _, batch in zip(range(in_flight_limit), batch_iter, strict=False)
             }
             completed_batches = 0
+            completed_results = []
             while futures:
                 done, futures = wait(futures, timeout=5.0, return_when=FIRST_COMPLETED)
                 if not done:
@@ -557,17 +576,8 @@ class DeepCFRTrainer:
                     continue
                 for future in done:
                     result = future.result()
+                    completed_results.append(result)
                     completed_batches += 1
-                    total_stats.accumulate(result.stats)
-                    self._record_interleaved_metrics(result.runtime_metrics)
-                    memory_add_started = time.perf_counter()
-                    self._add_advantage_samples(result.advantage_samples)
-                    self.strategy_memory.add_many(result.strategy_samples, self.rng)
-                    self._runtime_metrics["time/memory_add_seconds"] = (
-                        float(self._runtime_metrics.get("time/memory_add_seconds", 0.0))
-                        + time.perf_counter()
-                        - memory_add_started
-                    )
                     progress_nodes += result.stats.nodes
                     progress_traversals += result.traversals
                     if next_progress_at is not None and progress_traversals >= next_progress_at:
@@ -587,6 +597,20 @@ class DeepCFRTrainer:
                     next_batch = next(batch_iter, None)
                     if next_batch is not None:
                         futures.add(executor.submit(run_traversal_worker_batch, next_batch))
+            memory_add_started = time.perf_counter()
+            for result in sorted(
+                completed_results,
+                key=lambda item: (item.player, item.traversal_start_index, item.batch_index),
+            ):
+                total_stats.accumulate(result.stats)
+                self._record_interleaved_metrics(result.runtime_metrics)
+                self._add_advantage_samples(result.advantage_samples)
+                self.strategy_memory.add_many(result.strategy_samples, self.rng)
+            self._runtime_metrics["time/memory_add_seconds"] = (
+                float(self._runtime_metrics.get("time/memory_add_seconds", 0.0))
+                + time.perf_counter()
+                - memory_add_started
+            )
         if (
             self.config.traversal.inference_backend == "server"
             and self._inference_server is not None
@@ -647,8 +671,10 @@ class DeepCFRTrainer:
                 chunk = seeds[start : start + chunk_size]
                 batches.append(
                     TraversalWorkerBatch(
+                        batch_index=batch_index,
                         player=player,
                         iteration=iteration,
+                        traversal_start_index=start,
                         seeds=chunk,
                         config=self.config.to_dict(),
                         game_config=self.game_config.to_snapshot(),
@@ -656,7 +682,7 @@ class DeepCFRTrainer:
                         action_size=self.action_size,
                         advantage_networks=network_payloads,
                         league_advantage_networks=league_payloads,
-                        worker_seed=self.config.run.seed + iteration * 1_000_003 + batch_index,
+                        worker_seed=self.config.run.seed + iteration * 1_000_003 + player,
                         strategy_network=strategy_payload,
                         inference_handles=None,
                     )
@@ -884,6 +910,7 @@ class DeepCFRTrainer:
                 max_steps=self.config.evaluation.max_steps,
                 encoding=self.config.encoding,
                 batch_size=self.config.evaluation.batch_size,
+                deterministic=self.config.run.deterministic,
             )
             for key, value in result.items():
                 results[f"eval/{opponent}/{key}"] = value

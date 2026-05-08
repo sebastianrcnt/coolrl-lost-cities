@@ -114,6 +114,7 @@ class InterleavedTraversalConfig:
     opponent_policy: str
     endpoint_depth_bucket_width: int
     endpoint_depth_bucket_max: int
+    deterministic: bool = False
 
 
 @dataclass
@@ -182,11 +183,13 @@ class BatchedPolicy:
         device: torch.device,
         epsilon: float,
         strategy_network: torch.nn.Module | None = None,
+        deterministic: bool = False,
     ) -> None:
         self.networks = networks
         self.strategy_network = strategy_network
         self.device = device
         self.epsilon = epsilon
+        self.deterministic = deterministic
         self.batch_sizes: list[int] = []
         self.forward_seconds = 0.0
 
@@ -194,13 +197,27 @@ class BatchedPolicy:
         if not requests:
             return []
         out: list[PolicyResult | None] = [None] * len(requests)
-        group_keys = sorted({(request.network_kind, request.player) for request in requests})
-        for network_kind, player in group_keys:
-            indices = [
-                idx
-                for idx, request in enumerate(requests)
-                if (request.network_kind, request.player) == (network_kind, player)
+        if self.deterministic:
+            groups = [
+                (request.network_kind, request.player, [index])
+                for index, request in enumerate(requests)
             ]
+        else:
+            group_keys = sorted({(request.network_kind, request.player) for request in requests})
+            groups = [
+                (
+                    network_kind,
+                    player,
+                    [
+                        idx
+                        for idx, request in enumerate(requests)
+                        if (request.network_kind, request.player) == (network_kind, player)
+                    ],
+                )
+                for network_kind, player in group_keys
+            ]
+        for network_kind, player, indices in groups:
+            indices = [idx for idx in indices]
             states = np.stack([requests[idx].info_state for idx in indices]).astype(np.float32)
             x = torch.as_tensor(states, dtype=torch.float32, device=self.device)
             if self.device.type == "cuda":
@@ -605,6 +622,8 @@ def run_interleaved_traversal_batch(
     seed: int,
     interleave_width: int,
     interleave_max_batch: int,
+    traversal_start_index: int = 0,
+    deterministic: bool = False,
 ) -> tuple[TraversalStats, list[TrainingSample], list[TrainingSample], dict[str, float | int]]:
     cfg = InterleavedTraversalConfig(
         action_size=action_size,
@@ -620,14 +639,18 @@ def run_interleaved_traversal_batch(
         opponent_policy=opponent_policy,
         endpoint_depth_bucket_width=endpoint_depth_bucket_width,
         endpoint_depth_bucket_max=endpoint_depth_bucket_max,
+        deterministic=deterministic,
     )
     states = [GameState.new_game(game_config, seed=game_seed) for game_seed in seeds]
-    rng_seeds = [int(seed) + index * 1_000_003 for index in range(len(seeds))]
+    rng_seeds = [
+        int(seed) + (int(traversal_start_index) + index) * 1_000_003 for index in range(len(seeds))
+    ]
     policy = BatchedPolicy(
         advantage_networks,
         device=device,
         epsilon=cfg.epsilon,
         strategy_network=strategy_network,
+        deterministic=cfg.deterministic,
     )
     scheduler = InterleavedTraversalScheduler(cfg, policy)
     _values, _rng_out, stats_rows, sample_rows, batch_sizes = scheduler.run(

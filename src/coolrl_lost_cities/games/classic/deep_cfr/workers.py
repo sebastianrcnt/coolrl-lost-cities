@@ -43,6 +43,17 @@ def _configure_worker_torch_threads() -> None:
     _TORCH_THREADS_CONFIGURED = True
 
 
+def _configure_worker_torch_determinism(enabled: bool) -> None:
+    torch.use_deterministic_algorithms(bool(enabled))
+    if not enabled:
+        return
+    if torch.backends.cudnn.is_available():
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.allow_tf32 = False
+    if hasattr(torch.backends, "cuda") and hasattr(torch.backends.cuda, "matmul"):
+        torch.backends.cuda.matmul.allow_tf32 = False
+
+
 def initialize_traversal_worker(inference_handles: InferenceClientHandles | None = None) -> None:
     global _INFERENCE_HANDLES
     _INFERENCE_HANDLES = inference_handles
@@ -51,8 +62,10 @@ def initialize_traversal_worker(inference_handles: InferenceClientHandles | None
 
 @dataclass(frozen=True)
 class TraversalWorkerBatch:
+    batch_index: int
     player: int
     iteration: int
+    traversal_start_index: int
     seeds: list[int]
     config: dict[str, Any]
     game_config: dict[str, Any]
@@ -67,7 +80,9 @@ class TraversalWorkerBatch:
 
 @dataclass(frozen=True)
 class TraversalWorkerResult:
+    batch_index: int
     player: int
+    traversal_start_index: int
     stats: TraversalStats
     advantage_samples: list[TrainingSample]
     strategy_samples: list[TrainingSample]
@@ -79,6 +94,7 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
     _configure_worker_torch_threads()
 
     cfg = config_from_dict(batch.config)
+    _configure_worker_torch_determinism(cfg.run.deterministic)
     device = torch.device("cpu")
     client: InferenceClient | None = None
     try:
@@ -176,6 +192,8 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
                     seed=batch.worker_seed,
                     interleave_width=cfg.traversal.interleave_width,
                     interleave_max_batch=cfg.traversal.interleave_max_batch,
+                    traversal_start_index=batch.traversal_start_index,
+                    deterministic=cfg.run.deterministic,
                 )
             )
         else:
@@ -221,7 +239,9 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
         if client is not None:
             client.close()
     return TraversalWorkerResult(
+        batch_index=batch.batch_index,
         player=batch.player,
+        traversal_start_index=batch.traversal_start_index,
         stats=total_stats,
         advantage_samples=advantage_samples,
         strategy_samples=strategy_samples,
