@@ -160,6 +160,40 @@ higher policy probability and sampled rate than good-open candidates. The
 sampled target mean is also better for bad opens than good opens. This points
 to a target or metric-alignment problem before model capacity or LCFR tuning.
 
+## First-open counterfactual audit
+
+Script:
+
+- `scripts/analyze_first_open_counterfactual.py`
+
+Output:
+
+- `runs/tmp/first_open_counterfactual_confirm_eps005_200_vs_500.jsonl`
+
+Method: collect first-open candidate states from existing checkpoints, force
+each first-open candidate once, and compare the resulting continuation value
+against the current policy's best non-open action from the same state.
+
+`delta_open = value(force open) - value(best non-open)`.
+
+Counterfactual summary against `safe_heuristic_strict`:
+
+| checkpoint | bucket | candidates | delta mean | delta median | delta positive | policy prob | selected rate |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| iter 200 | good open | 40 | -26.57 | -26.5 | 0.050 | 0.000 | 0.000 |
+| iter 200 | bad open | 460 | -23.15 | -21.0 | 0.130 | 0.036 | 0.037 |
+| iter 500 | good open | 30 | -23.43 | -17.5 | 0.167 | 0.067 | 0.067 |
+| iter 500 | bad open | 470 | -11.18 | -8.0 | 0.226 | 0.020 | 0.019 |
+
+Interpretation: the heuristic `open_bad` label is not entirely misaligned with
+continuation value. Forced bad opens are usually worse than the best non-open
+alternative. However, heuristic `open_good` also often loses to best non-open in
+these sampled states, so "recoverable eventually" is not the same as "open now."
+
+Combined with the target audit, this points toward target/objective alignment:
+the traversal target is not making the bad-open-vs-non-open mistake clearly
+negative, even when the counterfactual continuation usually is negative.
+
 ## Open questions
 
 1. Does the traversal target itself provide separable labels for good first
