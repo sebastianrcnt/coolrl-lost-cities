@@ -222,7 +222,31 @@ more directly:
 Success criterion: the target distribution should show a usable separation
 between good and bad opens. If it does not, the training target is the blocker.
 
-### 2. Short open-selectivity ablation
+### 2. First-open replay reweighting
+
+Implemented option:
+
+- `optimization.advantage_first_open_fraction`
+
+Meaning: reserve this fraction of each advantage minibatch for samples where a
+first-open action was legally available at the traverser decision. The target is
+not changed; only replay sampling frequency changes. This keeps the experiment
+on the pure self-play side more than hand-written target shaping.
+
+Initial planned run:
+
+- `run.experiment_name=first-open-reweight-50-512x3-det-500`
+- `optimization.advantage_first_open_fraction=0.5`
+- `traversal.outcome_sampling_epsilon=0.05`
+- `traversal.outcome_unsampled_regret=zero`
+- `run.deterministic=true`
+- `run.max_iterations=500`
+
+Primary comparison is the `eps=0.05` confirmation run and the pure external
+sampling run. Success requires bad-open rate and score/opened color to improve
+together without a large score-diff regression.
+
+### 3. Short open-selectivity ablation
 
 Run a 200-300 iteration ablation only after the target audit identifies a
 specific change. Candidate changes include:

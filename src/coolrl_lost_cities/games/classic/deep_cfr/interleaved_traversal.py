@@ -92,6 +92,20 @@ def _masked_softmax(logits: np.ndarray, legal_mask: np.ndarray) -> np.ndarray:
     return policy
 
 
+def _has_legal_first_open(state: GameState, player: int, legal_mask: np.ndarray) -> bool:
+    card_action_size = state.config.hand_size * 2
+    hand = state.hand_slots(player)
+    expeditions = state.expeditions[player]
+    for unified_action in np.flatnonzero(legal_mask):
+        action = int(unified_action)
+        if action >= card_action_size or action % 2 == 1:
+            continue
+        card = hand[action // 2]
+        if card is not None and not expeditions[int(card.color)]:
+            return True
+    return False
+
+
 def _record_endpoint(stats: TraversalStats, depth: int, width: int, max_depth: int) -> None:
     stats.endpoint_depth_sum += depth
     start = (depth // width) * width
@@ -395,6 +409,7 @@ class InterleavedContext:
                     legal_mask=frame.legal_mask.copy(),
                     iteration=self.iteration,
                     player=frame.player,
+                    is_first_open=_has_legal_first_open(self.state, frame.player, frame.legal_mask),
                 )
             )
             self.stats.advantage_samples += 1

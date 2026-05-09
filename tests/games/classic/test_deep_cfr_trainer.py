@@ -973,6 +973,63 @@ def test_reservoir_memory_caps_samples_and_filters_player_batches() -> None:
     assert all(sample.player == 1 for sample in player_one)
 
 
+def test_reservoir_memory_filters_first_open_batches() -> None:
+    memory = ReservoirMemory()
+    rng = np.random.default_rng(37)
+    for index in range(6):
+        memory.add(
+            TrainingSample(
+                info_state=np.asarray([index], dtype=np.float32),
+                target=np.asarray([index], dtype=np.float32),
+                legal_mask=np.asarray([True]),
+                iteration=index,
+                player=0,
+                is_first_open=index % 2 == 0,
+            ),
+            rng,
+        )
+
+    first_open = memory.sample(8, rng, first_open_only=True)
+
+    assert len(first_open) == 3
+    assert all(sample.is_first_open for sample in first_open)
+    assert memory.count(first_open_only=True) == 3
+
+
+def test_deep_cfr_trainer_can_oversample_first_open_advantage_batches(tmp_path) -> None:
+    trainer = DeepCFRTrainer(
+        _deep_cfr_config(
+            {
+                "run": {"seed": 41},
+                "network": {"hidden_size": 16},
+                "optimization": {
+                    "advantage_batch_size": 4,
+                    "advantage_first_open_fraction": 0.5,
+                },
+            }
+        ),
+        run_dir=tmp_path,
+        device="cpu",
+    )
+    for index in range(8):
+        trainer.advantage_memories[0].add(
+            TrainingSample(
+                info_state=np.asarray([index], dtype=np.float32),
+                target=np.asarray([index], dtype=np.float32),
+                legal_mask=np.asarray([True]),
+                iteration=index,
+                player=0,
+                is_first_open=index in {1, 3},
+            ),
+            trainer.rng,
+        )
+
+    batch = trainer._sample_advantage_batch(player=0)
+
+    assert len(batch) == 4
+    assert sum(sample.is_first_open for sample in batch) >= 2
+
+
 def test_deep_cfr_trainer_saves_loads_and_evaluates_checkpoint(tmp_path) -> None:
     checkpoint_dir = tmp_path / "deep_cfr"
     trainer = DeepCFRTrainer(

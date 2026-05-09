@@ -12,6 +12,7 @@ class TrainingSample:
     legal_mask: np.ndarray
     iteration: int
     player: int
+    is_first_open: bool = False
 
 
 class ReservoirMemory:
@@ -31,6 +32,7 @@ class ReservoirMemory:
             legal_mask=np.asarray(sample.legal_mask, dtype=bool).copy(),
             iteration=int(sample.iteration),
             player=int(sample.player),
+            is_first_open=bool(sample.is_first_open),
         )
         if self.capacity is None or len(self._samples) < self.capacity:
             self._samples.append(sample)
@@ -60,14 +62,23 @@ class ReservoirMemory:
         rng: np.random.Generator,
         *,
         player: int | None = None,
+        first_open_only: bool = False,
     ) -> list[TrainingSample]:
-        candidates = (
-            self._samples
-            if player is None
-            else [sample for sample in self._samples if sample.player == player]
-        )
+        candidates = self._samples
+        if player is not None:
+            candidates = [sample for sample in candidates if sample.player == player]
+        if first_open_only:
+            candidates = [sample for sample in candidates if sample.is_first_open]
         if not candidates:
             raise ValueError("cannot sample from empty memory")
         size = min(int(batch_size), len(candidates))
         indices = rng.choice(len(candidates), size=size, replace=len(candidates) < size)
         return [candidates[int(index)] for index in indices]
+
+    def count(self, *, player: int | None = None, first_open_only: bool = False) -> int:
+        candidates = self._samples
+        if player is not None:
+            candidates = [sample for sample in candidates if sample.player == player]
+        if first_open_only:
+            candidates = [sample for sample in candidates if sample.is_first_open]
+        return len(candidates)

@@ -358,6 +358,7 @@ cdef class CythonDeepCFRTraverser:
                 policy_argmax_full_tie,
             )
             self._record_external_advantage(
+                state,
                 info_state,
                 legal,
                 action_values,
@@ -423,6 +424,7 @@ cdef class CythonDeepCFRTraverser:
                 node_value,
                 iteration,
                 player,
+                self._has_legal_first_open(state, player, legal),
                 stats,
             )
         return node_value
@@ -920,6 +922,7 @@ cdef class CythonDeepCFRTraverser:
         float node_value,
         int iteration,
         int player,
+        bint is_first_open,
         object stats,
     ):
         cdef int i
@@ -941,12 +944,14 @@ cdef class CythonDeepCFRTraverser:
                 legal_mask=legal_mask,
                 iteration=iteration,
                 player=player,
+                is_first_open=bool(is_first_open),
             )
         )
         stats.advantage_samples += 1
 
     cdef void _record_external_advantage(
         self,
+        GameState state,
         object info_state,
         const unsigned char* legal,
         const float* action_values,
@@ -973,9 +978,33 @@ cdef class CythonDeepCFRTraverser:
                 legal_mask=legal_mask,
                 iteration=iteration,
                 player=player,
+                is_first_open=self._has_legal_first_open(state, player, legal),
             )
         )
         stats.advantage_samples += 1
+
+    cdef bint _has_legal_first_open(
+        self,
+        GameState state,
+        int player,
+        const unsigned char* legal,
+    ) noexcept:
+        cdef int action
+        cdef int slot
+        cdef int card
+        cdef int color
+        cdef int card_action_size = state.hand_size * 2
+        for action in range(card_action_size):
+            if legal[action] == 0 or action % 2 == 1:
+                continue
+            slot = action // 2
+            if slot >= state.hand_lens[player]:
+                continue
+            card = state.hand_cards[state._hand_index(player, slot)]
+            color = state._card_color(card)
+            if state.expedition_lens[state._expedition_len_index(player, color)] == 0:
+                return True
+        return False
 
     cdef void _record_endpoint(self, object stats, int depth):
         cdef int width = self.endpoint_depth_bucket_width

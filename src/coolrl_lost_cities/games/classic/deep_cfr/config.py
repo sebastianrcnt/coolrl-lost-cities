@@ -264,9 +264,18 @@ class OptimizationConfig(StrictModel):
     strategy_batch_size: int = 256
     advantage_updates_per_iteration: int = 64
     strategy_updates_per_iteration: int = 64
+    advantage_first_open_fraction: float = 0.0
     learning_rate: float = 1.0e-3
     weight_decay: float = 0.0
     grad_clip: float = 0.0
+
+    @field_validator("advantage_first_open_fraction")
+    @classmethod
+    def _validate_advantage_first_open_fraction(cls, value: float) -> float:
+        fraction = float(value)
+        if not 0.0 <= fraction <= 1.0:
+            raise ValueError("must be between 0.0 and 1.0")
+        return fraction
 
 
 class MemoryConfig(StrictModel):

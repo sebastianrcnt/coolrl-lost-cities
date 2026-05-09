@@ -1045,10 +1045,7 @@ class DeepCFRTrainer:
         network.train()
         for _step in range(self.config.optimization.advantage_updates_per_iteration):
             sample_started = time.perf_counter()
-            batch = self.advantage_memories[player].sample(
-                self.config.optimization.advantage_batch_size,
-                self.rng,
-            )
+            batch = self._sample_advantage_batch(player)
             self._runtime_metrics[f"time/advantage_player_{player}_sample_seconds"] = (
                 float(
                     self._runtime_metrics.get(f"time/advantage_player_{player}_sample_seconds", 0.0)
@@ -1104,6 +1101,29 @@ class DeepCFRTrainer:
             self._scaler.update()
             losses.append(float(loss.detach().float().cpu()))
         return float(np.mean(losses)) if losses else 0.0
+
+    def _sample_advantage_batch(self, player: int) -> list[TrainingSample]:
+        memory = self.advantage_memories[player]
+        batch_size = int(self.config.optimization.advantage_batch_size)
+        first_open_fraction = float(self.config.optimization.advantage_first_open_fraction)
+        first_open_count = memory.count(first_open_only=True)
+        self._runtime_metrics[f"samples/advantage_player_{player}_first_open"] = first_open_count
+        if first_open_fraction <= 0.0 or first_open_count <= 0:
+            return memory.sample(batch_size, self.rng)
+
+        first_open_batch_size = min(batch_size, max(1, round(batch_size * first_open_fraction)))
+        first_open_batch = memory.sample(
+            first_open_batch_size,
+            self.rng,
+            first_open_only=True,
+        )
+        remaining = batch_size - len(first_open_batch)
+        if remaining <= 0:
+            self.rng.shuffle(first_open_batch)
+            return first_open_batch
+        batch = first_open_batch + memory.sample(remaining, self.rng)
+        self.rng.shuffle(batch)
+        return batch
 
     def _train_strategy(
         self,
