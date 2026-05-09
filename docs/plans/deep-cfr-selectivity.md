@@ -129,6 +129,37 @@ Interpretation: by 500 iterations the model strongly suppresses opening
 overall. It suppresses good opens along with bad opens, which is the core
 selectivity failure.
 
+## First-open target audit
+
+Script:
+
+- `scripts/analyze_first_open_targets.py`
+
+Output:
+
+- `runs/tmp/first_open_target_audit_confirm_eps005_200_vs_500.jsonl`
+
+Method: regenerate short interleaved traversal batches from existing
+checkpoints and bucket first-open advantage targets by action quality. Because
+`outcome_unsampled_regret=zero` sets unsampled legal actions to zero, the most
+informative statistic is the sampled-action target distribution, not the full
+legal-candidate target distribution.
+
+Sampled target summary:
+
+| checkpoint | bucket | candidates | policy prob | sampled rate | sampled target mean | sampled target positive |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| iter 200 | good open | 796 | 0.078 | 0.078 | -40.71 | 0.419 |
+| iter 200 | bad open | 7142 | 0.081 | 0.081 | -25.65 | 0.424 |
+| iter 500 | good open | 800 | 0.064 | 0.058 | 8.39 | 0.435 |
+| iter 500 | bad open | 8322 | 0.069 | 0.071 | 12.61 | 0.433 |
+
+Interpretation: the regenerated traversal targets do not rank good opens above
+bad opens. At both inspected checkpoints, bad-open candidates receive slightly
+higher policy probability and sampled rate than good-open candidates. The
+sampled target mean is also better for bad opens than good opens. This points
+to a target or metric-alignment problem before model capacity or LCFR tuning.
+
 ## Open questions
 
 1. Does the traversal target itself provide separable labels for good first
