@@ -996,6 +996,38 @@ def test_reservoir_memory_filters_first_open_batches() -> None:
     assert memory.count(first_open_only=True) == 3
 
 
+def test_reservoir_memory_updates_first_open_index_on_replacement() -> None:
+    memory = ReservoirMemory(capacity=1)
+    replacement_rng = np.random.default_rng(1)
+    sample_rng = np.random.default_rng(37)
+    memory.add(
+        TrainingSample(
+            info_state=np.asarray([1], dtype=np.float32),
+            target=np.asarray([1], dtype=np.float32),
+            legal_mask=np.asarray([True]),
+            iteration=1,
+            player=0,
+            is_first_open=True,
+        ),
+        replacement_rng,
+    )
+    memory.add(
+        TrainingSample(
+            info_state=np.asarray([2], dtype=np.float32),
+            target=np.asarray([2], dtype=np.float32),
+            legal_mask=np.asarray([True]),
+            iteration=2,
+            player=0,
+            is_first_open=False,
+        ),
+        replacement_rng,
+    )
+
+    assert memory.count(first_open_only=True) == 0
+    with pytest.raises(ValueError, match="cannot sample from empty memory"):
+        memory.sample(1, sample_rng, first_open_only=True)
+
+
 def test_deep_cfr_trainer_can_oversample_first_open_advantage_batches(tmp_path) -> None:
     trainer = DeepCFRTrainer(
         _deep_cfr_config(
