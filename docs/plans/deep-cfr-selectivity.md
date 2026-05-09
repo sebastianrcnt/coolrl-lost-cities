@@ -246,6 +246,32 @@ Primary comparison is the `eps=0.05` confirmation run and the pure external
 sampling run. Success requires bad-open rate and score/opened color to improve
 together without a large score-diff regression.
 
+Result:
+
+- Run: `runs/2026-05-09_235808_first-open-reweight-50-512x3-det-500-indexed`
+- W&B group: `first-open-replay-v1`
+- Commit: `8217cec` (`Speed up first-open memory sampling`)
+
+The scan-based first implementation was stopped after 12 iterations because
+first-open sampling scanned the full replay memory and pushed iteration time
+above 60 seconds. The indexed-memory version kept first-open sampling near
+0.25 seconds per player at 4M advantage samples and completed 500 iterations.
+
+Final `safe_heuristic_strict` comparison:
+
+| Run | Iter | Score diff | Win rate | Bad open | Score/opened |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| baseline `confirm-eps-005-zero-512x3-det-500` | 500 | -61.24 | 0.06 | 0.903 | -8.30 |
+| pure external `pure-external-512x3-det-500` | 500 | -50.38 | 0.06 | 0.925 | -9.79 |
+| first-open reweight 50% indexed | 500 | -52.20 | 0.07 | 0.919 | -9.39 |
+
+Conclusion: first-open replay reweighting alone did not solve selectivity. It
+improved score diff versus the baseline final checkpoint, but it did not reduce
+bad-open rate and made score/opened color worse. The run briefly looked better
+around 120-200 iterations, then regressed by 300-500 iterations. This suggests
+the replay emphasis is not enough if the underlying target does not separate
+good first opens from bad first opens.
+
 ### 3. Short open-selectivity ablation
 
 Run a 200-300 iteration ablation only after the target audit identifies a
