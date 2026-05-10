@@ -218,15 +218,27 @@ def _rollout_value(
     opponent: str,
     seed: int,
     max_steps: int,
+    post_policy: str = "model",
 ) -> float:
+    """Roll out from `state` to terminal and return policy_player's score diff.
+
+    When `post_policy == "model"`, policy_player uses the trained advantage
+    network policy. Otherwise `post_policy` is treated as a bot name and a
+    fresh bot is built for policy_player too — used to diagnose whether the
+    self-play rollout itself is poisoning forced-open continuation values.
+    """
     rollout = state.clone()
     opponent_policy = build_bot(opponent, seed=seed)
+    post_policy_bot = build_bot(post_policy, seed=seed * 7 + 1) if post_policy != "model" else None
     steps = 0
     while not rollout.terminal and steps < max_steps:
         current = int(rollout.current_player)
         if current == policy_player:
-            unified = policy.select_unified(rollout)
-            action = rollout.from_unified_action(unified)
+            if post_policy_bot is not None:
+                action = post_policy_bot.act(rollout)
+            else:
+                unified = policy.select_unified(rollout)
+                action = rollout.from_unified_action(unified)
         else:
             action = opponent_policy.act(rollout)
         rollout.apply_action(action)
@@ -260,6 +272,7 @@ def analyze_checkpoint(
     device: torch.device,
     max_steps: int,
     max_candidates: int,
+    post_policy: str = "model",
 ) -> dict[str, Any]:
     _cfg, game_config, policy, iteration = _load_checkpoint(checkpoint, device)
     buckets: dict[str, Bucket] = defaultdict(Bucket)
@@ -306,6 +319,7 @@ def analyze_checkpoint(
                     opponent=opponent,
                     seed=game_seed * 10_000 + candidate_states * 101 + 1,
                     max_steps=max_steps,
+                    post_policy=post_policy,
                 )
                 for open_action in open_actions:
                     if evaluated_open_candidates >= max_candidates:
@@ -319,6 +333,7 @@ def analyze_checkpoint(
                         opponent=opponent,
                         seed=game_seed * 10_000 + candidate_states * 101 + 2,
                         max_steps=max_steps,
+                        post_policy=post_policy,
                     )
                     label = labels[open_action]
                     buckets[label].add(
@@ -344,6 +359,7 @@ def analyze_checkpoint(
         "policy_turns": policy_turns,
         "candidate_states": candidate_states,
         "first_open_candidates": first_open_candidates,
+        "post_policy": post_policy,
         "buckets": {key: bucket.to_dict() for key, bucket in sorted(buckets.items())},
     }
 
@@ -357,6 +373,15 @@ def main() -> None:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--max-steps", type=int, default=10_000)
     parser.add_argument("--max-candidates", type=int, default=500)
+    parser.add_argument(
+        "--post-policy",
+        default="model",
+        help=(
+            "Policy used for the policy_player during forced-action rollouts. "
+            "'model' uses the trained advantage network; any other value is "
+            "treated as a bot name (e.g. 'safe_heuristic_strict')."
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -372,6 +397,7 @@ def main() -> None:
             device=device,
             max_steps=args.max_steps,
             max_candidates=args.max_candidates,
+            post_policy=args.post_policy,
         )
         rows.append(row)
         print(json.dumps(row, sort_keys=True))

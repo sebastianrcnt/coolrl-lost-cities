@@ -4,9 +4,9 @@
 from coolrl_lost_cities.games.classic.game cimport GameState
 
 
-cdef int DERIVED_PLAYABILITY_PER_COLOR = 19
+cdef int DERIVED_PLAYABILITY_PER_COLOR = 15
 cdef int DERIVED_PLAYABILITY_COMMON = 3
-cdef int SLOT_AWARE_PLAYABILITY_PER_SLOT = 12
+cdef int SLOT_AWARE_PLAYABILITY_PER_SLOT = 6
 
 
 cdef int _base_input_dim_c(GameState state) noexcept:
@@ -157,7 +157,6 @@ cdef int _append_derived_playability_features_c(GameState state, int player, flo
     cdef float max_numeric_sum = _max_numeric_sum_c(state)
     cdef float max_cards_per_color = <float>max(1, state.cards_per_color)
     cdef float max_wagers = <float>max(1, state.n_handshakes)
-    cdef float max_score_estimate = _max_score_estimate_c(state)
     cdef int color
     cdef int is_unopened, has_only_wagers_opened, current_numeric_sum, current_wager_count
     cdef int current_expedition_len, last_numeric_rank, hand_count, hand_wager_count
@@ -191,13 +190,9 @@ cdef int _append_derived_playability_features_c(GameState state, int player, flo
         out[idx + 9] = <float>playable_hand_numeric_count / max_cards_per_color
         out[idx + 10] = <float>dead_hand_numeric_count / max_cards_per_color
         out[idx + 11] = <float>dead_hand_numeric_sum / max_numeric_sum
-        out[idx + 12] = <float>recoverable_margin_no_bonus / max_numeric_sum
-        out[idx + 13] = <float>recoverable_score_no_bonus / max_score_estimate
-        out[idx + 14] = <float>min_needed_to_break_even / max_numeric_sum
-        out[idx + 15] = <float>discard_top_playable_flag
-        out[idx + 16] = <float>discard_top_playable_value / max_numeric_sum
-        out[idx + 17] = <float>unknown_remaining_count / max_cards_per_color
-        out[idx + 18] = <float>cards_needed_for_bonus / max_cards_per_color
+        out[idx + 12] = <float>discard_top_playable_flag
+        out[idx + 13] = <float>discard_top_playable_value / max_numeric_sum
+        out[idx + 14] = <float>unknown_remaining_count / max_cards_per_color
         idx += DERIVED_PLAYABILITY_PER_COLOR
 
     out[idx] = <float>state.deck_len / <float>max(1, state.total_cards)
@@ -207,8 +202,6 @@ cdef int _append_derived_playability_features_c(GameState state, int player, flo
 
 
 cdef int _append_slot_aware_playability_features_c(GameState state, int player, float* out, int idx) noexcept:
-    cdef float max_numeric_sum = _max_numeric_sum_c(state)
-    cdef float max_score_estimate = _max_score_estimate_c(state)
     cdef int slot
     cdef int card
     cdef int color
@@ -230,9 +223,6 @@ cdef int _append_slot_aware_playability_features_c(GameState state, int player, 
     cdef bint is_wager_before_numeric
     cdef bint is_numeric_open
     cdef bint is_wager_first_open
-    cdef bint is_bad_open_candidate
-    cdef bint is_safe_continuation
-    cdef float open_risk_score
 
     for slot in range(state.hand_size):
         if slot >= state.hand_lens[player]:
@@ -264,22 +254,13 @@ cdef int _append_slot_aware_playability_features_c(GameState state, int player, 
         is_playable_to_existing = legal_play and has_numeric_started
         is_dead_numeric = is_numeric and not legal_play and rank <= last_numeric_rank
         is_wager_before_numeric = is_wager and legal_play and not has_numeric_started
-        is_bad_open_candidate = would_start_color_commitment and recoverable_score_no_bonus < 0
-        open_risk_score = min(0.0, <float>recoverable_score_no_bonus) if would_start_color_commitment else 0.0
-        is_safe_continuation = (not would_start_color_commitment) and is_playable_to_existing
 
-        out[idx] = <float>recoverable_score_no_bonus / max_score_estimate
-        out[idx + 1] = <float>recoverable_margin_no_bonus / max_numeric_sum
-        out[idx + 2] = <float>would_start_color_commitment
-        out[idx + 3] = <float>is_numeric_open
-        out[idx + 4] = <float>is_wager_first_open
-        out[idx + 5] = <float>is_playable_to_existing
-        out[idx + 6] = <float>is_dead_numeric
-        out[idx + 7] = <float>is_wager_before_numeric
-        out[idx + 8] = <float>has_bonus_path
-        out[idx + 9] = <float>is_bad_open_candidate
-        out[idx + 10] = open_risk_score / max_score_estimate
-        out[idx + 11] = <float>is_safe_continuation
+        out[idx] = <float>would_start_color_commitment
+        out[idx + 1] = <float>is_numeric_open
+        out[idx + 2] = <float>is_wager_first_open
+        out[idx + 3] = <float>is_playable_to_existing
+        out[idx + 4] = <float>is_dead_numeric
+        out[idx + 5] = <float>is_wager_before_numeric
         idx += SLOT_AWARE_PLAYABILITY_PER_SLOT
     return idx
 

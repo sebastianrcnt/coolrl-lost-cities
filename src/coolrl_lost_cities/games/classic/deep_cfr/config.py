@@ -99,6 +99,7 @@ class TraversalConfig(StrictModel):
     outcome_sampling_epsilon: float = 0.0
     outcome_sampling_value_clip: float | None = None
     outcome_unsampled_regret: str = "negative_node_value"
+    outcome_unsampled_first_open_prior_alpha: float = 0.0
     cutoff_value_mode: str = "score_diff"
     cutoff_rollouts: int = 0
     cutoff_rollout_policy: str = "random"

@@ -106,6 +106,63 @@ def _has_legal_first_open(state: GameState, player: int, legal_mask: np.ndarray)
     return False
 
 
+def _first_open_recoverable_score(state: GameState, player: int, color: int) -> float:
+    """Visible-only recoverable score for an unopened expedition.
+
+    Mirrors evaluate._visible_recoverable_summary for the first-open case
+    (empty expedition, last_numeric == 0). Used as a weak prior signal for
+    unsampled first-open actions in outcome sampling.
+    """
+    config = state.config
+    proj_sum = 0
+    proj_wagers = 0
+    for card in state.hand_slots(player):
+        if card is None or int(card.color) != color:
+            continue
+        if card.rank == 0:
+            proj_wagers += 1
+        else:
+            proj_sum += config.min_rank + card.rank - 1
+    margin = proj_sum + config.expedition_penalty
+    return float(margin * (proj_wagers + 1))
+
+
+def _apply_first_open_prior(
+    target: np.ndarray,
+    state: GameState,
+    player: int,
+    legal_mask: np.ndarray,
+    sampled_action: int,
+    alpha: float,
+) -> None:
+    """Overwrite first-open play targets (other than the sampled action) with ±alpha.
+
+    Sign is taken from the visible recoverable_score for the candidate's color.
+    Only legal play actions whose color has an empty expedition are touched.
+    """
+    if alpha == 0.0:
+        return
+    card_action_size = state.config.hand_size * 2
+    hand = state.hand_slots(player)
+    expeditions = state.expeditions[player]
+    score_by_color: dict[int, float] = {}
+    for unified_action in np.flatnonzero(legal_mask):
+        action = int(unified_action)
+        if action == sampled_action:
+            continue
+        if action >= card_action_size or action % 2 == 1:
+            continue
+        card = hand[action // 2]
+        if card is None:
+            continue
+        color = int(card.color)
+        if expeditions[color]:
+            continue
+        if color not in score_by_color:
+            score_by_color[color] = _first_open_recoverable_score(state, player, color)
+        target[action] = alpha if score_by_color[color] >= 0.0 else -alpha
+
+
 def _record_endpoint(stats: TraversalStats, depth: int, width: int, max_depth: int) -> None:
     stats.endpoint_depth_sum += depth
     start = (depth // width) * width
@@ -121,6 +178,7 @@ class InterleavedTraversalConfig:
     outcome_sampling_epsilon: float
     outcome_sampling_value_clip: float | None
     outcome_unsampled_regret: str
+    outcome_unsampled_first_open_prior_alpha: float
     max_depth: int | None
     max_nodes: int | None
     strategy_sample_interval: int
@@ -402,6 +460,16 @@ class InterleavedContext:
             if self.cfg.outcome_unsampled_regret == "negative_node_value":
                 target[frame.legal_mask] = -node_value
             target[frame.action] = sampled_action_value - node_value
+            is_first_open = _has_legal_first_open(self.state, frame.player, frame.legal_mask)
+            if is_first_open and self.cfg.outcome_unsampled_first_open_prior_alpha != 0.0:
+                _apply_first_open_prior(
+                    target,
+                    self.state,
+                    frame.player,
+                    frame.legal_mask,
+                    frame.action,
+                    self.cfg.outcome_unsampled_first_open_prior_alpha,
+                )
             self.samples.advantage.append(
                 TrainingSample(
                     info_state=frame.info_state,
@@ -409,7 +477,7 @@ class InterleavedContext:
                     legal_mask=frame.legal_mask.copy(),
                     iteration=self.iteration,
                     player=frame.player,
-                    is_first_open=_has_legal_first_open(self.state, frame.player, frame.legal_mask),
+                    is_first_open=is_first_open,
                 )
             )
             self.stats.advantage_samples += 1
@@ -635,6 +703,7 @@ def run_interleaved_traversal_batch(
     outcome_sampling_value_clip: float | None,
     outcome_unsampled_regret: str,
     opponent_policy: str,
+    outcome_unsampled_first_open_prior_alpha: float = 0.0,
     endpoint_depth_bucket_width: int,
     endpoint_depth_bucket_max: int,
     seed: int,
@@ -650,6 +719,7 @@ def run_interleaved_traversal_batch(
         outcome_sampling_epsilon=outcome_sampling_epsilon,
         outcome_sampling_value_clip=outcome_sampling_value_clip,
         outcome_unsampled_regret=outcome_unsampled_regret,
+        outcome_unsampled_first_open_prior_alpha=outcome_unsampled_first_open_prior_alpha,
         max_depth=max_depth,
         max_nodes=max_nodes,
         strategy_sample_interval=strategy_sample_interval,

@@ -27,6 +27,8 @@ from coolrl_lost_cities.games.classic.deep_cfr.cli import (
 from coolrl_lost_cities.games.classic.deep_cfr.config import DeepCFRConfig, load_config
 from coolrl_lost_cities.games.classic.deep_cfr.evaluate import evaluate_strategy_network
 from coolrl_lost_cities.games.classic.deep_cfr.interleaved_traversal import (
+    _apply_first_open_prior,
+    _first_open_recoverable_score,
     run_interleaved_traversal_batch,
 )
 from coolrl_lost_cities.games.classic.deep_cfr.memory import ReservoirMemory, TrainingSample
@@ -283,8 +285,8 @@ def test_deep_cfr_playability_encoding_extends_input_shape() -> None:
     derived_dim = input_dim(state, derived_config.encoding)
     slot_dim = input_dim(state, slot_config.encoding)
 
-    assert derived_dim == base_dim + state.config.n_colors * 19 + 3
-    assert slot_dim == derived_dim + state.config.hand_size * 12
+    assert derived_dim == base_dim + state.config.n_colors * 15 + 3
+    assert slot_dim == derived_dim + state.config.hand_size * 6
     assert encode_info_state(state, 0, slot_config.encoding).shape == (slot_dim,)
 
 
@@ -1399,3 +1401,57 @@ def test_deep_cfr_trainer_does_not_log_eval_warning_when_eval_disabled(tmp_path)
     trainer.train()
     log_text = (tmp_path / "train.log").read_text()
     assert "WARNING evaluation will not run" not in log_text
+
+
+def test_first_open_prior_overrides_unsampled_play_targets_with_signed_alpha() -> None:
+    state = GameState.new_game(LostCitiesConfig(seed=123), seed=123)
+    player = int(state.current_player)
+    card_action_size = state.config.hand_size * 2
+    legal_mask = np.zeros(card_action_size + 5, dtype=bool)
+    play_actions: list[int] = []
+    for slot, card in enumerate(state.hand_slots(player)):
+        if card is None:
+            continue
+        play_actions.append(2 * slot)
+        legal_mask[2 * slot] = True
+        legal_mask[2 * slot + 1] = True
+    assert play_actions, "fresh game state should have legal play actions"
+
+    sampled_action = play_actions[0]
+    target = np.zeros(legal_mask.shape[0], dtype=np.float32)
+    target[sampled_action] = 7.0
+
+    alpha = 5.0
+    _apply_first_open_prior(target, state, player, legal_mask, sampled_action, alpha)
+
+    assert target[sampled_action] == pytest.approx(7.0)
+
+    expeditions = state.expeditions[player]
+    hand = state.hand_slots(player)
+    for action in play_actions:
+        if action == sampled_action:
+            continue
+        card = hand[action // 2]
+        color = int(card.color)
+        if expeditions[color]:
+            assert target[action] == 0.0
+            continue
+        score = _first_open_recoverable_score(state, player, color)
+        expected = alpha if score >= 0.0 else -alpha
+        assert target[action] == pytest.approx(expected)
+        assert target[action + 1] == 0.0
+
+
+def test_first_open_prior_zero_alpha_is_noop() -> None:
+    state = GameState.new_game(LostCitiesConfig(seed=7), seed=7)
+    player = int(state.current_player)
+    card_action_size = state.config.hand_size * 2
+    legal_mask = np.zeros(card_action_size + 5, dtype=bool)
+    for slot, card in enumerate(state.hand_slots(player)):
+        if card is None:
+            continue
+        legal_mask[2 * slot] = True
+        legal_mask[2 * slot + 1] = True
+    target = np.zeros(legal_mask.shape[0], dtype=np.float32)
+    _apply_first_open_prior(target, state, player, legal_mask, sampled_action=0, alpha=0.0)
+    assert np.all(target == 0.0)

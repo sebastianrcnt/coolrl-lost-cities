@@ -187,6 +187,9 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
                     outcome_sampling_epsilon=cfg.traversal.outcome_sampling_epsilon,
                     outcome_sampling_value_clip=cfg.traversal.outcome_sampling_value_clip,
                     outcome_unsampled_regret=cfg.traversal.outcome_unsampled_regret,
+                    outcome_unsampled_first_open_prior_alpha=(
+                        cfg.traversal.outcome_unsampled_first_open_prior_alpha
+                    ),
                     opponent_policy=cfg.traversal.opponent_policy,
                     endpoint_depth_bucket_width=cfg.traversal.endpoint_depth_bucket_width,
                     endpoint_depth_bucket_max=cfg.traversal.endpoint_depth_bucket_max,

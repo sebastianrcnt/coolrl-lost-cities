@@ -345,6 +345,9 @@ def analyze_checkpoint(
         outcome_sampling_epsilon=cfg.traversal.outcome_sampling_epsilon,
         outcome_sampling_value_clip=cfg.traversal.outcome_sampling_value_clip,
         outcome_unsampled_regret=cfg.traversal.outcome_unsampled_regret,
+        outcome_unsampled_first_open_prior_alpha=getattr(
+            cfg.traversal, "outcome_unsampled_first_open_prior_alpha", 0.0
+        ),
         max_depth=cfg.traversal.max_depth,
         max_nodes=cfg.traversal.max_nodes_per_traversal,
         strategy_sample_interval=cfg.traversal.strategy_sample_interval,

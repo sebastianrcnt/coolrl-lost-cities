@@ -1,6 +1,6 @@
 # Deep CFR Selectivity Investigation
 
-Last updated: 2026-05-09
+Last updated: 2026-05-10
 
 ## Current conclusion
 
@@ -272,7 +272,301 @@ around 120-200 iterations, then regressed by 300-500 iterations. This suggests
 the replay emphasis is not enough if the underlying target does not separate
 good first opens from bad first opens.
 
-### 3. Short open-selectivity ablation
+### 3. First-open target prior (A1) — running 2026-05-10
+
+Hypothesis: target audit shows the regenerated traversal target does not
+separate good first opens from bad first opens. With
+`outcome_unsampled_regret=zero`, every unsampled first-open candidate is
+labeled with target `0`, regardless of whether it is heuristically good
+or bad. A small signed prior on unsampled first-open play actions should
+break the symmetry without overriding the high-variance sampled-action
+target.
+
+Implementation:
+
+- Config field: `traversal.outcome_unsampled_first_open_prior_alpha` (float,
+  default `0.0`).
+- Plumbed through `InterleavedTraversalConfig` and
+  `run_interleaved_traversal_batch`. Cython traversal path unchanged
+  (default scheduler is interleaved; pyx path is a follow-up if needed).
+- Effect site: `_after_child` in `interleaved_traversal.py`. When
+  `is_first_open` and `alpha != 0`, unsampled legal play actions whose color
+  has an empty expedition are overwritten in `target` with `+alpha` if the
+  visible `recoverable_score` for that color is `>= 0`, else `-alpha`. The
+  sampled action's cell stays as `sampled_action_value - node_value`.
+- `recoverable_score` mirrors `evaluate._visible_recoverable_summary` for
+  the empty-expedition case (no future-card lookahead, hand-only signal).
+- Tests: `test_first_open_prior_overrides_unsampled_play_targets_with_signed_alpha`,
+  `test_first_open_prior_zero_alpha_is_noop`.
+
+Note on "pure self-play": this prior introduces a hand-written heuristic
+into the advantage target. The opponent and rollout policy remain
+self-play (no external bot). This is treated as a diagnostic experiment;
+if effective, the permanent solution is a counterfactual-based prior
+(A2) that recovers full pure self-play.
+
+Initial planned run:
+
+- `run.experiment_name=first-open-prior-alpha5-512x3-det-200`
+- `traversal.outcome_unsampled_first_open_prior_alpha=5.0`
+- `traversal.outcome_unsampled_regret=zero`
+- `traversal.outcome_sampling_epsilon=0.05`
+- `run.deterministic=true`
+- `run.max_iterations=200`
+- W&B group: `first-open-prior-v1`
+
+Primary comparisons:
+
+- `confirm-eps-005-zero-512x3-det-500` (baseline; iter 200 reference)
+- `first-open-reweight-50-512x3-det-500-indexed` (replay-side intervention)
+
+Success criterion: `bad_open_rate` and `score_per_opened_color` improve
+*together* at iter 200 without large regression in `avg_score_diff0`. If
+positive, follow up with a 500-iter run to test stability. If null/regress,
+try alpha sweep (e.g. 2.0, 10.0) before abandoning the direction.
+
+Result (2026-05-10):
+
+- Run: `runs/2026-05-10_072718_first-open-prior-alpha5-512x3-det-200`
+- W&B: synced online to group `first-open-prior-v1` (run `teuh915r`)
+- Commit: see HEAD at run start
+
+`safe_heuristic_strict` at iter 200:
+
+| Run | Score diff | Win rate | Bad open | Score/opened |
+| --- | ---: | ---: | ---: | ---: |
+| baseline `confirm-eps-005-zero` (iter 200) | -40.01 | 0.12 | 0.893 | -6.25 |
+| **A1 prior α=5.0 (iter 200)** | **-67.54** | **0.02** | **0.796** | **-8.85** |
+
+Other opponents at iter 200: random +32.51 / 0.86, noisy_safe -71.52 / 0.07,
+safe_heuristic -81.81 / 0.02, safe_heuristic_loose -81.24 / 0.05.
+
+Conclusion: **mixed result, net regression.** The prior did shift behavior
+in the intended direction on one axis — `bad_open_rate` dropped from 0.893
+to 0.796 (~10% absolute reduction). This is the only metric where the
+hypothesis "the prior breaks ranking symmetry" looks supported.
+
+But the overall game-quality metrics regressed: score diff worsened
+(-40 → -67), win rate collapsed (0.12 → 0.02), and `score_per_opened_color`
+got worse (-6.25 → -8.85). The model fails the success criterion (which
+required `bad_open_rate` AND `score_per_opened_color` to improve together).
+
+Two interpretations:
+
+1. **α = 5.0 too strong.** The prior is overpowering the sampled-action
+   target rather than acting as a weak symmetry-breaker. The good-open prior
+   pushes the model to open *more often*, but those forced opens are bad
+   *given the actual game state*, just labeled good by the visible-only
+   heuristic. The counterfactual audit already flagged this: heuristic
+   `open_good` candidates often lose to best non-open in real continuation.
+2. **Heuristic itself misaligned.** Even the right α won't help if the
+   sign assigned to candidates is wrong relative to true game value.
+
+Next steps (in order):
+
+- (A1.b) α sweep at 200 iter: α ∈ {1.0, 2.0} to test "weaker prior" hypothesis.
+  If α=2.0 still regresses score diff while reducing bad_open, the prior shape
+  itself is wrong, not just strength.
+- (A2) Counterfactual prior: replace heuristic sign with sign of
+  `value(force open) - value(best non-open)` from a small in-traversal
+  rollout. Cleaner signal, recovers pure self-play, but more expensive.
+- If both fail to improve score diff, the issue is upstream of unsampled
+  regret labeling (likely traversal sample distribution or sampled-action
+  target variance), and the next experiment family should target those.
+
+### 4. D1 diagnostic: counterfactual with strong post-policy (2026-05-10)
+
+Question: are forced-open continuation values low because the openings
+themselves are bad, or because the self-play rollout policy poisons the
+post-action play (selection bias)?
+
+Method: re-ran `analyze_first_open_counterfactual.py` on the
+`confirm-eps-005-zero-512x3-det-500` baseline checkpoints (iter 200, iter
+500), but with `--post-policy safe_heuristic_strict`. The opponent and
+state-collection policy stayed the same; only the policy_player's actions
+*after* the forced first action used the strong fixed bot.
+
+Output: `runs/tmp/first_open_counterfactual_d1_strong_post_policy_200_vs_500.jsonl`
+
+`delta_open = value(force open) - value(best non-open)` comparison:
+
+| iter | bucket | n | self-play post | strong post | shift |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 200 | open_good | 40 | -26.57 | **-3.35** | +23.22 |
+| 200 | open_bad | 460 | -23.15 | **-5.52** | +17.63 |
+| 500 | open_good | 30 | -23.43 | **-10.90** | +12.53 |
+| 500 | open_bad | 470 | -11.18 | **-8.99** | +2.19 |
+
+`delta_positive_rate`:
+
+| iter | bucket | self-play post | strong post |
+| ---: | --- | ---: | ---: |
+| 200 | open_good | 0.050 | 0.225 |
+| 200 | open_bad | 0.130 | 0.317 |
+| 500 | open_good | 0.167 | 0.300 |
+| 500 | open_bad | 0.226 | 0.230 |
+
+Verdict — two findings, both important:
+
+**1. Selection bias is real and significant.** Strong post-policy
+improves forced-open continuation values by 12–23 points on average. The
+self-play policy is meaningfully poisoning rollouts: forced opens look
+much less bad once a competent player handles the followup.
+
+**2. Heuristic labels do not separate cleanly even under strong post-policy.**
+At iter 200, `open_good` delta_mean is only ~2 points better than
+`open_bad` (-3.35 vs -5.52). At iter 500, ranking is essentially flat
+(`open_good` -10.9 vs `open_bad` -8.99 — slightly *worse*). Median deltas
+agree. Sample size for `open_good` is small (30–40) so noise contributes,
+but there is no clean signal that the heuristic `recoverable_score`
+classifier matches actual continuation value.
+
+Implications:
+
+- A1 prior was destined to fail — the heuristic sign is at best weakly
+  aligned with continuation value, even with optimistic post-policy.
+- A2 with self-play rollouts would inherit selection bias and likely
+  reproduce the same misranking. A2 with a strong post-policy would
+  give clean signs but breaks pure self-play.
+- The deeper bottleneck is post-open play quality. Until the trained
+  policy plays competently *after* opening, training signals about
+  *whether to open* will be biased toward "don't open."
+
+Candidate next directions (decision pending):
+
+- (E1) Train with `cutoff_rollout_policy=safe_heuristic` instead of `random`.
+  Already a config option; gives leaf nodes stronger value estimates
+  during traversal. Trades some pure-self-play purity for a stronger
+  bootstrap signal. Cheap to test.
+- (E2) Investigate post-open behavior directly: forced-open + observe
+  next-2-3 turns. Diagnoses *why* the model can't follow up (e.g. always
+  discards followup cards, switches color, etc.).
+- (E3) Curriculum / staged training that exposes the network to good
+  post-open trajectories before forcing it to make first-open decisions.
+- A2 deferred unless we adopt a strong post-policy in rollouts.
+
+### 5. E2 diagnostic: post-forced-open behavior (2026-05-10)
+
+Question: D1 showed selection bias is real — *what is the model actually
+doing after a forced first-open* that poisons rollouts?
+
+Method: forced each first-open candidate at sampled states, then observed
+the policy_player's next 3 decisions (window). Used baseline checkpoints
+(`confirm-eps-005-zero` iter 200, iter 500). Categorized each followup
+decision relative to the forced-open color.
+
+Output: `runs/tmp/first_open_followup_baseline_200_vs_500.jsonl`
+Script: `scripts/analyze_first_open_followup.py`
+
+Per-window mean counts (3 policy_player decisions = ~1.5 game turns;
+each game turn includes one play/discard plus one draw):
+
+| iter | bucket | n | held@force | plays(same) | discards(same) | open_other | other_discard | held@end |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 200 | good | 33 | 4.82 | 0.15 | 0.15 | **0.49** | 0.21 | 2.70 |
+| 200 | bad  | 367 | 1.97 | 0.03 | 0.12 | 0.10 | 0.75 | 1.08 |
+| 500 | good | 22 | 4.45 | 0.14 | **0.46** | 0.14 | 0.27 | 1.23 |
+| 500 | bad  | 378 | 2.56 | 0.01 | 0.23 | 0.05 | 0.71 | 1.29 |
+
+Findings:
+
+**1. Model under-plays followup cards even when it holds many.** At iter
+200, good-open candidates start with ~4.8 same-color cards in hand. In the
+next 3 decisions, the model plays only 0.15 of them on average (3% of
+its window). 2.7 cards remain in hand at terminal — nearly 3 cards of
+the just-opened color never reach the expedition.
+
+**2. Model opens additional new colors after a forced open.** At iter 200
+good bucket, `open_other` = 0.49 in a 3-decision window — the model is
+~3× more likely to open *another* new color than to follow up the one it
+was forced into. This compounds the recoverable-score drag.
+
+**3. By iter 500 the model actively dumps the forced color.** Good bucket
+at iter 500: `same-color discards` 0.46 vs `same-color plays` 0.14. The
+model discards followup cards more than 3× as often as it plays them,
+despite holding 4.45 of them at force time. This is the strongest single
+piece of evidence so far that the post-open value head is poisoned.
+
+**4. Bad-open bucket shows even sharper avoidance.** Hand has ~2
+same-color cards, plays effectively zero. Almost all play-phase decisions
+are "discard other" (0.71–0.75). The model treats forced opens as bad
+news to liquidate rather than commit to.
+
+Interpretation: the trained advantage network *learned* that opens of
+these colors are net-negative, so once forced into one, it hedges by
+opening other colors and dumping followup cards. That hedging is rational
+under the policy's own value estimates but is the exact mechanism that
+keeps forced-open continuation values low and keeps the training target
+labeling opens as bad. Closed loop.
+
+This combined with D1 means:
+
+- A1/A2 priors operate on first-open *labels*. They cannot fix a model
+  that, even after committing to an open, refuses to follow up.
+- Any fix needs to either (a) produce stronger leaf values during training
+  so the value head learns post-open play matters, or (b) explicitly
+  curriculum or prior-shape the *post-open* decision (not the open
+  decision).
+
+Updated next-step priorities:
+
+- **(E1) `cutoff_rollout_policy=safe_heuristic` training ablation.**
+  Strongest single lever: gives traversal leaves stronger value estimates
+  during training, which should ripple back to "open + follow up" signal.
+  Pure-self-play purity dented, but only at cutoff leaves.
+- (E1.b) Sanity check: at iter 200 baseline, the same-color discard rate
+  is already 0.12 in good bucket — early. So this is not a late-training
+  collapse; it's baked in from early iterations. Curriculum-style fix
+  would have to start very early.
+- A2 effectively dead unless paired with strong post-policy in rollouts.
+
+### 6. Input feature audit and cleanup (2026-05-10)
+
+After D1 + E2 confirmed the bottleneck is *training signal* and not *input
+poverty*, audited every feature the model receives. Goal: align the input
+representation with a strict pure-self-play definition by removing any
+feature that embeds a hand-coded judgment or strategy assumption.
+
+Three tiers found:
+
+- **Tier 1**: pure game state and single-step game rules (hand cards,
+  expedition state, discard piles, scores, public histogram, legal-action
+  mask, `playable_*`/`dead_*` rule checks, `unknown_remaining_count`,
+  etc.). No judgment. Kept.
+- **Tier 2**: projection-based features that compute "if I commit and
+  play all currently-playable cards, what is the score?" — mechanical
+  but assumption-laden. Includes `recoverable_score_no_bonus`,
+  `recoverable_margin_no_bonus`, `min_needed_to_break_even`,
+  `cards_needed_for_bonus`, `has_bonus_path`. Removed.
+- **Tier 3**: explicit hand-coded judgments — `is_bad_open_candidate`,
+  `open_risk_score`, `is_safe_continuation`. Same heuristic family used
+  to label `bad_open` in evaluation. Removed.
+
+Notable additional finding: the `no_bonus` projection family is
+asymmetric. It includes wager multipliers but excludes the +20 bonus,
+which systematically *under*-estimates the upside of commitable
+expeditions by roughly 20 × P(complete bonus). This bias points in the
+same direction as the phase 1 trap ("opens look like loss"), so removing
+the projection family is consistent with diagnosing-not-baking-in the
+trap.
+
+Implementation:
+
+- `encoding.pyx`: `DERIVED_PLAYABILITY_PER_COLOR` 19 → 15;
+  `SLOT_AWARE_PLAYABILITY_PER_SLOT` 12 → 6 (across two cleanup passes).
+- Test shape assertions updated.
+- Cython module rebuilt.
+
+Input dimension change: 365 → 341 (Tier 3 removal) → **297** (Tier 2
+removal). Net 18.6% reduction.
+
+Result is not yet measured. The hypothesis is that with the heuristic
+crutches removed, training behavior is a cleaner measurement of what
+Deep CFR can do in this game from raw input. The model may stay in the
+phase 1 trap longer or fail more visibly, both of which are useful
+information.
+
+### 7. Short open-selectivity ablation
 
 Run a 200-300 iteration ablation only after the target audit identifies a
 specific change. Candidate changes include:
