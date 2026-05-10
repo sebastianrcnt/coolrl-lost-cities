@@ -308,3 +308,70 @@ class TestNetworkIntegration:
         x = torch.randn(8, dim)
         output = network(x)
         assert output.shape == (8, action_size)
+
+
+class TestComputeLostCitiesColorLayout:
+    def test_layout_for_full_encoding_input_dim(self) -> None:
+        from coolrl_lost_cities.games.classic.deep_cfr.networks import (
+            compute_lost_cities_color_layout,
+        )
+
+        layout = compute_lost_cities_color_layout(297)
+        assert layout is not None
+        assert layout.n_colors == 5
+        assert layout.color_block_size == 39
+        assert layout.common_size == 297 - 5 * 39
+
+        all_color_idx: set[int] = set()
+        for indices in layout.per_color_indices:
+            assert len(indices) == 39
+            all_color_idx.update(indices)
+        assert len(all_color_idx) == 5 * 39
+        assert set(layout.common_indices).isdisjoint(all_color_idx)
+        assert all_color_idx | set(layout.common_indices) == set(range(297))
+
+    def test_layout_returns_none_for_unknown_input_dim(self) -> None:
+        from coolrl_lost_cities.games.classic.deep_cfr.networks import (
+            compute_lost_cities_color_layout,
+        )
+
+        assert compute_lost_cities_color_layout(100) is None
+        assert compute_lost_cities_color_layout(150) is None
+        assert compute_lost_cities_color_layout(296) is None
+
+    def test_layout_recognises_all_four_flag_combinations(self) -> None:
+        from coolrl_lost_cities.games.classic.deep_cfr.networks import (
+            compute_lost_cities_color_layout,
+        )
+
+        for dim in (171, 219, 249, 297):
+            layout = compute_lost_cities_color_layout(dim)
+            assert layout is not None, f"layout missing for input_dim={dim}"
+            assert layout.n_colors == 5
+
+    def test_color_shared_uses_proper_layout_for_real_encoding(self) -> None:
+        import warnings
+
+        from coolrl_lost_cities.games.classic.deep_cfr.networks import ColorSharedNetwork
+
+        network = ColorSharedNetwork(input_dim=297, output_dim=22, hidden_size=64)
+        assert network.use_chunked_fallback is False
+        assert network.color_block_size == 39
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            x = torch.randn(4, 297)
+            out = network(x)
+        assert out.shape == (4, 22)
+        assert not any("chunked" in str(w.message).lower() for w in caught)
+
+    def test_color_shared_warns_on_non_lost_cities_input_dim(self) -> None:
+        import warnings
+
+        from coolrl_lost_cities.games.classic.deep_cfr.networks import ColorSharedNetwork
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            network = ColorSharedNetwork(input_dim=100, output_dim=20, hidden_size=64)
+        assert network.use_chunked_fallback is True
+        assert any("chunked" in str(w.message).lower() for w in caught)

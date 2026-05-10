@@ -566,7 +566,49 @@ Deep CFR can do in this game from raw input. The model may stay in the
 phase 1 trap longer or fail more visibly, both of which are useful
 information.
 
-### 7. Short open-selectivity ablation
+### 7. ColorSharedNetwork chunked-layout bug (2026-05-10)
+
+While re-examining the archived `2026-05-07_092137_color_shared_attention_1000iter`
+run (killed at iter 41), discovered the `ColorSharedNetwork` implementation
+in `networks.py` was not actually color-aware. The forward pass split the
+input vector into `input_dim // n_colors` contiguous slices and ran them
+through a shared encoder. The slice boundaries do not align with the actual
+encoding layout — adjacent slices contain phase flags, hand slots,
+expedition state, scores, etc. mixed together. The "shared color encoder"
+was therefore sharing weights across semantically unrelated chunks, not
+across per-color blocks.
+
+This means the prior conclusion that "color_shared / attention archive run
+was inconclusive" was charitable. The architecture being measured was a
+chunked-input network mislabeled `color_shared`, not a real per-color
+shared architecture. We have *no* signal on whether a properly per-color
+architecture would help.
+
+Fix landed in this same session:
+
+- Added `compute_lost_cities_color_layout(input_dim)` in `networks.py`. For
+  the standard Lost Cities schema (n_colors=5, hand_size=8, n_ranks=9), it
+  recognises the four valid `input_dim` values (171, 219, 249, 297 across
+  derived/slot-aware flag combinations) and returns per-color and common
+  index lists derived from the actual encoding layout.
+- Per-color block (39 dims with `derived_playability` on): both players'
+  expedition state for that color, discard top metadata, public-histogram
+  row, pending-discard one-hot bit, legal-action draw-pile bit, and the
+  `derived_playability` per-color block. Slot-aware features stay in
+  common because they are slot-major, not color-major.
+- `ColorSharedNetwork.forward` now indexes per-color blocks via the layout
+  when `input_dim` matches a known schema. For other input dims (unit
+  tests, non-Lost Cities use), it falls back to the old chunked slicing
+  with a `UserWarning`, preserving backward compatibility for tests but
+  making the legacy behaviour visible.
+- New unit tests cover both branches and the layout helper.
+
+This is purely an implementation correctness fix; no fair test of the
+architecture has been run yet. Fair test deferred — the diagnosis from
+sections 4–5 (selection bias, post-open behaviour) suggests that even a
+correct color-aware encoder would not break the closed loop on its own.
+
+### 8. Short open-selectivity ablation
 
 Run a 200-300 iteration ablation only after the target audit identifies a
 specific change. Candidate changes include:
