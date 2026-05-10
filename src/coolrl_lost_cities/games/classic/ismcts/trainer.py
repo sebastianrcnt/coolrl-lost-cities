@@ -365,9 +365,15 @@ class IsMctsTrainer:
         with torch.inference_mode():
             _logits, value_pred = self.network(info, legal)
             value_error = nn.functional.mse_loss(value_pred, target)
+            value_rmse = float(value_error.item()) ** 0.5
+            target_abs_mean = float(target.abs().mean().item())
+            target_std = float(target.std().item()) if target.numel() > 1 else 0.0
         return {
             "mcts/avg_visit_entropy": float(np.mean(entropies)) if entropies else 0.0,
             "mcts/value_prediction_error": float(value_error.item()),
+            "mcts/value_rmse": value_rmse,
+            "mcts/v_target_abs_mean": target_abs_mean,
+            "mcts/v_target_std": target_std,
             "mcts/policy_mcts_kl": float(np.mean(policy_kls)) if policy_kls else 0.0,
         }
 
