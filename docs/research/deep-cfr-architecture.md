@@ -48,7 +48,7 @@ src/coolrl_lost_cities/games/classic/deep_cfr/
   traversal_stats.py — structured traversal diagnostic metrics
 
   # Auxiliary training modes
-  imitation.py       — safe-heuristic imitation pretraining
+  imitation.py       — heuristic imitation pretraining
   policy_gradient.py — policy-gradient fine-tuning
 ```
 

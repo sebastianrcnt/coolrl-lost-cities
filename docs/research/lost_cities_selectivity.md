@@ -28,7 +28,7 @@ Deep CFR은 최종적으로 average strategy가 수렴 대상. current advantage
 Visible-score predictor의 ceiling은 있을 수 있음. 다만 selectivity 자체의 ceiling은 아님. selectivity는 visible-score prediction 말고 option value, irreversible cost 회피, opponent dynamics 대응 등 다른 경로로도 emerge 가능.
 
 **Self-play attractor 가설**
-5-color가 stable equilibrium. 한쪽이 selectivity 시도하면 즉시 손해. safe_heuristic이 3.7에서 강하면 진짜 NE는 아닐 듯. 다만 self-play 안에서는 stable.
+5-color가 stable equilibrium. 한쪽이 selectivity 시도하면 즉시 손해. heuristic_balanced이 3.7에서 강하면 진짜 NE는 아닐 듯. 다만 self-play 안에서는 stable.
 
 **Lost Cities NE 자체가 5-color 가설**
 이론적 가능성 0 아님. self-play가 발견한 게 진짜 NE면 transition 영원히 안 옴. 검증 가능한 형태로는 tabular oracle 또는 BR 진단.

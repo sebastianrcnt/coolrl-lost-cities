@@ -182,7 +182,7 @@ eval_<opponent>_<metric>
 
 For that run, iteration 75 had `evaluation_seconds = 18.29s`. Evaluation was
 parallelized by opponent, so per-opponent `elapsed_seconds` values overlap and
-must not be summed as wall-clock time. The slow safe-heuristic opponents
+must not be summed as wall-clock time. The slow heuristic opponents
 dominated the eval wall-clock.
 
 Representative per-opponent breakdown:
@@ -190,13 +190,13 @@ Representative per-opponent breakdown:
 | Opponent | Elapsed | Network | Postprocess | Opponent act |
 | --- | ---: | ---: | ---: | ---: |
 | `random` | 0.57s | 0.18s | 0.25s | 0.06s |
-| `passive_discard` | 0.36s | 0.13s | 0.17s | 0.00s |
-| `safe_heuristic` | 14.54s | 2.65s | 3.34s | 7.57s |
-| `safe_heuristic_loose` | 11.20s | 2.55s | 3.30s | 4.63s |
-| `safe_heuristic_strict` | 15.94s | 2.51s | 3.14s | 9.22s |
-| `noisy_safe` | 1.68s | 0.40s | 0.58s | 0.57s |
+| `discard_only` | 0.36s | 0.13s | 0.17s | 0.00s |
+| `heuristic_balanced` | 14.54s | 2.65s | 3.34s | 7.57s |
+| `heuristic_aggressive` | 11.20s | 2.55s | 3.30s | 4.63s |
+| `heuristic_cautious` | 15.94s | 2.51s | 3.14s | 9.22s |
+| `heuristic_noisy` | 1.68s | 0.40s | 0.58s | 0.57s |
 
-The important read is that safe-heuristic evaluation is not primarily GPU
+The important read is that heuristic evaluation is not primarily GPU
 network forward time. `opponent_act_seconds` and policy post-processing are
 larger than `policy_network_seconds` for the slowest opponents.
 
@@ -236,7 +236,7 @@ The practical eval tuning levers are:
    this would require a feature change.
 
 4. Reduce frequent opponents.
-   The safe-heuristic opponents dominate wall-clock in the inspected run. For
+   The heuristic opponents dominate wall-clock in the inspected run. For
    frequent checks, evaluate against one or two representative opponents and run
    the full suite less often.
 
@@ -278,7 +278,7 @@ already implemented. It would replace or wrap the strategy-network forward pass
 with a precompiled inference engine. Its maximum impact is bounded by
 `policy_network_seconds`, not by total eval time.
 
-In the inspected eval row, the slow safe-heuristic opponents spent about
+In the inspected eval row, the slow heuristic opponents spent about
 2.5-2.6s in policy-network forward but 4.6-9.2s in opponent action selection and
 about 3.1-3.3s in policy post-processing. That means TensorRT could help eval,
 especially for larger `evaluation.games`, but it is not expected to collapse the
@@ -319,7 +319,7 @@ Based on the current metrics, the more plausible performance work is:
    but it requires changing traversal scheduling, not just swapping the network
    backend.
 
-6. For eval-heavy runs, optimize the safe-heuristic opponents and policy
+6. For eval-heavy runs, optimize the heuristic opponents and policy
    post-processing before assuming TensorRT is the main lever.
    The inspected eval row shows those costs dominate the slowest opponents.
 

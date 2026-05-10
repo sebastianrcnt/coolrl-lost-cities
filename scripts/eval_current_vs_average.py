@@ -265,7 +265,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
-    opponents = args.opponent or ["random", "safe_heuristic_strict"]
+    opponents = args.opponent or ["random", "heuristic_cautious"]
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
     rows: list[dict] = []

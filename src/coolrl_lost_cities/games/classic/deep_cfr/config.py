@@ -143,16 +143,16 @@ class TraversalConfig(StrictModel):
     @field_validator("cutoff_rollout_policy")
     @classmethod
     def _validate_cutoff_rollout_policy(cls, value: str) -> str:
-        if value not in {"random", "safe_heuristic"}:
-            raise ValueError("must be 'random' or 'safe_heuristic'")
+        if value not in {"random", "heuristic_balanced"}:
+            raise ValueError("must be 'random' or 'heuristic_balanced'")
         return value
 
     @field_validator("opponent_policy")
     @classmethod
     def _validate_opponent_policy(cls, value: str) -> str:
-        if value not in {"network", "safe_heuristic", "self_play_league", "average_strategy"}:
+        if value not in {"network", "heuristic_balanced", "self_play_league", "average_strategy"}:
             raise ValueError(
-                "must be 'network', 'safe_heuristic', 'self_play_league', or 'average_strategy'"
+                "must be 'network', 'heuristic_balanced', 'self_play_league', or 'average_strategy'"
             )
         return value
 
@@ -294,12 +294,34 @@ class CheckpointConfig(StrictModel):
 class EvaluationConfig(StrictModel):
     eval_every: int = 50
     games: int = 10
-    opponents: tuple[str, ...] = ("random", "safe_heuristic")
+    opponents: tuple[str, ...] = ("random", "heuristic_balanced")
+    extended_eval_every: int = 0
+    extended_opponents: tuple[str, ...] = ()
     max_steps: int = 10_000
     on_max_steps: str = "score_diff"
     batch_size: int = 64
     device: str = "trainer"
     num_workers: int = 4
+
+    def opponents_for_iteration(self, iteration: int) -> tuple[str, ...]:
+        """Return the opponent set to evaluate against at ``iteration``.
+
+        - Always returns ``opponents`` when ``iteration % eval_every == 0``.
+        - When ``extended_eval_every > 0`` and ``iteration`` is also a multiple
+          of ``extended_eval_every``, appends ``extended_opponents`` (de-duplicated)
+          to the core list.
+        - Returns ``()`` when no eval is scheduled this iteration.
+        """
+        if self.eval_every <= 0 or iteration <= 0:
+            return ()
+        if iteration % self.eval_every != 0:
+            return ()
+        result = list(self.opponents)
+        if self.extended_eval_every > 0 and iteration % self.extended_eval_every == 0:
+            for opponent in self.extended_opponents:
+                if opponent not in result:
+                    result.append(opponent)
+        return tuple(result)
 
     @field_validator("on_max_steps")
     @classmethod

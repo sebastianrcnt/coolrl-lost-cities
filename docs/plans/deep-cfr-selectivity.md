@@ -17,7 +17,7 @@ first-open advantage target.
 ## Baseline symptoms
 
 The 512x3 dense-eval baseline showed improving training losses, but the main
-game-quality metrics against `safe_heuristic_strict` did not improve enough to
+game-quality metrics against `heuristic_cautious` did not improve enough to
 indicate a useful policy.
 
 Observed pattern:
@@ -176,7 +176,7 @@ against the current policy's best non-open action from the same state.
 
 `delta_open = value(force open) - value(best non-open)`.
 
-Counterfactual summary against `safe_heuristic_strict`:
+Counterfactual summary against `heuristic_cautious`:
 
 | checkpoint | bucket | candidates | delta mean | delta median | delta positive | policy prob | selected rate |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -257,7 +257,7 @@ first-open sampling scanned the full replay memory and pushed iteration time
 above 60 seconds. The indexed-memory version kept first-open sampling near
 0.25 seconds per player at 4M advantage samples and completed 500 iterations.
 
-Final `safe_heuristic_strict` comparison:
+Final `heuristic_cautious` comparison:
 
 | Run | Iter | Score diff | Win rate | Bad open | Score/opened |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -331,15 +331,15 @@ Result (2026-05-10):
 - W&B: synced online to group `first-open-prior-v1` (run `teuh915r`)
 - Commit: see HEAD at run start
 
-`safe_heuristic_strict` at iter 200:
+`heuristic_cautious` at iter 200:
 
 | Run | Score diff | Win rate | Bad open | Score/opened |
 | --- | ---: | ---: | ---: | ---: |
 | baseline `confirm-eps-005-zero` (iter 200) | -40.01 | 0.12 | 0.893 | -6.25 |
 | **A1 prior α=5.0 (iter 200)** | **-67.54** | **0.02** | **0.796** | **-8.85** |
 
-Other opponents at iter 200: random +32.51 / 0.86, noisy_safe -71.52 / 0.07,
-safe_heuristic -81.81 / 0.02, safe_heuristic_loose -81.24 / 0.05.
+Other opponents at iter 200: random +32.51 / 0.86, heuristic_noisy -71.52 / 0.07,
+heuristic_balanced -81.81 / 0.02, heuristic_aggressive -81.24 / 0.05.
 
 Conclusion: **mixed result, net regression.** The prior did shift behavior
 in the intended direction on one axis — `bad_open_rate` dropped from 0.893
@@ -382,7 +382,7 @@ post-action play (selection bias)?
 
 Method: re-ran `analyze_first_open_counterfactual.py` on the
 `confirm-eps-005-zero-512x3-det-500` baseline checkpoints (iter 200, iter
-500), but with `--post-policy safe_heuristic_strict`. The opponent and
+500), but with `--post-policy heuristic_cautious`. The opponent and
 state-collection policy stayed the same; only the policy_player's actions
 *after* the forced first action used the strong fixed bot.
 
@@ -434,7 +434,7 @@ Implications:
 
 Candidate next directions (decision pending):
 
-- (E1) Train with `cutoff_rollout_policy=safe_heuristic` instead of `random`.
+- (E1) Train with `cutoff_rollout_policy=heuristic_balanced` instead of `random`.
   Already a config option; gives leaf nodes stronger value estimates
   during traversal. Trades some pure-self-play purity for a stronger
   bootstrap signal. Cheap to test.
@@ -510,7 +510,7 @@ This combined with D1 means:
 
 Updated next-step priorities:
 
-- **(E1) `cutoff_rollout_policy=safe_heuristic` training ablation.**
+- **(E1) `cutoff_rollout_policy=heuristic_balanced` training ablation.**
   Strongest single lever: gives traversal leaves stronger value estimates
   during training, which should ripple back to "open + follow up" signal.
   Pure-self-play purity dented, but only at cutoff leaves.
@@ -635,7 +635,7 @@ Fix:
 
 Also bumped `traversal.outcome_sampling_epsilon` in `default.yaml` from
 0.2 to 0.05. The 200-iteration sweep (section 1) showed 0.05 produced the
-best short-run safe_heuristic_strict score diff (-40.01 vs -57.87 for
+best short-run heuristic_cautious score diff (-40.01 vs -57.87 for
 0.20). All recent experimental runs already used 0.05; the default now
 matches actual experimental practice.
 
@@ -643,7 +643,71 @@ These changes do not target the diagnosed selection-bias bottleneck. They
 align config intent with actual scheduler behaviour and make the default
 config reproduce known-best knob settings out of the box.
 
-### 9. Short open-selectivity ablation
+### 9. Naming, plot curation, and tiered eval cadence (2026-05-10)
+
+Hygiene changes — none target the diagnosed selection-bias bottleneck,
+but they make the codebase honestly reflect the pure-self-play stance
+and reduce dashboard noise.
+
+Bot family rename (drop the unhelpful `safe_` prefix; suffixes now
+describe behaviour):
+
+| Old | New |
+| --- | --- |
+| `safe_heuristic_loose` | `heuristic_aggressive` |
+| `safe_heuristic` | `heuristic_balanced` |
+| `safe_heuristic_strict` | `heuristic_cautious` |
+| `noisy_safe` | `heuristic_noisy` |
+| `passive_discard` | `discard_only` |
+
+Class renames in `bots/`: `SafeHeuristicBot` → `HeuristicBot`,
+`SafeHeuristicParams` → `HeuristicParams`, `PassiveDiscardBot` →
+`DiscardOnlyBot`, plus the loose/strict parameter constants. Backwards
+compatibility was dropped intentionally — no aliases. Active configs,
+docs, scripts, tests updated; archive files (read-only by policy)
+left intact and may still reference old names.
+
+Analyze plot curation (`deep_cfr/analyze.py`):
+
+- New `analysis_00_core.png` dashboard with 10 heuristic-free metrics
+  (loss/{advantage, strategy}; vs `heuristic_cautious`:
+  `avg_score_diff0`, `win_rate0`, `avg_opened_colors`,
+  `positive_expedition_rate`, `bonus_expedition_rate`,
+  `score_per_opened_color`, `policy_entropy`; vs `random`: `win_rate0`).
+- Removed `analysis_05_open_quality.png` (bad/weak/good open rates,
+  recoverable score) and `analysis_07_calibration.png` (calibration gap,
+  recoverable mean) — both relied on the heuristic `recoverable_score`
+  classifier we already dropped from inputs.
+- Removed `SELECTIVITY_PLOTS` and `plot_selectivity` (heuristic-laden).
+- `SUMMARY_EVAL_METRICS` no longer includes `bad_open_rate` or
+  `calibration_gap`.
+
+`PlotSpec` gained an optional `opponents` allowlist so the new core
+section can pin a specific opponent per panel without restructuring the
+existing `plot_section` plumbing.
+
+Tiered evaluation cadence (`EvaluationConfig`):
+
+- Added `extended_opponents: tuple[str, ...]` and `extended_eval_every:
+  int = 0`.
+- Method `opponents_for_iteration(iteration)` returns the core list at
+  every `eval_every`, and appends `extended_opponents` (de-duplicated)
+  when `iteration` is also a multiple of `extended_eval_every`.
+- `default.yaml` now uses 3 core opponents
+  (`random`, `discard_only`, `heuristic_cautious`) every 5 iterations
+  and 3 extended opponents (`heuristic_balanced`, `heuristic_aggressive`,
+  `heuristic_noisy`) every 50 iterations.
+- `random` is the floor sanity. `discard_only` is the zero-pit
+  detector / absolute-score reference (its score is always 0, so
+  `eval/discard_only/avg_score_diff0` directly equals our model's
+  raw average score). `heuristic_cautious` is the ceiling and the
+  archive-comparable benchmark used in sections 1–6.
+
+Net effect on ongoing eval cost: ~50% reduction (3 opponents × every
+5 iter, plus 6 opponents × every 50 iter, vs the prior 6 opponents
+× every 5).
+
+### 10. Short open-selectivity ablation
 
 Run a 200-300 iteration ablation only after the target audit identifies a
 specific change. Candidate changes include:
@@ -656,10 +720,10 @@ specific change. Candidate changes include:
 
 Primary metrics:
 
-- `eval/safe_heuristic_strict/avg_score_diff0`
-- `eval/safe_heuristic_strict/win_rate0`
-- `eval/safe_heuristic_strict/bad_open_rate`
-- `eval/safe_heuristic_strict/score_per_opened_color`
+- `eval/heuristic_cautious/avg_score_diff0`
+- `eval/heuristic_cautious/win_rate0`
+- `eval/heuristic_cautious/bad_open_rate`
+- `eval/heuristic_cautious/score_per_opened_color`
 
 Do not promote to 500+ iterations unless bad-open rate and score/opened color
 both improve without degrading score diff.

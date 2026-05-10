@@ -7,7 +7,7 @@ The current implementation starts with the classic two-player card game:
 - classic 5-expedition rules by default
 - Python/Cython game engine
 - env wrapper
-- random, passive-discard, and safe-heuristic bots
+- random, discard-only, and safe-heuristic bots
 - core rule, scoring, mask, env, canonical-state, bot, and GUI smoke tests
 
 Training code, Deep CFR, learned-policy evaluation, GUI, and web client are

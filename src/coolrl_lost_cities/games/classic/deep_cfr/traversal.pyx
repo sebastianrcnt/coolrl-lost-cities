@@ -7,7 +7,7 @@ from libc.stdlib cimport free, malloc
 import numpy as np
 import torch
 
-from coolrl_lost_cities.games.classic.bots import SafeHeuristicBot
+from coolrl_lost_cities.games.classic.bots import HeuristicBot
 from coolrl_lost_cities.games.classic.deep_cfr.cfr_math cimport regret_matching_c
 from coolrl_lost_cities.games.classic.deep_cfr.encoding cimport (
     _encode_info_state_with_flags_c,
@@ -70,8 +70,8 @@ cdef class CythonDeepCFRTraverser:
     cdef object device
     cdef object encoding
     cdef object league_advantage_networks
-    cdef object safe_heuristic_rollout_bot
-    cdef object safe_heuristic_opponent_bot
+    cdef object heuristic_rollout_bot
+    cdef object heuristic_opponent_bot
     cdef int action_size
     cdef int input_dim
     cdef float epsilon
@@ -185,15 +185,15 @@ cdef class CythonDeepCFRTraverser:
             raise ValueError("cutoff_value_mode must be 'score_diff' or 'random_rollout'")
         self.cutoff_random_rollout = cutoff_value_mode == "random_rollout"
         self.cutoff_rollouts = max(0, cutoff_rollouts)
-        if cutoff_rollout_policy not in {"random", "safe_heuristic"}:
-            raise ValueError("cutoff_rollout_policy must be 'random' or 'safe_heuristic'")
+        if cutoff_rollout_policy not in {"random", "heuristic_balanced"}:
+            raise ValueError("cutoff_rollout_policy must be 'random' or 'heuristic_balanced'")
         self.cutoff_rollout_max_steps = max(1, cutoff_rollout_max_steps)
-        self.safe_heuristic_rollout_bot = (
-            SafeHeuristicBot() if cutoff_rollout_policy == "safe_heuristic" else None
+        self.heuristic_rollout_bot = (
+            HeuristicBot() if cutoff_rollout_policy == "heuristic_balanced" else None
         )
         if opponent_policy == "network":
             self.opponent_policy_id = 0
-        elif opponent_policy == "safe_heuristic":
+        elif opponent_policy == "heuristic_balanced":
             self.opponent_policy_id = 1
         elif opponent_policy == "self_play_league":
             self.opponent_policy_id = 2
@@ -205,7 +205,7 @@ cdef class CythonDeepCFRTraverser:
                 )
         else:
             raise ValueError(
-                "opponent_policy must be 'network', 'safe_heuristic', 'self_play_league', or 'average_strategy'"
+                "opponent_policy must be 'network', 'heuristic_balanced', 'self_play_league', or 'average_strategy'"
             )
         if all_negative_fallback == "uniform":
             self.all_negative_fallback_id = 0
@@ -225,8 +225,8 @@ cdef class CythonDeepCFRTraverser:
         self.self_play_recent_window = max(0, self_play_recent_window)
         self.active_self_play_bucket = 0
         self.active_self_play_networks = None
-        self.safe_heuristic_opponent_bot = (
-            SafeHeuristicBot()
+        self.heuristic_opponent_bot = (
+            HeuristicBot()
             if self.opponent_policy_id == 1 or self.self_play_anchor_probability > 0.0
             else None
         )
@@ -630,9 +630,9 @@ cdef class CythonDeepCFRTraverser:
         if player == traverser or self.opponent_policy_id == 0:
             return -1
         if self.opponent_policy_id == 1:
-            if self.safe_heuristic_opponent_bot is None:
-                self.safe_heuristic_opponent_bot = SafeHeuristicBot()
-            return int(self.safe_heuristic_opponent_bot.act(state))
+            if self.heuristic_opponent_bot is None:
+                self.heuristic_opponent_bot = HeuristicBot()
+            return int(self.heuristic_opponent_bot.act(state))
         if self.opponent_policy_id == 3:
             self._policy_from_strategy_network(state, player, legal, policy)
             for i in range(self.action_size):
@@ -649,9 +649,9 @@ cdef class CythonDeepCFRTraverser:
         if bucket == 0:
             return -1
         if bucket == 3:
-            if self.safe_heuristic_opponent_bot is None:
-                self.safe_heuristic_opponent_bot = SafeHeuristicBot()
-            return int(self.safe_heuristic_opponent_bot.act(state))
+            if self.heuristic_opponent_bot is None:
+                self.heuristic_opponent_bot = HeuristicBot()
+            return int(self.heuristic_opponent_bot.act(state))
         networks = self.active_self_play_networks
         if networks is None:
             return -1
@@ -839,8 +839,8 @@ cdef class CythonDeepCFRTraverser:
         if swapped_indices == NULL:
             raise MemoryError()
         while not state.terminal and steps < self.cutoff_rollout_max_steps:
-            if self.safe_heuristic_rollout_bot is not None:
-                local_action = int(self.safe_heuristic_rollout_bot.act(state))
+            if self.heuristic_rollout_bot is not None:
+                local_action = int(self.heuristic_rollout_bot.act(state))
                 unified_action = self._to_unified_action_c(state, local_action)
             else:
                 count = state._unified_legal_actions_c(actions)

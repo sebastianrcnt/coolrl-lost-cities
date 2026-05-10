@@ -13,7 +13,7 @@ def test_play_game_for_evaluation_finishes_small_match() -> None:
 
     state, result = play_game_for_evaluation(
         build_bot("random", seed=1),
-        build_bot("passive-discard", seed=2),
+        build_bot("discard-only", seed=2),
         config,
         seed=3,
         max_steps=200,
@@ -30,7 +30,7 @@ def test_play_match_alternates_seats_and_reports_rates() -> None:
 
     result = play_match(
         make_policy_factory("random"),
-        make_policy_factory("passive-discard"),
+        make_policy_factory("discard-only"),
         config,
         games=4,
         seed=10,
@@ -50,7 +50,7 @@ def test_evaluation_cli_smoke_json(capsys) -> None:
             "--bot0",
             "random",
             "--bot1",
-            "passive-discard",
+            "discard-only",
             "--games",
             "2",
             "--seed",

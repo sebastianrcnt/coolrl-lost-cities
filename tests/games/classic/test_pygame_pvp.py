@@ -11,7 +11,7 @@ def test_gui_argparser_accepts_classic_options() -> None:
             "--mode",
             "pvc",
             "--bot",
-            "safe-heuristic",
+            "heuristic-balanced",
             "--seed",
             "7",
             "--width",
@@ -22,7 +22,7 @@ def test_gui_argparser_accepts_classic_options() -> None:
     )
 
     assert args.mode == "pvc"
-    assert args.bot == "safe-heuristic"
+    assert args.bot == "heuristic-balanced"
     assert args.seed == 7
     assert args.width == 1024
     assert args.height == 768

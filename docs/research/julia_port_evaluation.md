@@ -31,7 +31,7 @@ Decision criteria for going forward:
 
 ### 2026-05-07 — Safe heuristic single-thread parity (criterion 1)
 
-Path: `experiments/julia_safe_heuristic/`.
+Path: `experiments/julia_heuristic/`.
 
 1,838 snapshots in 157.471 ms median (~85.6 μs/call). Action-sequence
 parity vs Python. Same order of magnitude as the Cython port of the

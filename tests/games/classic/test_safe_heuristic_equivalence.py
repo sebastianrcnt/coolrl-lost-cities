@@ -3,19 +3,19 @@ from __future__ import annotations
 import pytest
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
-from coolrl_lost_cities.games.classic.bots.heuristic import SafeHeuristicBot
+from coolrl_lost_cities.games.classic.bots.heuristic import HeuristicBot
 from coolrl_lost_cities.games.classic.bots.heuristic_py import (
-    SafeHeuristicBot as PythonSafeHeuristicBot,
+    HeuristicBot as PythonHeuristicBot,
 )
 from coolrl_lost_cities.games.classic.bots.registry import (
-    LOOSE_SAFE_HEURISTIC_PARAMS,
-    STRICT_SAFE_HEURISTIC_PARAMS,
+    AGGRESSIVE_HEURISTIC_PARAMS,
+    CAUTIOUS_HEURISTIC_PARAMS,
 )
 
 VARIANTS = (
     ("default", None),
-    ("loose", LOOSE_SAFE_HEURISTIC_PARAMS),
-    ("strict", STRICT_SAFE_HEURISTIC_PARAMS),
+    ("loose", AGGRESSIVE_HEURISTIC_PARAMS),
+    ("strict", CAUTIOUS_HEURISTIC_PARAMS),
 )
 
 CONFIGS = (
@@ -28,14 +28,14 @@ CONFIGS = (
 @pytest.mark.parametrize(("variant_name", "params"), VARIANTS)
 @pytest.mark.parametrize("config", CONFIGS)
 @pytest.mark.parametrize("seed", range(2))
-def test_cython_safe_heuristic_matches_python_action_sequence(
+def test_cython_heuristic_matches_python_action_sequence(
     variant_name: str,
     params,
     config: LostCitiesConfig,
     seed: int,
 ) -> None:
-    py_bot = PythonSafeHeuristicBot(params)
-    cy_bot = SafeHeuristicBot(params)
+    py_bot = PythonHeuristicBot(params)
+    cy_bot = HeuristicBot(params)
     py_state = GameState.new_game(config, seed=seed)
     cy_state = GameState.new_game(config, seed=seed)
 

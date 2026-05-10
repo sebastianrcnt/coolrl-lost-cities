@@ -6,7 +6,7 @@ from ..snapshots import Snapshot
 from .base import first_legal, legal_from_obs
 
 
-class PassiveDiscardBot(LostCitiesPolicy):
+class DiscardOnlyBot(LostCitiesPolicy):
     """Baseline that avoids opening expeditions whenever discarding is legal."""
 
     def act(self, obs_or_state: PolicyInput) -> int:

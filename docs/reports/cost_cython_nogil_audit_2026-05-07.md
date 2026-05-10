@@ -157,9 +157,9 @@ Python-object touch가 깔려 있다 (per-node, per-iteration):
    `self.strategy_samples.append(...)` (file:903, 937, 969). list의
    PyObject reference 갱신은 free-threaded Python에서도 atomic refcount
    비용을 추가로 부담한다.
-6. **`SafeHeuristicBot.act(state)`** — `_fixed_opponent_action`
+6. **`HeuristicBot.act(state)`** — `_fixed_opponent_action`
    (file:633, 652), `_rollout_value` (file:841). Python class
-   메서드 호출. `safe_heuristic` 옵션 사용 시만 핫.
+   메서드 호출. `heuristic_balanced` 옵션 사용 시만 핫.
 7. **`league_advantage_networks` indexing** — `_self_play_snapshot_
    networks` (file:802), `[-recent_count:]`, `[:max(0, ...)]` slicing
    = Python list slicing.
@@ -267,15 +267,15 @@ candidates = self.league_advantage_networks[:max(0, len(self.league_advantage_ne
 - 빈도: traversal 진입 시 한 번 (`traverse`에서 미리 픽), 재귀 안에서는
   `active_self_play_networks`만 본다. 따라서 cold path. 변환 불필요.
 
-### B6. `SafeHeuristicBot.act(state)` — Python bot
+### B6. `HeuristicBot.act(state)` — Python bot
 
 ```python
 # traversal.pyx:633, 652, 841
-return int(self.safe_heuristic_opponent_bot.act(state))
+return int(self.heuristic_opponent_bot.act(state))
 ```
 
-- 빈도: `opponent_policy=safe_heuristic` 또는 `cutoff_rollout_policy=
-  safe_heuristic`일 때만. 현 default는 self_play_league + score_diff
+- 빈도: `opponent_policy=heuristic_balanced` 또는 `cutoff_rollout_policy=
+  heuristic_balanced`일 때만. 현 default는 self_play_league + score_diff
   cutoff (per memory의 opponent_policy_network_divergence note + AGENTS).
 - 변환 난이도: **Medium-High** (Python class 전체를 cython화). 현 default
   config에서는 핫 아님 — 시도하지 않는 게 합리.

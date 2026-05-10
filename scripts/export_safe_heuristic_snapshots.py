@@ -7,22 +7,22 @@ from typing import Any
 
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
-from coolrl_lost_cities.games.classic.bots.heuristic_py import SafeHeuristicBot
+from coolrl_lost_cities.games.classic.bots.heuristic_py import HeuristicBot
 from coolrl_lost_cities.games.classic.bots.registry import (
-    LOOSE_SAFE_HEURISTIC_PARAMS,
-    STRICT_SAFE_HEURISTIC_PARAMS,
+    AGGRESSIVE_HEURISTIC_PARAMS,
+    CAUTIOUS_HEURISTIC_PARAMS,
 )
 
 VARIANTS = {
     "default": None,
-    "loose": LOOSE_SAFE_HEURISTIC_PARAMS,
-    "strict": STRICT_SAFE_HEURISTIC_PARAMS,
+    "loose": AGGRESSIVE_HEURISTIC_PARAMS,
+    "strict": CAUTIOUS_HEURISTIC_PARAMS,
 }
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Export safe-heuristic bot parity snapshots for external implementations."
+        description="Export heuristic bot parity snapshots for external implementations."
     )
     parser.add_argument("--output", required=True, help="JSONL output path.")
     parser.add_argument("--seeds", type=int, default=50, help="Number of seeds per config.")
@@ -71,7 +71,7 @@ def main() -> None:
         for config_name, config in _configs():
             for variant_name, params in VARIANTS.items():
                 for seed in range(args.seeds):
-                    bot = SafeHeuristicBot(params)
+                    bot = HeuristicBot(params)
                     state = GameState.new_game(config, seed=seed)
                     for turn in range(args.max_steps):
                         if state.terminal:

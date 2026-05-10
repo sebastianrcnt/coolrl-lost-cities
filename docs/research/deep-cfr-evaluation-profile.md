@@ -37,7 +37,7 @@ On CPU, the `network / turn` cost is approximately **0.074 ms**. On CUDA, this r
 
 ### Secondary Bottlenecks
 - **Post-processing:** Moving tensors back to CPU (`.cpu().numpy()`) and calculating entropy adds measurable overhead on CUDA that is largely absent on CPU.
-- **Opponent Logic:** Heuristic opponents (e.g., `safe_heuristic`) contribute significant `opponent_act_seconds` (up to 3.5s per eval iteration). Since this logic is pure Python/Cython and runs on the CPU, it does not benefit from GPU acceleration, further diluting any potential CUDA wins.
+- **Opponent Logic:** Heuristic opponents (e.g., `heuristic_balanced`) contribute significant `opponent_act_seconds` (up to 3.5s per eval iteration). Since this logic is pure Python/Cython and runs on the CPU, it does not benefit from GPU acceleration, further diluting any potential CUDA wins.
 
 ## Practical Implications
 

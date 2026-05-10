@@ -92,11 +92,13 @@ evaluation:
   games: 100
   opponents:
     - random
-    - passive_discard
-    - safe_heuristic
-    - safe_heuristic_loose
-    - safe_heuristic_strict
-    - noisy_safe
+    - discard_only
+    - heuristic_cautious
+  extended_eval_every: 50
+  extended_opponents:
+    - heuristic_balanced
+    - heuristic_aggressive
+    - heuristic_noisy
   max_steps: 10000
   on_max_steps: score_diff
   batch_size: 64

@@ -152,7 +152,7 @@ Cython production rewrite. It intentionally uses per-context RNG so interleaved
 execution order does not change the random stream for another context. That
 lets the prototype assert value/stat/sample parity against a recursive prototype
 while measuring realized batch size. Production Cython parity is a later Phase 2
-gate because the real path also has safe-heuristic opponents, average-strategy
+gate because the real path also has heuristic-balanced opponents, average-strategy
 opponents, self-play league snapshots, deck-draw chance sampling, external
 sampling, and cutoff rollouts.
 
@@ -312,7 +312,7 @@ Required feature expansion:
 
 - Support `opponent_policy: average_strategy`, matching the default config's
   opponent branch.
-- Keep unsupported branches guarded (`self_play_league`, `safe_heuristic`,
+- Keep unsupported branches guarded (`self_play_league`, `heuristic_balanced`,
   random rollout cutoffs, external sampling).
 - Add parity tests for the average-strategy fixed-opponent branch.
 - Verify a default-policy interleaved run starts and emits batch metrics.

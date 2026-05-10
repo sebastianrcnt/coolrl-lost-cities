@@ -59,23 +59,23 @@ Evaluation performance peaks early and then degrades.
 | Opponent | First 20 evals `win_rate0` | Last 20 evals `win_rate0` | First 20 evals score diff | Last 20 evals score diff |
 | --- | ---: | ---: | ---: | ---: |
 | random | 0.808 | 0.665 | +35.1 | +12.4 |
-| passive_discard | 0.026 | 0.012 | -30.8 | -43.0 |
-| safe_heuristic | 0.070 | 0.011 | -68.7 | -94.2 |
-| safe_heuristic_loose | 0.078 | 0.014 | -69.3 | -95.0 |
-| safe_heuristic_strict | 0.072 | 0.011 | -57.6 | -85.0 |
-| noisy_safe | 0.120 | 0.033 | -49.4 | -78.8 |
+| discard_only | 0.026 | 0.012 | -30.8 | -43.0 |
+| heuristic_balanced | 0.070 | 0.011 | -68.7 | -94.2 |
+| heuristic_aggressive | 0.078 | 0.014 | -69.3 | -95.0 |
+| heuristic_cautious | 0.072 | 0.011 | -57.6 | -85.0 |
+| heuristic_noisy | 0.120 | 0.033 | -49.4 | -78.8 |
 
 The best strict-heuristic point appears around iteration 70:
 
-- `eval/safe_heuristic_strict/win_rate0=0.15`
-- `eval/safe_heuristic_strict/avg_score_diff0=-41.09`
+- `eval/heuristic_cautious/win_rate0=0.15`
+- `eval/heuristic_cautious/avg_score_diff0=-41.09`
 
 The final point at iteration 2000 is worse:
 
-- `eval/safe_heuristic_strict/win_rate0=0.02`
-- `eval/safe_heuristic_strict/avg_score_diff0=-81.64`
+- `eval/heuristic_cautious/win_rate0=0.02`
+- `eval/heuristic_cautious/avg_score_diff0=-81.64`
 
-Selectivity does not meaningfully emerge. Against `safe_heuristic_strict`:
+Selectivity does not meaningfully emerge. Against `heuristic_cautious`:
 
 | Metric | First 20 evals | Last 20 evals | Interpretation |
 | --- | ---: | ---: | --- |

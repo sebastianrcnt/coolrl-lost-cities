@@ -30,11 +30,11 @@ def draw_from_discard_action(color: int) -> int:
     return 1 + color
 
 
-LOGGER = logging.getLogger("coolrl_lost_cities.games.classic.bots.safe_heuristic")
+LOGGER = logging.getLogger("coolrl_lost_cities.games.classic.bots.heuristic")
 
 
 @dataclass(frozen=True)
-class SafeHeuristicParams:
+class HeuristicParams:
     # Expedition opening.
     open_target_ratio: float = 0.50
     open_min_card_ratio: float = 0.40
@@ -92,7 +92,7 @@ class DerivedHeuristicConfig:
 @lru_cache(maxsize=64)
 def derive_heuristic_config(
     config: LostCitiesConfig,
-    params: SafeHeuristicParams,
+    params: HeuristicParams,
 ) -> DerivedHeuristicConfig:
     max_color_sum = sum(config.min_rank + rank - 1 for rank in range(1, config.n_ranks + 1))
     break_even_sum = -config.expedition_penalty
@@ -146,20 +146,20 @@ def derive_heuristic_config(
     )
 
 
-class SafeHeuristicBot(LostCitiesPolicy):
-    def __init__(self, params: SafeHeuristicParams | None = None):
-        self.params = params or SafeHeuristicParams()
+class HeuristicBot(LostCitiesPolicy):
+    def __init__(self, params: HeuristicParams | None = None):
+        self.params = params or HeuristicParams()
 
     def act(self, obs_or_state: PolicyInput) -> int:
         if not isinstance(obs_or_state, GameState) and not hasattr(obs_or_state, "legal_mask"):
             LOGGER.debug(
-                "SafeHeuristicBot fallback to first legal: input_type=%s",
+                "HeuristicBot fallback to first legal: input_type=%s",
                 type(obs_or_state).__name__,
             )
             return first_legal(legal_from_obs(obs_or_state))
 
         LOGGER.debug(
-            "SafeHeuristicBot heuristic path: player=%s phase=%s turn=%s",
+            "HeuristicBot heuristic path: player=%s phase=%s turn=%s",
             obs_or_state.current_player,
             obs_or_state.phase,
             obs_or_state.turn_count,

@@ -277,7 +277,7 @@ def evaluate_policy(
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Evaluate Lost Cities classic bots.")
-    parser.add_argument("--bot0", default="safe-heuristic", choices=available_bot_names())
+    parser.add_argument("--bot0", default="heuristic-balanced", choices=available_bot_names())
     parser.add_argument("--bot1", default="random", choices=available_bot_names())
     parser.add_argument("--games", type=int, default=100)
     parser.add_argument("--seed", type=int, default=1)

@@ -56,7 +56,7 @@ registered classic bots (`evaluate.py`), training CLI and evaluation CLI
 (`cli.py`), traversal benchmark CLI (`benchmark.py`), `metrics.jsonl` /
 `runtime_progress.json` / `train.log` run artifacts, self-play league with
 snapshot pool and weighted current/recent/older/anchor bucket sampling, safe-
-heuristic anchor opponent, safe-heuristic imitation pretraining (`imitation.py`),
+heuristic anchor opponent, heuristic imitation pretraining (`imitation.py`),
 and policy-gradient fine-tuning (`policy_gradient.py`).
 
 As of `ad0be89`, the package also includes `inference_server.py`,

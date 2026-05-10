@@ -18,6 +18,7 @@ class PlotSpec:
     scale: float = 1.0
     kind: str = "eval"
     fixed_ylim: tuple[float, float] | None = None
+    opponents: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,71 @@ class SectionSpec:
 
 
 SECTIONS: tuple[SectionSpec, ...] = (
+    SectionSpec(
+        "Core",
+        "analysis_00_core.png",
+        (
+            PlotSpec("Advantage Loss", ("loss/advantage",), "loss", kind="train"),
+            PlotSpec("Strategy Loss", ("loss/strategy",), "loss", kind="train"),
+            PlotSpec(
+                "Avg Score Diff (heuristic_cautious)",
+                ("avg_score_diff0",),
+                "score diff",
+                opponents=("heuristic_cautious",),
+            ),
+            PlotSpec(
+                "Win Rate (heuristic_cautious)",
+                ("win_rate0",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+                opponents=("heuristic_cautious",),
+            ),
+            PlotSpec(
+                "Win Rate (random)",
+                ("win_rate0",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+                opponents=("random",),
+            ),
+            PlotSpec(
+                "Avg Opened Colors (heuristic_cautious)",
+                ("avg_opened_colors",),
+                "colors",
+                fixed_ylim=(0, 5),
+                opponents=("heuristic_cautious",),
+            ),
+            PlotSpec(
+                "Positive Expedition Rate (heuristic_cautious)",
+                ("positive_expedition_rate",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+                opponents=("heuristic_cautious",),
+            ),
+            PlotSpec(
+                "Bonus Expedition Rate (heuristic_cautious)",
+                ("bonus_expedition_rate",),
+                "rate (%)",
+                scale=100.0,
+                fixed_ylim=(0, 100),
+                opponents=("heuristic_cautious",),
+            ),
+            PlotSpec(
+                "Score per Opened Color (heuristic_cautious)",
+                ("score_per_opened_color",),
+                "score / color",
+                opponents=("heuristic_cautious",),
+            ),
+            PlotSpec(
+                "Policy Entropy (heuristic_cautious)",
+                ("policy_entropy",),
+                "entropy",
+                opponents=("heuristic_cautious",),
+            ),
+        ),
+    ),
     SectionSpec(
         "Loss",
         "analysis_01_loss.png",
@@ -108,48 +174,6 @@ SECTIONS: tuple[SectionSpec, ...] = (
         ),
     ),
     SectionSpec(
-        "OpenQuality",
-        "analysis_05_open_quality.png",
-        (
-            PlotSpec(
-                "Bad Open Rate",
-                ("bad_open_rate",),
-                "rate (%)",
-                scale=100.0,
-                fixed_ylim=(0, 100),
-            ),
-            PlotSpec(
-                "Weak Open Rate",
-                ("weak_open_rate",),
-                "rate (%)",
-                scale=100.0,
-                fixed_ylim=(0, 100),
-            ),
-            PlotSpec(
-                "Bad or Weak Open Rate",
-                ("bad_or_weak_open_rate",),
-                "rate (%)",
-                scale=100.0,
-                fixed_ylim=(0, 100),
-            ),
-            PlotSpec(
-                "Good Open Rate",
-                ("good_open_rate",),
-                "rate (%)",
-                scale=100.0,
-                fixed_ylim=(0, 100),
-            ),
-            PlotSpec("Bad Open per Game", ("bad_open_per_game",), "opens / game"),
-            PlotSpec(
-                "Bad or Weak Open per Game",
-                ("bad_or_weak_open_per_game",),
-                "opens / game",
-            ),
-            PlotSpec("Opening Play Actions", ("opening_play_actions",), "actions / game"),
-            PlotSpec("Opening Recoverable p25", ("opening_recoverable_score_p25",), "score"),
-        ),
-    ),
-    SectionSpec(
         "ExpeditionOutcomes",
         "analysis_06_expedition_outcomes.png",
         (
@@ -186,23 +210,6 @@ SECTIONS: tuple[SectionSpec, ...] = (
             ),
             PlotSpec("Final Expedition Score", ("avg_final_score_per_opened_expedition",), "score"),
             PlotSpec("Score per Opened Color", ("score_per_opened_color",), "score / color"),
-        ),
-    ),
-    SectionSpec(
-        "Calibration",
-        "analysis_07_calibration.png",
-        (
-            PlotSpec(
-                "First Open Recoverable Score",
-                (
-                    "first_open_recoverable_score_mean_for_positive_final",
-                    "first_open_recoverable_score_mean_for_negative_final",
-                ),
-                "score",
-            ),
-            PlotSpec("Opening Recoverable Mean", ("opening_recoverable_score_mean",), "score"),
-            PlotSpec("Opening Recoverable p25", ("opening_recoverable_score_p25",), "score"),
-            PlotSpec("Calibration Gap", ("calibration_gap",), "score"),
         ),
     ),
     SectionSpec(
@@ -311,41 +318,23 @@ SECTIONS: tuple[SectionSpec, ...] = (
     ),
 )
 
-SELECTIVITY_PLOTS: tuple[PlotSpec, ...] = (
-    PlotSpec("Opened Colors", ("avg_opened_colors",), "colors"),
-    PlotSpec("5-Color Open Count", ("5_color_open_count",), "games / eval"),
-    PlotSpec("Opening Recoverable Mean", ("opening_recoverable_score_mean",), "score"),
-    PlotSpec("Calibration Gap", ("calibration_gap",), "score"),
-    PlotSpec(
-        "First Open Recoverable Score",
-        (
-            "first_open_recoverable_score_mean_for_positive_final",
-            "first_open_recoverable_score_mean_for_negative_final",
-        ),
-        "score",
-    ),
-    PlotSpec("Opening Play Actions", ("opening_play_actions",), "actions / game"),
-)
-
 SUMMARY_EVAL_METRICS: tuple[tuple[str, str, float], ...] = (
     ("win_rate0", "win rate (%)", 100.0),
     ("avg_score_diff0", "avg score diff", 1.0),
     ("avg_score0", "avg score", 1.0),
     ("play_action_rate", "play rate (%)", 100.0),
     ("avg_opened_colors", "opened colors", 1.0),
-    ("bad_open_rate", "bad open (%)", 100.0),
     ("score_per_opened_color", "score / opened color", 1.0),
-    ("calibration_gap", "calibration gap", 1.0),
     ("bonus_contribution_per_game", "bonus / game", 1.0),
 )
 
 OPPONENT_COLORS: dict[str, str] = {
-    "noisy_safe": "tab:blue",
-    "passive_discard": "tab:orange",
+    "heuristic_noisy": "tab:blue",
+    "discard_only": "tab:orange",
     "random": "tab:green",
-    "safe_heuristic": "tab:red",
-    "safe_heuristic_loose": "tab:purple",
-    "safe_heuristic_strict": "tab:brown",
+    "heuristic_balanced": "tab:red",
+    "heuristic_aggressive": "tab:purple",
+    "heuristic_cautious": "tab:brown",
 }
 
 TRAVERSAL_COLORS: dict[str, str] = {
@@ -428,7 +417,14 @@ def plot_section(
         if spec.kind == "train":
             plotted = _plot_train_spec(ax, rows, spec, smoothing_window=smoothing_window)
         else:
-            plotted = _plot_eval_spec(ax, rows, opponents, spec, smoothing_window=smoothing_window)
+            filtered_opponents = (
+                [o for o in opponents if o in spec.opponents]
+                if spec.opponents is not None
+                else opponents
+            )
+            plotted = _plot_eval_spec(
+                ax, rows, filtered_opponents, spec, smoothing_window=smoothing_window
+            )
         _finish_axis(
             ax, spec.title, ylabel=spec.ylabel, plotted=plotted, fixed_ylim=spec.fixed_ylim
         )
@@ -539,12 +535,6 @@ def analyze_run(
         if plot_section(rows, section, path, smoothing_window=smoothing_window):
             written.append(path)
 
-    selectivity_path = output_dir / _with_filename_suffix(
-        "analysis_09_selectivity.png", filename_suffix
-    )
-    if plot_selectivity(rows, selectivity_path, smoothing_window=smoothing_window):
-        written.append(selectivity_path)
-
     final_eval_path = output_dir / _with_filename_suffix(
         "analysis_final_eval_summary.png", filename_suffix
     )
@@ -564,45 +554,6 @@ def _with_filename_suffix(filename: str, suffix: str) -> str:
         return filename
     path = Path(filename)
     return f"{path.stem}{suffix}{path.suffix}"
-
-
-def plot_selectivity(
-    rows: list[dict[str, Any]],
-    output: Path,
-    *,
-    smoothing_window: int,
-) -> bool:
-    import matplotlib.pyplot as plt
-
-    opponents = opponent_names(rows)
-    if not opponents:
-        return False
-
-    fig, axes = plt.subplots(3, 2, figsize=(16, 12), squeeze=False)
-    axes_flat = list(axes.flat)
-    plotted_any = False
-
-    for ax, spec in zip(axes_flat, SELECTIVITY_PLOTS, strict=True):
-        plotted = _plot_eval_spec(ax, rows, opponents, spec, smoothing_window=smoothing_window)
-        _finish_axis(ax, spec.title, ylabel=spec.ylabel, plotted=plotted)
-        plotted_any = plotted_any or plotted
-
-    handles, labels = _legend_items(axes_flat)
-    if handles:
-        fig.legend(handles, labels, loc="upper center", ncols=min(len(labels), 6), fontsize="small")
-    suffix = f" ({smoothing_window}-iter moving average)" if smoothing_window > 1 else ""
-    fig.suptitle(
-        f"Lost Cities Deep CFR selectivity metrics{suffix}",
-        fontsize=14,
-        fontweight="bold",
-    )
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
-    if not plotted_any:
-        plt.close(fig)
-        return False
-    fig.savefig(output, dpi=150)
-    plt.close(fig)
-    return True
 
 
 def _all_eval_metrics() -> set[str]:

@@ -19,7 +19,7 @@ The primary bottleneck in CUDA-based evaluation is the overhead of launching sma
 
 A critical refinement in the batched implementation was the handling of policy entropy. Initial versions that calculated entropy per-row on the CPU incurred significant synchronization penalties because each row required a GPU-to-CPU transfer. Moving the entropy calculation into the Torch post-processing pipeline—specifically calculating it directly on the `probs_tensor` (line 220)—ensures that the computation remains on the device and only the final results are transferred back to the host in bulk.
 
-Once network inference is batched, the remaining bottleneck often shifts to the CPU-bound logic of heuristic opponents (e.g., `safe_heuristic_strict`). Parallelizing the evaluation across multiple workers allows the trainer to evaluate against multiple opponents simultaneously. For a single iteration profile, using 4 parallel workers reduced wall-clock evaluation time from 14.8 seconds to 6.4 seconds, achieving a ~2.3x speedup.
+Once network inference is batched, the remaining bottleneck often shifts to the CPU-bound logic of heuristic opponents (e.g., `heuristic_cautious`). Parallelizing the evaluation across multiple workers allows the trainer to evaluate against multiple opponents simultaneously. For a single iteration profile, using 4 parallel workers reduced wall-clock evaluation time from 14.8 seconds to 6.4 seconds, achieving a ~2.3x speedup.
 
 ## Practical implication
 

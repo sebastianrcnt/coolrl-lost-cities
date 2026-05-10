@@ -894,17 +894,15 @@ class DeepCFRTrainer:
         self.tracker.log_event(_format_iteration_summary(metrics, data))
 
     def _evaluate(self, iteration: int) -> dict[str, float | int]:
-        if (
-            self.config.evaluation.eval_every <= 0
-            or iteration % self.config.evaluation.eval_every != 0
-        ):
+        opponents = self.config.evaluation.opponents_for_iteration(iteration)
+        if not opponents:
             return {}
         results: dict[str, float | int] = {}
         eval_device = self._evaluation_device()
-        if self.config.evaluation.resolved_num_workers(len(self.config.evaluation.opponents)) > 1:
-            return self._evaluate_parallel(iteration, eval_device)
+        if self.config.evaluation.resolved_num_workers(len(opponents)) > 1:
+            return self._evaluate_parallel(iteration, eval_device, opponents)
         eval_network = self._evaluation_network(eval_device)
-        for opponent in self.config.evaluation.opponents:
+        for opponent in opponents:
             result = evaluate_strategy_network(
                 eval_network,
                 self.game_config,
@@ -925,8 +923,8 @@ class DeepCFRTrainer:
         self,
         iteration: int,
         eval_device: torch.device,
+        opponents: tuple[str, ...],
     ) -> dict[str, float | int]:
-        opponents = self.config.evaluation.opponents
         max_workers = self.config.evaluation.resolved_num_workers(len(opponents))
         self.tracker.log_event(
             f"Evaluation multiprocessing enabled iteration={iteration} "

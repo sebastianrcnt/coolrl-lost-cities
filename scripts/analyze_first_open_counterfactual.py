@@ -367,7 +367,7 @@ def analyze_checkpoint(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("checkpoints", nargs="+", type=Path)
-    parser.add_argument("--opponent", default="safe_heuristic_strict")
+    parser.add_argument("--opponent", default="heuristic_cautious")
     parser.add_argument("--games", type=int, default=100)
     parser.add_argument("--seed", type=int, default=231_000)
     parser.add_argument("--device", default="cuda")
@@ -379,7 +379,7 @@ def main() -> None:
         help=(
             "Policy used for the policy_player during forced-action rollouts. "
             "'model' uses the trained advantage network; any other value is "
-            "treated as a bot name (e.g. 'safe_heuristic_strict')."
+            "treated as a bot name (e.g. 'heuristic_cautious')."
         ),
     )
     parser.add_argument("--output", type=Path, required=True)

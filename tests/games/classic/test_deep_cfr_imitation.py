@@ -3,13 +3,13 @@ from __future__ import annotations
 from coolrl_lost_cities.games.classic.game import LostCitiesConfig
 
 from coolrl_lost_cities.games.classic.deep_cfr.imitation import (
-    collect_safe_heuristic_samples,
+    collect_heuristic_samples,
     new_pretrained_strategy_network,
 )
 
 
-def test_collect_safe_heuristic_samples_shapes() -> None:
-    x, y, legal = collect_safe_heuristic_samples(LostCitiesConfig(seed=61), games=1, seed=61)
+def test_collect_heuristic_samples_shapes() -> None:
+    x, y, legal = collect_heuristic_samples(LostCitiesConfig(seed=61), games=1, seed=61)
 
     assert len(x) == len(y) == len(legal)
     assert x.ndim == 2

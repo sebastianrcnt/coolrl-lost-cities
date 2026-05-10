@@ -43,10 +43,10 @@ def test_classic_package_exports_bot_registry_helpers() -> None:
 def test_classic_bot_registry_accepts_reproduction_opponent_names() -> None:
     for name in [
         "random",
-        "passive_discard",
-        "safe_heuristic",
-        "safe_heuristic_loose",
-        "safe_heuristic_strict",
-        "noisy_safe",
+        "discard_only",
+        "heuristic_balanced",
+        "heuristic_aggressive",
+        "heuristic_cautious",
+        "heuristic_noisy",
     ]:
         assert isinstance(classic.build_bot(name, seed=1), classic.LostCitiesPolicy)

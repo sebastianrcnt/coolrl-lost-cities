@@ -1494,3 +1494,83 @@ def test_interleaved_regret_matching_no_fallback_unchanged_by_mode() -> None:
     assert fallback_a is False
     assert np.allclose(policy_uniform, policy_argmax)
     assert np.allclose(policy_uniform.sum(), 1.0)
+
+
+def test_evaluation_opponents_for_iteration_core_only_when_extended_disabled() -> None:
+    from coolrl_lost_cities.games.classic.deep_cfr.config import EvaluationConfig
+
+    cfg = EvaluationConfig(
+        eval_every=5,
+        opponents=("random", "discard_only", "heuristic_cautious"),
+        extended_eval_every=0,
+        extended_opponents=("heuristic_balanced",),
+    )
+    assert cfg.opponents_for_iteration(0) == ()
+    assert cfg.opponents_for_iteration(3) == ()
+    assert cfg.opponents_for_iteration(5) == (
+        "random",
+        "discard_only",
+        "heuristic_cautious",
+    )
+    assert cfg.opponents_for_iteration(50) == (
+        "random",
+        "discard_only",
+        "heuristic_cautious",
+    )
+
+
+def test_evaluation_opponents_for_iteration_extends_on_extended_cadence() -> None:
+    from coolrl_lost_cities.games.classic.deep_cfr.config import EvaluationConfig
+
+    cfg = EvaluationConfig(
+        eval_every=5,
+        opponents=("random", "discard_only", "heuristic_cautious"),
+        extended_eval_every=50,
+        extended_opponents=(
+            "heuristic_balanced",
+            "heuristic_aggressive",
+            "heuristic_noisy",
+        ),
+    )
+    assert cfg.opponents_for_iteration(5) == (
+        "random",
+        "discard_only",
+        "heuristic_cautious",
+    )
+    assert cfg.opponents_for_iteration(45) == (
+        "random",
+        "discard_only",
+        "heuristic_cautious",
+    )
+    assert cfg.opponents_for_iteration(50) == (
+        "random",
+        "discard_only",
+        "heuristic_cautious",
+        "heuristic_balanced",
+        "heuristic_aggressive",
+        "heuristic_noisy",
+    )
+    assert cfg.opponents_for_iteration(100) == (
+        "random",
+        "discard_only",
+        "heuristic_cautious",
+        "heuristic_balanced",
+        "heuristic_aggressive",
+        "heuristic_noisy",
+    )
+
+
+def test_evaluation_opponents_for_iteration_dedupes_overlap() -> None:
+    from coolrl_lost_cities.games.classic.deep_cfr.config import EvaluationConfig
+
+    cfg = EvaluationConfig(
+        eval_every=5,
+        opponents=("random", "heuristic_cautious"),
+        extended_eval_every=10,
+        extended_opponents=("heuristic_cautious", "heuristic_balanced"),
+    )
+    assert cfg.opponents_for_iteration(10) == (
+        "random",
+        "heuristic_cautious",
+        "heuristic_balanced",
+    )

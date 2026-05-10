@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from coolrl_lost_cities.games.classic.bots import SafeHeuristicBot
+from coolrl_lost_cities.games.classic.bots import HeuristicBot
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import encode_info_state, input_dim
 from coolrl_lost_cities.games.classic.deep_cfr.networks import DeepCFRMLP
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig, classic_config
@@ -18,7 +18,7 @@ class ImitationMetrics:
     loss: float
 
 
-def collect_safe_heuristic_samples(
+def collect_heuristic_samples(
     config: LostCitiesConfig | None = None,
     *,
     games: int = 4,
@@ -28,7 +28,7 @@ def collect_safe_heuristic_samples(
     game_config = config or classic_config(seed=seed)
     probe = GameState.new_game(game_config, seed=seed)
     action_size = 2 * probe.config.hand_size + 1 + probe.config.n_colors
-    bot = SafeHeuristicBot()
+    bot = HeuristicBot()
     infos: list[np.ndarray] = []
     targets: list[np.ndarray] = []
     masks: list[np.ndarray] = []
@@ -67,7 +67,7 @@ def pretrain_strategy_network(
     learning_rate: float = 1.0e-3,
     device: torch.device | str = "cpu",
 ) -> ImitationMetrics:
-    x_np, y_np, legal_np = collect_safe_heuristic_samples(config, games=games, seed=seed)
+    x_np, y_np, legal_np = collect_heuristic_samples(config, games=games, seed=seed)
     device = torch.device(device)
     strategy_network.to(device)
     strategy_network.train()

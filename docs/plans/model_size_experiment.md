@@ -39,7 +39,7 @@ The experiment must produce either a recommended new `network` config or a docum
 
 ## Success criteria
 
-1. At least one tested config produces win-rate trajectories vs `safe_heuristic_strict` that are **clearly outside seed noise** compared to the current baseline at iteration 200 — OR a clear documented null result (no size in the tested range improves the curve).
+1. At least one tested config produces win-rate trajectories vs `heuristic_cautious` that are **clearly outside seed noise** compared to the current baseline at iteration 200 — OR a clear documented null result (no size in the tested range improves the curve).
 2. `iteration_seconds`, `traversal_seconds`, `advantage_train_seconds`, `strategy_train_seconds`, and `policy_network_seconds` (eval) are captured for each tested size and written to `docs/performance.md`.
 3. A recommended `network` config emerges from the data, OR the experiment documents why the current size should be kept, with specific rationale.
 
@@ -72,7 +72,7 @@ configs/deep_cfr/model-size-1536x8.yaml
   - `traversal_seconds` — traversal phase.
   - `advantage_train_seconds` — advantage network optimization.
   - `strategy_train_seconds` — strategy network optimization.
-  - At eval iterations {50, 100, 150, 200}: `eval/<opponent>/win_rate` for all opponents, with special attention to `safe_heuristic_strict`.
+  - At eval iterations {50, 100, 150, 200}: `eval/<opponent>/win_rate` for all opponents, with special attention to `heuristic_cautious`.
   - At eval iterations: `eval/<opponent>/policy_network_seconds` — needed for the AMP/TRT prerequisite check.
 - **Memory monitoring:** watch GPU VRAM during the 1024x6 and 1536x8 runs. If a run OOMs or VRAM > 20 GB, reduce `optimization.advantage_batch_size` and `optimization.strategy_batch_size` by half (1024 → 512) and note the change in the results table. Do not adjust traversal settings.
 
@@ -259,8 +259,8 @@ if non_eval:
 eval_rows = {r['iteration']: r for r in rows if r.get('evaluation_seconds')}
 for it in [50, 100, 150, 200]:
     if it in eval_rows:
-        wr = eval_rows[it].get('eval/safe_heuristic_strict/win_rate', 'n/a')
-        print(f'  iter={it} safe_heuristic_strict win_rate={wr}')
+        wr = eval_rows[it].get('eval/heuristic_cautious/win_rate', 'n/a')
+        print(f'  iter={it} heuristic_cautious win_rate={wr}')
 "
 done
 ```
@@ -269,7 +269,7 @@ done
 
 After the grid completes, append a date-stamped experiment subsection to `docs/performance.md` under the "Experiments" heading. The subsection must include:
 
-- A results table with `iteration_seconds` mean (non-eval) and win-rate vs `safe_heuristic_strict` at {50, 100, 150, 200} for each config.
+- A results table with `iteration_seconds` mean (non-eval) and win-rate vs `heuristic_cautious` at {50, 100, 150, 200} for each config.
 - A `policy_network_seconds` column from eval rows — this is the key data for the AMP/compile/TRT prerequisite check.
 - The recommendation that follows from the decision tree below.
 
@@ -302,7 +302,7 @@ Apply this logic after the grid completes:
 
 ### Branch A — a size unlocks the curve AND iter time is acceptable
 
-**Condition:** at least one config at or above 768x4 shows win-rate trajectories vs `safe_heuristic_strict` that are clearly outside seed noise vs 512x3 baseline at iteration 200, AND `iteration_seconds` at that size is ≤ 3× the baseline (i.e., ≤ ~54s/iter).
+**Condition:** at least one config at or above 768x4 shows win-rate trajectories vs `heuristic_cautious` that are clearly outside seed noise vs 512x3 baseline at iteration 200, AND `iteration_seconds` at that size is ≤ 3× the baseline (i.e., ≤ ~54s/iter).
 
 **Action:**
 1. Recommend that config as the new `network` default.

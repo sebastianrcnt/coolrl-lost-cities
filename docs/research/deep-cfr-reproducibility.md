@@ -45,7 +45,7 @@ Two temporary runs used:
 - `run.max_iterations=3`
 - `evaluation.eval_every=1`
 - `evaluation.games=20`
-- `evaluation.opponents=[random,safe_heuristic_strict]`
+- `evaluation.opponents=[random,heuristic_cautious]`
 - W&B disabled
 
 Runs:
@@ -55,7 +55,7 @@ Runs:
 
 Core metrics matched exactly:
 
-| Iteration | `traversal/nodes` | `memory/advantage` | `loss/advantage` | `eval/random/win_rate0` | `eval/safe_heuristic_strict/win_rate0` |
+| Iteration | `traversal/nodes` | `memory/advantage` | `loss/advantage` | `eval/random/win_rate0` | `eval/heuristic_cautious/win_rate0` |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | 1 | 170822 | 85096 | 803.9475702643394 | 0.75 | 0.10 |
 | 2 | 206225 | 187987 | 821.3355012834072 | 0.50 | 0.05 |

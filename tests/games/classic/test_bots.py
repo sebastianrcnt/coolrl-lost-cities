@@ -1,9 +1,9 @@
 from coolrl_lost_cities.games.classic.game import Card, GameState, LostCitiesConfig
 
 from coolrl_lost_cities.games.classic.bots import (
+    HeuristicBot,
     LostCitiesPolicy,
     RandomBot,
-    SafeHeuristicBot,
 )
 from coolrl_lost_cities.games.classic.bots.heuristic import draw_from_discard_action
 from coolrl_lost_cities.games.classic.evaluation import play_game_for_evaluation
@@ -19,13 +19,13 @@ def _expeditions(config: LostCitiesConfig) -> list[list[list[Card]]]:
 
 def test_builtin_bots_implement_lost_cities_policy() -> None:
     assert isinstance(RandomBot(1), LostCitiesPolicy)
-    assert isinstance(SafeHeuristicBot(), LostCitiesPolicy)
+    assert isinstance(HeuristicBot(), LostCitiesPolicy)
 
 
-def test_safe_heuristic_mirror_match_finishes() -> None:
+def test_heuristic_mirror_match_finishes() -> None:
     state, result = play_game_for_evaluation(
-        SafeHeuristicBot(),
-        SafeHeuristicBot(),
+        HeuristicBot(),
+        HeuristicBot(),
         LostCitiesConfig(n_colors=3, n_ranks=5, n_handshakes=1, hand_size=5),
         seed=2000,
         max_steps=200,
@@ -34,9 +34,9 @@ def test_safe_heuristic_mirror_match_finishes() -> None:
     assert result.timed_out is False
 
 
-def test_safe_heuristic_opponent_value_ignores_hidden_hand() -> None:
+def test_heuristic_opponent_value_ignores_hidden_hand() -> None:
     config = LostCitiesConfig(n_colors=2, n_ranks=8, hand_size=3)
-    bot = SafeHeuristicBot()
+    bot = HeuristicBot()
     discard_card = Card(color=0, rank=6)
 
     expeditions_a = _expeditions(config)
@@ -76,9 +76,9 @@ def test_safe_heuristic_opponent_value_ignores_hidden_hand() -> None:
     assert value_a == value_b
 
 
-def test_safe_heuristic_started_expedition_value_ignores_invalid_lower_followup() -> None:
+def test_heuristic_started_expedition_value_ignores_invalid_lower_followup() -> None:
     config = LostCitiesConfig(n_colors=2, n_ranks=8, hand_size=3)
-    bot = SafeHeuristicBot()
+    bot = HeuristicBot()
     high_card = Card(color=0, rank=8)
 
     base_expeditions = _expeditions(config)
@@ -115,9 +115,9 @@ def test_safe_heuristic_started_expedition_value_ignores_invalid_lower_followup(
     assert lower_followup_value == base_value
 
 
-def test_safe_heuristic_draws_playable_discard_instead_of_deck() -> None:
+def test_heuristic_draws_playable_discard_instead_of_deck() -> None:
     config = LostCitiesConfig(n_colors=2, n_ranks=8, hand_size=3)
-    bot = SafeHeuristicBot()
+    bot = HeuristicBot()
 
     expeditions = _expeditions(config)
     expeditions[0][0] = [Card(color=0, rank=4)]
@@ -132,9 +132,9 @@ def test_safe_heuristic_draws_playable_discard_instead_of_deck() -> None:
     assert bot._act_draw(state) == draw_from_discard_action(0)
 
 
-def test_safe_heuristic_can_draw_discard_to_deny_opponent_when_losing() -> None:
+def test_heuristic_can_draw_discard_to_deny_opponent_when_losing() -> None:
     config = LostCitiesConfig(n_colors=2, n_ranks=8, hand_size=4)
-    bot = SafeHeuristicBot()
+    bot = HeuristicBot()
 
     expeditions = _expeditions(config)
     expeditions[0][1] = [Card(color=1, rank=8)]
@@ -158,9 +158,9 @@ def test_safe_heuristic_can_draw_discard_to_deny_opponent_when_losing() -> None:
     assert bot._act_draw(state) == draw_from_discard_action(0)
 
 
-def test_safe_heuristic_classic_self_play_opens_expeditions() -> None:
+def test_heuristic_classic_self_play_opens_expeditions() -> None:
     state = GameState.new_game(LostCitiesConfig(), seed=1)
-    bot = SafeHeuristicBot()
+    bot = HeuristicBot()
     player0_actions: list[int] = []
 
     for _ in range(60):
@@ -182,9 +182,9 @@ def test_safe_heuristic_classic_self_play_opens_expeditions() -> None:
     assert any(state.expeditions[0][color] for color in range(state.config.n_colors))
 
 
-def test_safe_heuristic_avoids_opening_weak_fifth_color() -> None:
+def test_heuristic_avoids_opening_weak_fifth_color() -> None:
     config = LostCitiesConfig(n_colors=5, n_ranks=8, hand_size=8)
-    bot = SafeHeuristicBot()
+    bot = HeuristicBot()
     expeditions = _expeditions(config)
     expeditions[0][0] = [Card(color=0, rank=4)]
     expeditions[0][1] = [Card(color=1, rank=4)]
@@ -211,9 +211,9 @@ def test_safe_heuristic_avoids_opening_weak_fifth_color() -> None:
     )
 
 
-def test_safe_heuristic_prefers_followup_on_started_expedition() -> None:
+def test_heuristic_prefers_followup_on_started_expedition() -> None:
     config = LostCitiesConfig(n_colors=3, n_ranks=8, hand_size=5)
-    bot = SafeHeuristicBot()
+    bot = HeuristicBot()
     expeditions = _expeditions(config)
     expeditions[0][0] = [Card(color=0, rank=4)]
     state = make_state(
@@ -233,9 +233,9 @@ def test_safe_heuristic_prefers_followup_on_started_expedition() -> None:
     assert chosen.color == 0
 
 
-def test_safe_heuristic_avoids_unopened_discard_draw_after_four_opens() -> None:
+def test_heuristic_avoids_unopened_discard_draw_after_four_opens() -> None:
     config = LostCitiesConfig(n_colors=5, n_ranks=8, hand_size=8)
-    bot = SafeHeuristicBot()
+    bot = HeuristicBot()
     expeditions = _expeditions(config)
     expeditions[0][0] = [Card(color=0, rank=4)]
     expeditions[0][1] = [Card(color=1, rank=4)]
