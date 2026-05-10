@@ -905,3 +905,78 @@ Trap 본질 진단 결과 **"자기참조 회로"는 충분조건이 아니다.*
 직접 단축. 작은 게임에서 follow-up 학습 성공이 풀 게임 학습의 핵심 prior가
 됨.
 
+
+## §11. R2 — heuristic_balanced opponent diagnostic (2026-05-10)
+
+### Hypothesis
+
+R1에서 trap의 본질이 자기참조 회로 아님이 확정됐지만 R1은 discard_only 상대라
+zero-pit이 *수학적으로 정답*이라 진단이 흐릿했다. R2는 양수 점수 만드는
+competent 상대(heuristic_balanced)를 두면 zero-pit 균형이 사라지고 모델이
+"카드 두기" 학습 신호를 처음으로 분명히 받는지 확인.
+
+### Run
+
+- Run dir: `runs/2026-05-10_211554_r2-heuristic-balanced-opp-512x3-det-300`
+- W&B group: `r2-heuristic-balanced-opp-v1`
+- Config: `traversal.opponent_policy: heuristic_balanced` (기본 self_play_league
+  → 휴리스틱). 다른 모든 변수 R0/R1과 동일.
+- Iters: 167 / 300 종료 (조기 중단). 패턴 명확히 드러나서 끝까지 갈 가치 없음.
+- 부수: interleaved scheduler에 heuristic_balanced opponent 새로 추가
+  (commit `7d59398`), recursive 안 쓰고 빠른 path 유지.
+
+### Result (last eval iter 165)
+
+| metric | R0 | R1 | R2 |
+| --- | ---: | ---: | ---: |
+| vs cautious score_diff | -47.99 | -69.56 | -54.38 |
+| vs cautious opened_colors | 4.93 | 2.54 | 1.11 |
+| **vs cautious play_action_rate** | **0.02** | **0.00** | **0.00** |
+| vs cautious per_game_pos_exp | 0.76 | 0.08 | 0.02 |
+| vs cautious per_game_neg_exp | 4.06 | 2.44 | 1.08 |
+| vs cautious avg_game_length | 1053 | 5282 | 7622 |
+| vs cautious bad_open_rate | 0.92 | 0.96 | 0.98 |
+| vs random score_diff | +49.61 | -9.30 | +5.07 |
+| vs discard_only score_diff | -27.19 | 0.00 | -21.54 |
+| advantage loss (steady) | ~2300 | 1500→3500 | ~200 |
+
+### Interpretation: trap shape changes, root cause invariant
+
+R2는 R1의 zero-pit과 R0의 over-open 사이의 **변형**:
+- opened_colors 1.11 (R0 5.0보다 작고, R1 0.0보다 큼)
+- bad_open_rate **0.98** (R0/R1보다 더 나쁨) — 여는 거의 모든 색이 bad open
+- positive expeditions **0.02개/게임** — 사실상 보너스 절대 못 받음
+- avg_game_length 7622 — max_steps timeout 폭증, 게임 종료 못 시키는 패턴
+- vs random에서 R0의 +50점 우위가 +5로 무너짐 → random에게도 거의 못 이김
+
+R2의 advantage loss 200은 R0의 2200 대비 1/10. **모델이 trap 정책을 더
+정확하게 학습 중**(targets가 deterministic heuristic 상대라 분산 작음).
+정확한 fit이지만 fit하는 게 trap.
+
+### What three runs together prove
+
+| | R0 (self) | R1 (discard) | R2 (heuristic) |
+| --- | ---: | ---: | ---: |
+| opponent type | self-play | passive fixed | competent fixed |
+| trap shape | over-open | zero-pit | small over-open + zero followup |
+| **play_action_rate** | **~0%** | **~0%** | **~0%** |
+
+**세 가지 다른 opponent 분포에서 모델 모두 `play_action_rate ≈ 0%`.** opponent
+와 무관한 핵심 결함. credit assignment / 알고리즘 한계의 직접 증거.
+
+### Closed: opponent 변경으로 trap 못 풂
+
+이 시점에서 opponent dimension은 닫힘. R0(self), R1(passive), R2(competent)
+세 카테고리 모두 trap. opponent 환경 변경은 trap의 외형만 바꾸고 본질을 못 풂.
+
+### Recommended direction: SO-ISMCTS 정공법
+
+이전 §10 결론에서 curriculum을 1순위로 두었으나 R2 결과로 우선순위 조정:
+
+- credit assignment가 알고리즘 자체의 한계임이 R0/R1/R2 누적 증거로 거의 확정
+- opponent 변형은 닫힌 카테고리
+- 다음 정공법은 **search-based bootstrap (SO-ISMCTS)** — value head로 long-horizon credit chain 단축, PUCT search로 가치 추정 분산 줄임. AlphaZero가 비슷한 구조 풀어본 검증된 메커니즘.
+- Curriculum과 network split은 같은 self-play 가족이지만 search 추가만큼 본질 공격은 아님 → R3는 SO-ISMCTS PoC, curriculum은 백업.
+
+설계 문서 작성 + 단계별 구현은 별도 plan으로 (추가 예정).
+
