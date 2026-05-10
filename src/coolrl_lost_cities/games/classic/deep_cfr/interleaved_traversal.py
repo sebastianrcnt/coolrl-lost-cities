@@ -9,6 +9,7 @@ import numpy as np
 import torch
 
 from coolrl_lost_cities.games.classic.bots.discard_only import DiscardOnlyBot
+from coolrl_lost_cities.games.classic.bots.heuristic_py import HeuristicBot
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import encode_info_state
 from coolrl_lost_cities.games.classic.deep_cfr.memory import TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.traversal_stats import TraversalStats
@@ -381,6 +382,9 @@ class InterleavedContext:
         self._discard_only_bot: DiscardOnlyBot | None = (
             DiscardOnlyBot() if cfg.opponent_policy == "discard_only" else None
         )
+        self._heuristic_bot: HeuristicBot | None = (
+            HeuristicBot() if cfg.opponent_policy == "heuristic_balanced" else None
+        )
 
     def advance_until_policy(self, context_index: int) -> None:
         while not self.done and self.pending is None and self.stack:
@@ -477,6 +481,14 @@ class InterleavedContext:
                     snapshot.phase, snapshot.legal_mask, snapshot.card_action_size
                 )
             )
+            swapped_deck_index = self._sample_deck_draw_chance(action)
+            self.state.push_unified_action(action)
+            self.stack.append(FixedActionFrame(swapped_deck_index=swapped_deck_index))
+            self.stack.append(EnterFrame(depth + 1))
+            return
+        if player != self.traverser and self._heuristic_bot is not None:
+            phase_local_action = int(self._heuristic_bot.act(self.state))
+            action = int(self.state.to_unified_action(phase_local_action))
             swapped_deck_index = self._sample_deck_draw_chance(action)
             self.state.push_unified_action(action)
             self.stack.append(FixedActionFrame(swapped_deck_index=swapped_deck_index))

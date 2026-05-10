@@ -197,10 +197,16 @@ class TraversalConfig(StrictModel):
         if self.scheduler == "interleaved":
             if self.sampling_mode != "outcome":
                 raise ValueError("scheduler='interleaved' currently supports only outcome sampling")
-            if self.opponent_policy not in {"network", "average_strategy", "discard_only"}:
+            if self.opponent_policy not in {
+                "network",
+                "average_strategy",
+                "discard_only",
+                "heuristic_balanced",
+            }:
                 raise ValueError(
                     "scheduler='interleaved' currently supports only "
-                    "opponent_policy='network', 'average_strategy', or 'discard_only'"
+                    "opponent_policy='network', 'average_strategy', 'discard_only', "
+                    "or 'heuristic_balanced'"
                 )
             if self.cutoff_rollouts != 0 or self.cutoff_value_mode != "score_diff":
                 raise ValueError(

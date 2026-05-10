@@ -139,7 +139,10 @@ def test_deep_cfr_config_accepts_interleaved_scheduler() -> None:
 
 def test_deep_cfr_config_rejects_unsupported_interleaved_options() -> None:
     with pytest.raises(
-        ValueError, match="opponent_policy='network', 'average_strategy', or 'discard_only'"
+        ValueError,
+        match=(
+            "opponent_policy='network', 'average_strategy', 'discard_only', or 'heuristic_balanced'"
+        ),
     ):
         _deep_cfr_config(
             {"traversal": {"scheduler": "interleaved", "opponent_policy": "self_play_league"}}
@@ -161,6 +164,13 @@ def test_deep_cfr_config_accepts_discard_only_with_interleaved() -> None:
         {"traversal": {"scheduler": "interleaved", "opponent_policy": "discard_only"}}
     )
     assert config.traversal.opponent_policy == "discard_only"
+
+
+def test_deep_cfr_config_accepts_heuristic_balanced_with_interleaved() -> None:
+    config = _deep_cfr_config(
+        {"traversal": {"scheduler": "interleaved", "opponent_policy": "heuristic_balanced"}}
+    )
+    assert config.traversal.opponent_policy == "heuristic_balanced"
 
 
 def test_deep_cfr_config_rejects_discard_only_with_recursive() -> None:
@@ -495,6 +505,42 @@ def test_deep_cfr_trainer_discard_only_opponent_smoke_run(tmp_path) -> None:
         ),
         LostCitiesConfig(seed=25),
         run_dir=tmp_path / "discard_only",
+    )
+
+    metrics = trainer.train()
+
+    assert len(metrics) == 1
+    assert metrics[0].advantage_samples > 0
+    assert metrics[0].traversal_nodes > 0
+
+
+def test_deep_cfr_trainer_heuristic_balanced_opponent_smoke_run(tmp_path) -> None:
+    trainer = DeepCFRTrainer(
+        _deep_cfr_config(
+            {
+                "run": {"max_iterations": 1, "seed": 27},
+                "network": {"hidden_size": 16},
+                "traversal": {
+                    "scheduler": "interleaved",
+                    "opponent_policy": "heuristic_balanced",
+                    "traversals_per_player": 2,
+                    "max_depth": 3,
+                    "max_nodes_per_traversal": 64,
+                    "interleave_width": 4,
+                    "interleave_max_batch": 8,
+                },
+                "optimization": {
+                    "advantage_updates_per_iteration": 1,
+                    "strategy_updates_per_iteration": 1,
+                    "advantage_batch_size": 2,
+                    "strategy_batch_size": 2,
+                },
+                "checkpoint": {"save_every": 0, "save_latest": False},
+                "evaluation": {"eval_every": 0},
+            }
+        ),
+        LostCitiesConfig(seed=27),
+        run_dir=tmp_path / "heuristic_balanced",
     )
 
     metrics = trainer.train()
