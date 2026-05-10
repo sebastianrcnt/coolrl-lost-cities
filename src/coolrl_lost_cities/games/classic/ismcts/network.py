@@ -70,3 +70,15 @@ class AlphaZeroNet(nn.Module):
         probs = torch.softmax(logits, dim=-1).masked_fill(~legal_mask.bool(), 0.0)
         normalizer = probs.sum(dim=-1, keepdim=True).clamp_min(1.0e-12)
         return probs / normalizer
+
+
+class AlphaZeroLogitsView(nn.Module):
+    """Expose AlphaZeroNet's policy logits as a one-argument module."""
+
+    def __init__(self, net: AlphaZeroNet) -> None:
+        super().__init__()
+        self.net = net
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        logits, _value = self.net(x, legal_mask=None)
+        return logits

@@ -14,6 +14,7 @@ class ReplaySample:
     pi_target: np.ndarray
     v_target: float
     player: int
+    prior: np.ndarray | None = None
 
 
 class ReplayBuffer:

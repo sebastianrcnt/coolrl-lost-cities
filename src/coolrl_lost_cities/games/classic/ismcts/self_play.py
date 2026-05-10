@@ -60,10 +60,23 @@ def play_self_play_game(
     max_steps: int = 10_000,
 ) -> list[ReplaySample]:
     state = GameState.new_game(game_config, seed=rng.randrange(2**31))
-    pending: list[tuple[np.ndarray, np.ndarray, np.ndarray, int]] = []
+    pending: list[tuple[np.ndarray, np.ndarray, np.ndarray, int, np.ndarray]] = []
     steps = 0
     while not state.terminal and steps < max_steps:
         player = int(state.current_player)
+        legal_mask = np.asarray(state.unified_legal_mask(), dtype=bool)
+        info = encode_info_state(state, player, encoding)
+        with torch.inference_mode():
+            x = torch.as_tensor(info[None, :], dtype=torch.float32, device=device)
+            mask = torch.as_tensor(legal_mask[None, :], dtype=torch.bool, device=device)
+            prior = (
+                network.policy_distribution(x, mask)
+                .squeeze(0)
+                .detach()
+                .cpu()
+                .numpy()
+                .astype(np.float32)
+            )
         searcher = IsMctsSearcher(
             network,
             mcts_config,
@@ -72,20 +85,18 @@ def play_self_play_game(
             rng=random.Random(rng.randrange(2**31)),
         )
         visits = searcher.search(state, player)
-        legal_mask = np.asarray(state.unified_legal_mask(), dtype=bool)
         pi = visit_distribution(visits, state.action_size, temperature=temperature)
         if pi.sum() <= 0:
             legal_actions = np.flatnonzero(legal_mask)
             pi[legal_actions] = 1.0 / len(legal_actions)
-        info = encode_info_state(state, player, encoding)
-        pending.append((info.astype(np.float32), legal_mask, pi, player))
+        pending.append((info.astype(np.float32), legal_mask, pi, player, prior))
         action = select_from_distribution(pi, rng)
         state.apply_unified_action(action)
         steps += 1
 
     final_diff0 = float(state.score_diff(0))
     samples: list[ReplaySample] = []
-    for info, legal_mask, pi, player in pending:
+    for info, legal_mask, pi, player, prior in pending:
         value = final_diff0 if player == 0 else -final_diff0
         samples.append(
             ReplaySample(
@@ -94,6 +105,7 @@ def play_self_play_game(
                 pi_target=pi.astype(np.float32),
                 v_target=value,
                 player=player,
+                prior=prior,
             )
         )
     return samples

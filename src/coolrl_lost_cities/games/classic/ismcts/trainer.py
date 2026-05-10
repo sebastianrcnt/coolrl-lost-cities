@@ -10,13 +10,12 @@ import numpy as np
 import torch
 from torch import nn
 
-from coolrl_lost_cities.games.classic.bots import build_bot
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import input_dim
+from coolrl_lost_cities.games.classic.deep_cfr.evaluate import evaluate_strategy_network
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
 from .config import IsMctsConfig
-from .mcts import IsMctsSearcher
-from .network import AlphaZeroNet
+from .network import AlphaZeroLogitsView, AlphaZeroNet
 from .replay_buffer import ReplayBuffer, ReplaySample
 from .self_play import play_self_play_game
 
@@ -32,6 +31,7 @@ class IterationMetrics:
     self_play_seconds: float
     train_seconds: float
     eval_metrics: dict[str, float | int]
+    mcts_metrics: dict[str, float]
 
     def to_dict(self) -> dict[str, float | int]:
         data: dict[str, float | int] = {
@@ -44,6 +44,7 @@ class IterationMetrics:
             "time/self_play_seconds": self.self_play_seconds,
             "time/train_seconds": self.train_seconds,
         }
+        data.update(self.mcts_metrics)
         data.update(self.eval_metrics)
         return data
 
@@ -107,6 +108,7 @@ class IsMctsTrainer:
         self.network.eval()
         sp_started = time.perf_counter()
         added = 0
+        iteration_samples: list[ReplaySample] = []
         for _ in range(self.config.training.games_per_iter):
             samples = play_self_play_game(
                 self.network,
@@ -119,8 +121,10 @@ class IsMctsTrainer:
                 max_steps=self.config.evaluation.max_steps,
             )
             self.buffer.add(samples)
+            iteration_samples.extend(samples)
             added += len(samples)
         self_play_seconds = time.perf_counter() - sp_started
+        mcts_metrics = self._compute_mcts_metrics(iteration_samples)
 
         train_started = time.perf_counter()
         losses = []
@@ -140,6 +144,7 @@ class IsMctsTrainer:
             self_play_seconds=self_play_seconds,
             train_seconds=train_seconds,
             eval_metrics=eval_metrics,
+            mcts_metrics=mcts_metrics,
         )
 
     def _train_batch(self, batch: list[ReplaySample]) -> tuple[float, float, float]:
@@ -181,26 +186,71 @@ class IsMctsTrainer:
 
     def _evaluate(self, iteration: int) -> dict[str, float | int]:
         opponents = self.config.evaluation.opponents_for_iteration(iteration)
+        if (
+            not opponents
+            and self.config.evaluation.eval_every > 0
+            and self.config.run.max_iterations is not None
+            and iteration >= self.config.run.max_iterations
+        ):
+            opponents = self.config.evaluation.opponents
         if not opponents:
             return {}
         self.network.eval()
         results: dict[str, float | int] = {}
+        logits_view = AlphaZeroLogitsView(self.network)
         for opponent in opponents:
-            result = evaluate_policy(
-                self.network,
+            result = evaluate_strategy_network(
+                logits_view,
                 self.game_config,
-                opponent=opponent,
                 games=self.config.evaluation.games,
                 seed=self.config.run.seed + iteration * 1000,
+                opponent=opponent,
                 device=self.device,
                 encoding=self.config.encoding,
                 max_steps=self.config.evaluation.max_steps,
-                mcts_config=self.config.mcts,
+                batch_size=self.config.evaluation.batch_size,
             )
             key = opponent.replace("-", "_")
             for metric_key, value in result.items():
                 results[f"eval/{key}/{metric_key}"] = value
         return results
+
+    def _compute_mcts_metrics(self, samples: list[ReplaySample]) -> dict[str, float]:
+        if not samples:
+            return {
+                "mcts/avg_visit_entropy": 0.0,
+                "mcts/value_prediction_error": 0.0,
+                "mcts/policy_mcts_kl": 0.0,
+            }
+        entropies = [_entropy(sample.pi_target) for sample in samples]
+        policy_kls = [
+            _kl_divergence(sample.pi_target, sample.prior)
+            for sample in samples
+            if sample.prior is not None
+        ]
+        info = torch.as_tensor(
+            np.stack([sample.info_state for sample in samples]),
+            dtype=torch.float32,
+            device=self.device,
+        )
+        legal = torch.as_tensor(
+            np.stack([sample.legal_mask for sample in samples]),
+            dtype=torch.bool,
+            device=self.device,
+        )
+        target = torch.as_tensor(
+            [sample.v_target for sample in samples],
+            dtype=torch.float32,
+            device=self.device,
+        )
+        with torch.inference_mode():
+            _logits, value_pred = self.network(info, legal)
+            value_error = nn.functional.mse_loss(value_pred, target)
+        return {
+            "mcts/avg_visit_entropy": float(np.mean(entropies)) if entropies else 0.0,
+            "mcts/value_prediction_error": float(value_error.item()),
+            "mcts/policy_mcts_kl": float(np.mean(policy_kls)) if policy_kls else 0.0,
+        }
 
     def _append_metrics(self, metrics: IterationMetrics) -> None:
         with self.metrics_path.open("a", encoding="utf-8") as handle:
@@ -229,62 +279,20 @@ class IsMctsTrainer:
         return (time.perf_counter() - started) / 60.0 >= self.config.run.max_minutes
 
 
-def evaluate_policy(
-    network: AlphaZeroNet,
-    config: LostCitiesConfig,
-    *,
-    opponent: str,
-    games: int,
-    seed: int,
-    device: torch.device | str,
-    encoding=None,
-    max_steps: int = 10_000,
-    mcts_config=None,
-) -> dict[str, float | int]:
-    rng = random.Random(seed)
-    score_diffs: list[int] = []
-    wins = losses = draws = 0
-    policy_actions = play_actions = 0
-    for game_index in range(games):
-        policy_player = game_index % 2
-        policies = [
-            build_bot(opponent, seed=seed + game_index),
-            build_bot(opponent, seed=seed + game_index),
-        ]
-        state = GameState.new_game(config, seed=seed + game_index)
-        for _ in range(max_steps):
-            if state.terminal:
-                break
-            current = int(state.current_player)
-            if current == policy_player:
-                searcher = IsMctsSearcher(
-                    network,
-                    mcts_config or IsMctsConfig().mcts,
-                    device=device,
-                    encoding=encoding,
-                    rng=random.Random(rng.randrange(2**31)),
-                )
-                visits = searcher.search(state, current)
-                unified = max(visits, key=visits.get)
-                action = state.from_unified_action(unified)
-            else:
-                action = policies[current].act(state)
-            if current == policy_player and state.phase == "card":
-                policy_actions += 1
-                if action % 2 == 0:
-                    play_actions += 1
-            state.apply_action(action)
-        diff = state.score_diff(policy_player)
-        score_diffs.append(diff)
-        wins += int(diff > 0)
-        losses += int(diff < 0)
-        draws += int(diff == 0)
-    return {
-        "games": games,
-        "wins0": wins,
-        "wins1": losses,
-        "draws": draws,
-        "win_rate0": wins / max(1, games),
-        "avg_score_diff0": float(np.mean(score_diffs)) if score_diffs else 0.0,
-        "play_action_rate": play_actions / max(1, policy_actions),
-    }
+def _entropy(distribution: np.ndarray) -> float:
+    probs = np.asarray(distribution, dtype=np.float64)
+    probs = probs[probs > 0.0]
+    if len(probs) == 0:
+        return 0.0
+    return float(-(probs * np.log(probs)).sum())
+
+
+def _kl_divergence(target: np.ndarray, prior: np.ndarray | None) -> float:
+    if prior is None:
+        return 0.0
+    pi = np.asarray(target, dtype=np.float64)
+    p = np.asarray(prior, dtype=np.float64)
+    mask = pi > 0.0
+    if not np.any(mask):
+        return 0.0
+    return float((pi[mask] * (np.log(pi[mask]) - np.log(np.clip(p[mask], 1.0e-12, 1.0)))).sum())

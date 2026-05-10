@@ -11,7 +11,7 @@ from coolrl_lost_cities.games.classic.ismcts.config import IsMctsConfig, MctsCon
 from coolrl_lost_cities.games.classic.ismcts.determinization import sample_determinization
 from coolrl_lost_cities.games.classic.ismcts.info_set import canonical_info_set_key
 from coolrl_lost_cities.games.classic.ismcts.mcts import IsMctsSearcher
-from coolrl_lost_cities.games.classic.ismcts.network import AlphaZeroNet
+from coolrl_lost_cities.games.classic.ismcts.network import AlphaZeroLogitsView, AlphaZeroNet
 from coolrl_lost_cities.games.classic.ismcts.replay_buffer import ReplayBuffer, ReplaySample
 from coolrl_lost_cities.games.classic.ismcts.self_play import play_self_play_game
 from coolrl_lost_cities.games.classic.ismcts.trainer import IsMctsTrainer
@@ -69,6 +69,16 @@ def test_network_shapes_and_mask() -> None:
     assert torch.all(probs[~mask] == 0)
 
 
+def test_logits_view_adapter() -> None:
+    state = GameState.new_game(mini_config(), seed=6)
+    dim = input_dim(state)
+    net = AlphaZeroNet(dim, state.action_size, hidden_size=16, num_layers=1)
+    logits_view = AlphaZeroLogitsView(net)
+    x = torch.as_tensor(encode_info_state(state, 0)[None, :], dtype=torch.float32)
+    logits = logits_view(x)
+    assert logits.shape == (1, state.action_size)
+
+
 def test_mcts_prior_drives_visits() -> None:
     state = GameState.new_game(mini_config(), seed=7)
     dim = input_dim(state)
@@ -114,6 +124,7 @@ def test_self_play_game_returns_signed_targets() -> None:
     assert samples
     assert {sample.player for sample in samples} <= {0, 1}
     assert all(sample.pi_target.sum() > 0 for sample in samples)
+    assert all(sample.prior is not None for sample in samples)
 
 
 def test_trainer_one_iteration_smoke(tmp_path) -> None:
@@ -142,3 +153,71 @@ def test_trainer_one_iteration_smoke(tmp_path) -> None:
     metrics = trainer.train()
     assert len(metrics) == 1
     assert (tmp_path / "metrics.jsonl").exists()
+
+
+def test_trainer_emits_full_eval_metrics(tmp_path) -> None:
+    config = IsMctsConfig.model_validate(
+        {
+            "run": {"max_iterations": 1, "seed": 12, "device": "cpu"},
+            "rules": {
+                "n_colors": 3,
+                "n_ranks": 5,
+                "n_handshakes": 1,
+                "hand_size": 4,
+                "bonus_threshold": 4,
+            },
+            "network": {"hidden_size": 16, "num_layers": 1},
+            "mcts": {"n_simulations": 2},
+            "training": {"games_per_iter": 1, "gradient_steps_per_iter": 1, "batch_size": 8},
+            "checkpoint": {"save_every": 0},
+            "evaluation": {
+                "eval_every": 1,
+                "games": 2,
+                "opponents": ["random"],
+                "num_workers": 1,
+                "max_steps": 80,
+            },
+        }
+    )
+    trainer = IsMctsTrainer(
+        config,
+        config.rules.to_lost_cities_config(seed=config.run.seed),
+        run_dir=tmp_path,
+    )
+    metrics = trainer.train()[0].to_dict()
+    assert "eval/random/avg_opened_colors" in metrics
+    assert "eval/random/bad_open_rate" in metrics
+    assert "eval/random/per_game_negative_expeditions" in metrics
+
+
+def test_trainer_emits_mcts_metrics(tmp_path) -> None:
+    config = IsMctsConfig.model_validate(
+        {
+            "run": {"max_iterations": 1, "seed": 13, "device": "cpu"},
+            "rules": {
+                "n_colors": 3,
+                "n_ranks": 5,
+                "n_handshakes": 1,
+                "hand_size": 4,
+                "bonus_threshold": 4,
+            },
+            "network": {"hidden_size": 16, "num_layers": 1},
+            "mcts": {"n_simulations": 2},
+            "training": {"games_per_iter": 1, "gradient_steps_per_iter": 1, "batch_size": 8},
+            "checkpoint": {"save_every": 0},
+            "evaluation": {"eval_every": 0, "num_workers": 1, "max_steps": 80},
+        }
+    )
+    trainer = IsMctsTrainer(
+        config,
+        config.rules.to_lost_cities_config(seed=config.run.seed),
+        run_dir=tmp_path,
+    )
+    metrics = trainer.train()[0].to_dict()
+    for key in (
+        "mcts/avg_visit_entropy",
+        "mcts/value_prediction_error",
+        "mcts/policy_mcts_kl",
+    ):
+        assert key in metrics
+        assert np.isfinite(metrics[key])
