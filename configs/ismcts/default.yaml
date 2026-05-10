@@ -1,0 +1,46 @@
+run:
+  experiment_name: ismcts-default
+  max_iterations: 100
+  seed: 1
+  device: auto
+rules:
+  n_colors: 5
+  n_ranks: 9
+  min_rank: 2
+  n_handshakes: 3
+  hand_size: 8
+  expedition_penalty: -20
+  bonus_threshold: 8
+  bonus_amount: 20
+encoding:
+  derived_playability: true
+  slot_aware_playability: true
+network:
+  kind: mlp
+  hidden_size: 512
+  num_layers: 3
+  activation: relu
+mcts:
+  n_simulations: 50
+  c_puct: 1.5
+  max_depth: 200
+temperature:
+  training: 1.0
+  eval: 0.0
+training:
+  games_per_iter: 10
+  gradient_steps_per_iter: 10
+  batch_size: 128
+  replay_capacity: 100000
+optimization:
+  learning_rate: 0.0003
+  grad_clip: 5.0
+checkpoint:
+  save_every: 10
+  save_latest: true
+evaluation:
+  eval_every: 10
+  games: 20
+  opponents: [random, discard-only, heuristic-cautious]
+  max_steps: 10000
+  num_workers: 1

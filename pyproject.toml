@@ -29,6 +29,7 @@ lost-cities-classic = "coolrl_lost_cities.games.classic:main"
 lost-cities-eval = "coolrl_lost_cities.games.classic.evaluation:main"
 lost-cities-classic-gui = "coolrl_lost_cities.games.classic.pygame_pvp:main"
 lost-cities-deep-cfr = "coolrl_lost_cities.games.classic.deep_cfr.cli:main"
+lost-cities-ismcts = "coolrl_lost_cities.games.classic.ismcts.cli:main"
 
 [dependency-groups]
 dev = [

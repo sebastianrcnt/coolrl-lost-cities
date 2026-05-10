@@ -1,0 +1,46 @@
+run:
+  experiment_name: ismcts-mini
+  max_iterations: 50
+  seed: 1
+  device: cpu
+rules:
+  n_colors: 3
+  n_ranks: 5
+  min_rank: 2
+  n_handshakes: 1
+  hand_size: 4
+  expedition_penalty: -20
+  bonus_threshold: 4
+  bonus_amount: 20
+encoding:
+  derived_playability: true
+  slot_aware_playability: true
+network:
+  kind: mlp
+  hidden_size: 128
+  num_layers: 2
+  activation: relu
+mcts:
+  n_simulations: 50
+  c_puct: 1.5
+  max_depth: 100
+temperature:
+  training: 1.0
+  eval: 0.0
+training:
+  games_per_iter: 10
+  gradient_steps_per_iter: 10
+  batch_size: 128
+  replay_capacity: 50000
+optimization:
+  learning_rate: 0.001
+  grad_clip: 5.0
+checkpoint:
+  save_every: 0
+  save_latest: true
+evaluation:
+  eval_every: 5
+  games: 20
+  opponents: [random, discard-only, heuristic-cautious]
+  max_steps: 300
+  num_workers: 1
