@@ -59,6 +59,14 @@ include = ["coolrl_lost_cities*"]
     "*.pxd",
     "*.pyx",
 ]
+"coolrl_lost_cities.games.classic.bots" = [
+    "*.pxd",
+    "*.pyx",
+]
+"coolrl_lost_cities.games.classic.ismcts" = [
+    "*.pxd",
+    "*.pyx",
+]
 
 [tool.ruff]
 line-length = 100

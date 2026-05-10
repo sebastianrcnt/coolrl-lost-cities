@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import multiprocessing as mp
 import random
 import time
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,9 +17,11 @@ from coolrl_lost_cities.games.classic.deep_cfr.evaluate import evaluate_strategy
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
 from .config import IsMctsConfig
+from .evaluate import evaluate_with_mcts
+from .interleaved_self_play import play_self_play_iteration
 from .network import AlphaZeroLogitsView, AlphaZeroNet
 from .replay_buffer import ReplayBuffer, ReplaySample
-from .self_play import play_self_play_game
+from .workers import SelfPlayWorkerBatch, run_self_play_worker
 
 
 @dataclass
@@ -112,14 +116,19 @@ class IsMctsTrainer:
         return metrics
 
     def run_iteration(self, iteration: int) -> IterationMetrics:
+        print(
+            f"[iter {iteration}] self-play start (workers={self.config.training.num_workers})",
+            flush=True,
+        )
         self.network.eval()
         sp_started = time.perf_counter()
-        added = 0
-        iteration_samples: list[ReplaySample] = []
-        for _ in range(self.config.training.games_per_iter):
-            samples = play_self_play_game(
+        if self.config.training.num_workers > 1:
+            iteration_samples = self._run_self_play_parallel(iteration)
+        else:
+            iteration_samples = play_self_play_iteration(
                 self.network,
                 self.config.mcts,
+                self.config.training,
                 self.game_config,
                 self.rng,
                 device=self.device,
@@ -127,10 +136,13 @@ class IsMctsTrainer:
                 temperature=self.config.temperature.training,
                 max_steps=self.config.evaluation.max_steps,
             )
-            self.buffer.add(samples)
-            iteration_samples.extend(samples)
-            added += len(samples)
+        self.buffer.add(iteration_samples)
+        added = len(iteration_samples)
         self_play_seconds = time.perf_counter() - sp_started
+        print(
+            f"[iter {iteration}] self-play done in {self_play_seconds:.1f}s, {added} samples",
+            flush=True,
+        )
         mcts_metrics = self._compute_mcts_metrics(iteration_samples)
 
         train_started = time.perf_counter()
@@ -140,7 +152,12 @@ class IsMctsTrainer:
             losses.append(self._train_batch(batch))
         train_seconds = time.perf_counter() - train_started
         loss_arr = np.asarray(losses, dtype=np.float64)
+        print(f"[iter {iteration}] train done in {train_seconds:.1f}s, eval starting", flush=True)
+        eval_started = time.perf_counter()
         eval_metrics = self._evaluate(iteration)
+        print(
+            f"[iter {iteration}] eval done in {time.perf_counter() - eval_started:.1f}s", flush=True
+        )
         return IterationMetrics(
             iteration=iteration,
             samples_added=added,
@@ -153,6 +170,69 @@ class IsMctsTrainer:
             eval_metrics=eval_metrics,
             mcts_metrics=mcts_metrics,
         )
+
+    def _run_self_play_parallel(self, iteration: int) -> list[ReplaySample]:
+        training_cfg = self.config.training
+        num_workers = max(1, int(training_cfg.num_workers))
+        total_games = int(training_cfg.games_per_iter)
+        if total_games <= 0:
+            return []
+        # Split games across workers as evenly as possible.
+        effective_workers = min(num_workers, total_games)
+        base = total_games // effective_workers
+        remainder = total_games % effective_workers
+        per_worker = [base + (1 if i < remainder else 0) for i in range(effective_workers)]
+        # Move network state dict to CPU for cross-process transfer.
+        cpu_state = {
+            name: tensor.detach().cpu() for name, tensor in self.network.state_dict().items()
+        }
+        config_dict = self.config.to_dict()
+        game_snapshot = self.game_config.to_snapshot()
+        max_steps = self.config.evaluation.max_steps
+        temperature = self.config.temperature.training
+        worker_device = str(self.config.training.worker_device)
+        batches: list[SelfPlayWorkerBatch] = []
+        for worker_index in range(effective_workers):
+            seed = self.rng.randrange(2**31)
+            batches.append(
+                SelfPlayWorkerBatch(
+                    worker_index=worker_index,
+                    games_for_worker=per_worker[worker_index],
+                    base_seed=seed,
+                    config=config_dict,
+                    game_config=game_snapshot,
+                    network_state=cpu_state,
+                    temperature=temperature,
+                    max_steps=max_steps,
+                    device=worker_device,
+                )
+            )
+        samples: list[ReplaySample] = []
+        ctx = mp.get_context("spawn")
+        print(
+            f"  spawning {effective_workers} workers for {total_games} games "
+            f"(per_worker={per_worker})...",
+            flush=True,
+        )
+        spawn_started = time.perf_counter()
+        with ProcessPoolExecutor(max_workers=effective_workers, mp_context=ctx) as executor:
+            futures = [executor.submit(run_self_play_worker, batch) for batch in batches]
+            print(
+                f"  workers submitted in {time.perf_counter() - spawn_started:.1f}s, waiting for results...",
+                flush=True,
+            )
+            results = []
+            for future in futures:
+                res = future.result()
+                results.append(res)
+                print(
+                    f"  worker {res.worker_index} done ({len(res.samples)} samples, "
+                    f"elapsed {time.perf_counter() - spawn_started:.1f}s)",
+                    flush=True,
+                )
+        for result in sorted(results, key=lambda item: item.worker_index):
+            samples.extend(result.samples)
+        return samples
 
     def _train_batch(self, batch: list[ReplaySample]) -> tuple[float, float, float]:
         self.network.train()
@@ -179,7 +259,8 @@ class IsMctsTrainer:
         logits, value_pred = self.network(info, legal)
         log_probs = torch.log_softmax(logits, dim=-1)
         policy_loss = -(pi * log_probs).sum(dim=-1).mean()
-        value_loss = nn.functional.mse_loss(value_pred, value_target)
+        v_scale = float(self.network.value_scale)
+        value_loss = nn.functional.mse_loss(value_pred / v_scale, value_target / v_scale)
         loss = policy_loss + value_loss
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
@@ -204,22 +285,52 @@ class IsMctsTrainer:
             return {}
         self.network.eval()
         results: dict[str, float | int] = {}
-        logits_view = AlphaZeroLogitsView(self.network)
         for opponent in opponents:
-            result = evaluate_strategy_network(
-                logits_view,
-                self.game_config,
-                games=self.config.evaluation.games,
-                seed=self.config.run.seed + iteration * 1000,
-                opponent=opponent,
-                device=self.device,
-                encoding=self.config.encoding,
-                max_steps=self.config.evaluation.max_steps,
-                batch_size=self.config.evaluation.batch_size,
-            )
+            print(f"  eval vs {opponent}...", flush=True)
+            opp_started = time.perf_counter()
+            if self.config.mcts.eval_with_mcts:
+                eval_mcts_cfg = self.config.mcts.model_copy()
+                if self.config.mcts.eval_n_simulations > 0:
+                    eval_mcts_cfg = eval_mcts_cfg.model_copy(
+                        update={"n_simulations": self.config.mcts.eval_n_simulations}
+                    )
+                result = evaluate_with_mcts(
+                    self.network,
+                    self.game_config,
+                    eval_mcts_cfg,
+                    games=self.config.evaluation.games,
+                    seed=self.config.run.seed + iteration * 1000,
+                    opponent=opponent,
+                    device=self.device,
+                    encoding=self.config.encoding,
+                    max_steps=self.config.evaluation.max_steps,
+                    config=self.config,
+                    num_workers=self.config.training.num_workers,
+                )
+            else:
+                logits_view = AlphaZeroLogitsView(self.network)
+                result = evaluate_strategy_network(
+                    logits_view,
+                    self.game_config,
+                    games=self.config.evaluation.games,
+                    seed=self.config.run.seed + iteration * 1000,
+                    opponent=opponent,
+                    device=self.device,
+                    encoding=self.config.encoding,
+                    max_steps=self.config.evaluation.max_steps,
+                    batch_size=self.config.evaluation.batch_size,
+                )
             key = opponent.replace("-", "_")
             for metric_key, value in result.items():
                 results[f"eval/{key}/{metric_key}"] = value
+            par = result.get("play_action_rate", 0.0)
+            sd = result.get("avg_score_diff0", 0.0)
+            wr = result.get("win_rate0", 0.0)
+            print(
+                f"  eval vs {opponent} done in {time.perf_counter() - opp_started:.1f}s "
+                f"PA={par:.2f} W={wr:.2f} S={sd:.1f}",
+                flush=True,
+            )
         return results
 
     def _compute_mcts_metrics(self, samples: list[ReplaySample]) -> dict[str, float]:

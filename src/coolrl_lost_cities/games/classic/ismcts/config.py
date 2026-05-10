@@ -25,12 +25,24 @@ class MctsConfig(StrictModel):
     c_puct: float = 1.5
     max_depth: int = 200
     use_rollout_value: bool = True
+    rollout_policy: str = "random"
+    parallel_simulations: int = 8
+    virtual_loss_value: float = 1.0
+    eval_with_mcts: bool = True
+    eval_n_simulations: int = 0
 
-    @field_validator("n_simulations", "max_depth")
+    @field_validator("n_simulations", "max_depth", "parallel_simulations")
     @classmethod
     def _positive_int(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("must be positive")
+        return value
+
+    @field_validator("rollout_policy")
+    @classmethod
+    def _rollout_policy(cls, value: str) -> str:
+        if value not in {"random", "heuristic_balanced"}:
+            raise ValueError("rollout_policy must be 'random' or 'heuristic_balanced'")
         return value
 
 
@@ -44,8 +56,20 @@ class TrainingConfig(StrictModel):
     gradient_steps_per_iter: int = 10
     batch_size: int = 128
     replay_capacity: int = 100_000
+    interleave_games: int = 8
+    interleave_max_batch: int = 64
+    num_workers: int = 1
+    worker_device: str = "cpu"
 
-    @field_validator("games_per_iter", "gradient_steps_per_iter", "batch_size", "replay_capacity")
+    @field_validator(
+        "games_per_iter",
+        "gradient_steps_per_iter",
+        "batch_size",
+        "replay_capacity",
+        "interleave_games",
+        "interleave_max_batch",
+        "num_workers",
+    )
     @classmethod
     def _positive_int(cls, value: int) -> int:
         if value <= 0:

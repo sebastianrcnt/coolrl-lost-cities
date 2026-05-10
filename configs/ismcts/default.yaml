@@ -24,6 +24,8 @@ mcts:
   n_simulations: 50
   c_puct: 1.5
   max_depth: 200
+  parallel_simulations: 8
+  virtual_loss_value: 1.0
 temperature:
   training: 1.0
   eval: 0.0
@@ -32,6 +34,8 @@ training:
   gradient_steps_per_iter: 10
   batch_size: 128
   replay_capacity: 100000
+  interleave_games: 8
+  interleave_max_batch: 64
 optimization:
   learning_rate: 0.0003
   grad_clip: 5.0

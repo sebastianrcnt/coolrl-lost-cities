@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import struct
 from collections import Counter
 
 from coolrl_lost_cities.games.classic.game import Card, GameState, build_deck
@@ -14,30 +14,73 @@ def _sorted_cards(cards: list[Card]) -> list[tuple[int, int]]:
     return sorted(_card_tuple(card) for card in cards)
 
 
+# Phase encoding: "card" -> 0, "draw" -> 1, anything else -> 2.
+_PHASE_TO_INT = {"card": 0, "draw": 1}
+
+
 def canonical_info_set_key(state: GameState, player: int) -> bytes:
-    """Deterministic key for observable information from ``player``'s POV."""
+    """Deterministic key for observable information from ``player``'s POV.
+
+    Packed binary representation (big-endian) covering the same fields as
+    the previous JSON encoding. Faster to compute and produces a more
+    compact key while remaining a stable, hashable ``bytes`` value.
+    """
     p = int(player)
-    payload = {
-        "config": state.config.to_snapshot(),
-        "player": p,
-        "current_player": int(state.current_player),
-        "phase": state.phase,
-        "pending_discarded_color": (
-            None if state.pending_discarded_color < 0 else int(state.pending_discarded_color)
-        ),
-        "turn_count": int(state.turn_count),
-        "terminal": bool(state.terminal),
-        "deck_size": len(state.deck),
-        "hand": _sorted_cards(state.hands[p]),
-        "hand_size_opp": len(state.hands[1 - p]),
-        "expeditions": [
-            [[_card_tuple(card) for card in expedition] for expedition in player_expeditions]
-            for player_expeditions in state.expeditions
-        ],
-        "discards": [[_card_tuple(card) for card in discard] for discard in state.discards],
-        "legal_mask": list(map(bool, state.unified_legal_mask())),
-    }
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    cfg = state.config
+    parts: list[bytes] = []
+    # Header: rule constants that pin down the action/observation shape.
+    parts.append(
+        struct.pack(
+            ">BBBBBhhBBBBB",
+            int(cfg.n_colors) & 0xFF,
+            int(cfg.n_ranks) & 0xFF,
+            int(cfg.min_rank) & 0xFF,
+            int(cfg.n_handshakes) & 0xFF,
+            int(cfg.hand_size) & 0xFF,
+            int(cfg.expedition_penalty),
+            int(cfg.bonus_amount),
+            int(cfg.bonus_threshold) & 0xFF,
+            p & 0xFF,
+            int(state.current_player) & 0xFF,
+            _PHASE_TO_INT.get(state.phase, 2) & 0xFF,
+            (1 if state.terminal else 0) & 0xFF,
+        )
+    )
+    # Variable scalars.
+    pending_color = -1 if state.pending_discarded_color < 0 else int(state.pending_discarded_color)
+    parts.append(
+        struct.pack(
+            ">bHHH",
+            pending_color,
+            int(state.turn_count) & 0xFFFF,
+            len(state.deck) & 0xFFFF,
+            len(state.hands[1 - p]) & 0xFFFF,
+        )
+    )
+    # Sorted hand for the POV player. Cards encoded as (color, rank).
+    hand = state.hands[p]
+    parts.append(struct.pack(">H", len(hand)))
+    if hand:
+        sorted_pairs = sorted((int(c.color), int(c.rank)) for c in hand)
+        parts.append(b"".join(struct.pack(">BB", c, r) for c, r in sorted_pairs))
+    # Expeditions per player/color (ordered, since order matters for legality).
+    expeditions = state.expeditions
+    for player_expeditions in expeditions:
+        for expedition in player_expeditions:
+            parts.append(struct.pack(">H", len(expedition)))
+            if expedition:
+                parts.append(
+                    b"".join(struct.pack(">BB", int(c.color), int(c.rank)) for c in expedition)
+                )
+    # Discards per color.
+    for discard in state.discards:
+        parts.append(struct.pack(">H", len(discard)))
+        if discard:
+            parts.append(b"".join(struct.pack(">BB", int(c.color), int(c.rank)) for c in discard))
+    # Legal mask (packed as raw bytes from the underlying list).
+    mask = state.unified_legal_mask()
+    parts.append(bytes(1 if bool(b) else 0 for b in mask))
+    return b"".join(parts)
 
 
 def visible_cards(state: GameState, player: int) -> list[Card]:

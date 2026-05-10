@@ -30,6 +30,10 @@ extensions = cythonize(
             "coolrl_lost_cities.games.classic.bots.heuristic_cy",
             ["src/coolrl_lost_cities/games/classic/bots/heuristic_cy.pyx"],
         ),
+        Extension(
+            "coolrl_lost_cities.games.classic.ismcts.mcts",
+            ["src/coolrl_lost_cities/games/classic/ismcts/mcts.pyx"],
+        ),
     ],
     language_level=3,
     compiler_directives={

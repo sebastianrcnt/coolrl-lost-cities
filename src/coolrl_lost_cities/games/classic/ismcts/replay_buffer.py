@@ -15,6 +15,7 @@ class ReplaySample:
     v_target: float
     player: int
     prior: np.ndarray | None = None
+    game_index: int | None = None
 
 
 class ReplayBuffer:
