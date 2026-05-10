@@ -91,6 +91,14 @@ SECTIONS: tuple[SectionSpec, ...] = (
                 secondary_ylabel="strategy CE",
             ),
             PlotSpec(
+                "Losses (ISMCTS policy / value)",
+                ("loss/policy",),
+                "policy CE",
+                kind="train",
+                secondary_metrics=("loss/value",),
+                secondary_ylabel="value MSE",
+            ),
+            PlotSpec(
                 "Samples",
                 ("samples/advantage", "samples/strategy"),
                 "samples",
@@ -98,7 +106,7 @@ SECTIONS: tuple[SectionSpec, ...] = (
             ),
             PlotSpec(
                 "Memory Size",
-                ("memory/advantage", "memory/strategy"),
+                ("memory/advantage", "memory/strategy", "memory/replay"),
                 "samples",
                 kind="train",
             ),
@@ -283,6 +291,30 @@ SECTIONS: tuple[SectionSpec, ...] = (
                     "traversal/regret_fallback_argmax_tie_size_mean",
                 ),
                 "rate / size",
+                kind="train",
+            ),
+        ),
+    ),
+    SectionSpec(
+        "MCTS",
+        "analysis_09_mcts.png",
+        (
+            PlotSpec(
+                "Visit-count entropy at root",
+                ("mcts/avg_visit_entropy",),
+                "nats",
+                kind="train",
+            ),
+            PlotSpec(
+                "Value prediction error",
+                ("mcts/value_prediction_error",),
+                "MSE (score units)",
+                kind="train",
+            ),
+            PlotSpec(
+                "Policy / MCTS KL",
+                ("mcts/policy_mcts_kl",),
+                "KL (nats)",
                 kind="train",
             ),
         ),
