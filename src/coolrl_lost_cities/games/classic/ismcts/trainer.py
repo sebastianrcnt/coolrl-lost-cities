@@ -57,11 +57,13 @@ class IsMctsTrainer:
         *,
         run_dir: str | Path,
         device: torch.device | str = "cpu",
+        tracker: object | None = None,
     ) -> None:
         self.config = config
         self.game_config = game_config
         self.run_dir = Path(run_dir)
         self.device = self._resolve_device(device)
+        self.tracker = tracker
         probe = GameState.new_game(game_config, seed=config.run.seed)
         self.input_dim = input_dim(probe, config.encoding)
         self.action_size = probe.action_size
@@ -101,6 +103,11 @@ class IsMctsTrainer:
             metrics.append(item)
             self._append_metrics(item)
             self._save_checkpoints(iteration, item)
+            if self.tracker is not None:
+                try:
+                    self.tracker.log_metrics(item.to_dict(), step=iteration)
+                except Exception as exc:  # pragma: no cover
+                    print(f"tracker.log_metrics failed: {exc}", flush=True)
             print(json.dumps(item.to_dict(), sort_keys=True))
         return metrics
 
