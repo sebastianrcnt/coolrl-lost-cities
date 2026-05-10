@@ -22,14 +22,14 @@ network:
   activation: relu
 mcts:
   n_simulations: 50
-  c_puct: 3.0
+  c_puct: 5.0
   max_depth: 200
   parallel_simulations: 64
   virtual_loss_value: 5.0
   eval_n_simulations: 16
   rollout_policy: heuristic_balanced
   root_dirichlet_alpha: 0.3
-  root_dirichlet_epsilon: 0.25
+  root_dirichlet_epsilon: 0.4
 temperature:
   training: 1.0
   eval: 0.0
