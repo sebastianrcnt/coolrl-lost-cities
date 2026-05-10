@@ -736,3 +736,89 @@ both improve without degrading score diff.
 - Use one W&B group per hypothesis family.
 - Do not start a long 2000-iteration run until a short diagnostic run shows
   stable selectivity improvement.
+
+## §10. R1 — discard_only opponent diagnostic (2026-05-10)
+
+### Hypothesis
+
+Trap의 본질이 **자기참조 회로(self-similar opponent)**인지 **모델 자체
+credit assignment 실패**인지 분리하기 위해, opponent_policy를
+`discard_only` (항상 카드만 버리는 fixed bot)로 고정. opponent
+dynamics를 거의 0으로 만들고 self-reference를 끊은 환경에서 모델이
+trap을 벗어나는지 본다.
+
+### Run
+
+- Run dir: `runs/2026-05-10_173912_r1-discard-only-opp-512x3-det-300`
+- W&B group: `r1-discard-only-opp-v1`
+- Iters: 300 (R0 끊긴 시점과 같은 길이로 비교)
+- Single change vs R0: `traversal.opponent_policy: discard_only`
+- All else (capacity 2M, eval games 100, eps=0.05) identical
+
+### Result (iter 300, vs R0 clean-baseline iter 300)
+
+| metric | R0 (over-open) | R1 (zero-pit) | Δ |
+| --- | ---: | ---: | ---: |
+| score_diff vs cautious | -47.99 | **-69.56** | -21.57 worse |
+| opened_colors vs cautious | 4.93 | **2.54** | -2.39 |
+| play_action_rate vs cautious | 0.02 | **0.00** | -0.02 |
+| pos_expeditions/game cautious | 0.76 | **0.08** | -0.68 |
+| neg_expeditions/game cautious | 4.06 | 2.44 | -1.62 |
+| avg_game_length cautious | 1053 | **5282** | +4229 (timeout) |
+| score_diff vs discard_only | -27.19 | **0.00** | +27.19 |
+| opened_colors vs discard_only | 4.98 | **0.00** | -4.98 |
+| bad_open_rate vs discard_only | 0.91 | **0.00** | -0.91 |
+| score_diff vs random | +49.61 | **-9.30** | -58.91 |
+| opened_colors vs random | 4.97 | 1.45 | -3.52 |
+
+### Interpretation: trap shifted, did not break
+
+Trap 본질 진단 결과 **"자기참조 회로"는 충분조건이 아니다.**
+
+- vs `discard_only` opponent: 모델이 **정확히 0개 색을 열고 0점으로 비김**
+  (zero-pit). 즉 closed-loop self-reference 깬 후에도 trap이 다른
+  형태(zero-pit)로 재출현.
+- vs `random`: R0에서 +49 (제압)하던 상대에게 R1은 -9 (패배). random은
+  카드를 두기라도 하니까 음수 expedition으로 끝나도 양수 게임 일부 만들어서 점수
+  내지만, R1 모델은 0점 (전혀 안 둠).
+- vs `heuristic_cautious`: opened_colors 절반(4.93→2.54)으로 줄었지만
+  play_action_rate 0% — 연 expedition을 채우지 못함. avg_game_length
+  5x 증가 → max_steps timeout 다발. score_diff 22점 더 악화.
+- Action 분포 (vs cautious): **discard 50% / draw_pile 50% / play 0% /
+  draw_deck 0%**. 즉 "버리고 상대 버린 거 줍기"의 단일 패턴.
+- Loss 트렌드: advantage loss 1500 → 3500 (꾸준히 상승), strategy loss
+  0.7 → 1.4 (꾸준히 상승). 모델이 점점 더 noisy한 target을 못 fit함.
+
+### What this proves
+
+1. **Trap의 본질은 모델 자체 value function 실패 (credit assignment)**, not
+   self-reference. self-reference는 trap 강화 요인이지만 제거해도 다른 형태로
+   재출현.
+2. **모델이 일관되게 못하는 일은 "expedition에 카드 두기" 행동**. R0에서
+   over-open 무차별 5색 + 채우지 못함. R1에서 아예 안 열되 채우지도 않음.
+   양 극단 어디든 play_action_rate ≈ 0%.
+3. **Outcome sampling + 본인 정책 rollout만으로 long-horizon credit chain을
+   못 닫는다.** "open이 좋은가?"의 답은 "이후 카드를 잘 두는가"에 종속이고,
+   모델이 카드 두기를 못 배우는 한 open 가치는 노이즈로만 추정됨.
+
+### Recommended next direction
+
+이전에 hygiene 개선(R1 = 4M capacity + 500 eval)을 첫 후보로 두었으나, R1의
+명확한 결과로 hygiene으로는 trap 본질 못 풀 것이 거의 확정. **R2는 trap에 직접
+작용하는 변경이어야 함.**
+
+후보 (강도 약→강):
+
+1. **Curriculum (작은 게임 → 큰 게임)**: 3색 5랭크 mini Lost Cities로 시작 →
+   credit chain 짧아짐 → expedition 사이클이 게임 8턴 안에 닫힘. 모델이
+   "카드 두기" 학습 가능성 확보. 풀 게임에 weight transfer.
+2. **Opening / playing 네트워크 분리**: closed loop 회로의 한 회선 물리적
+   절단. opening 네트워크는 follow-up이 noise여도 자체 신호로 학습 가능.
+   아키텍처 작업 큼.
+3. **Cutoff rollout heuristic + external opponent (조합)**: opening 가치
+   추정에 외부 합리적 정책 끼움. pure self-play 가설 명확히 폐기.
+
+저자 추천: **R2 = curriculum**. 가장 적은 아키텍처 변경으로 credit chain
+직접 단축. 작은 게임에서 follow-up 학습 성공이 풀 게임 학습의 핵심 prior가
+됨.
+
