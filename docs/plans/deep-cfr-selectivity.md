@@ -65,6 +65,37 @@ Conclusion: `epsilon=0.05` was the best short-run candidate. Lowering to
 floor가 풀려서가 아니라, opponent=discard_only가 "do nothing" 균형을
 *수학적으로* 안전하게 만든 별개 원인. epsilon 재조정으로 풀리는 구조가 아님.
 
+### self_play_league에 heuristic anchor 0.15 주입은 trap을 깨지 못함 (prior repo)
+
+이전 레포(`../coolrl`) `anchor_safe015` 실험 (commit `279d726`, `a77464b`,
+2026-05-06).
+
+설정:
+- self_play_league에 deterministic `safe_heuristic` anchor를 0.15 weight로
+  주입. 나머지 0.85는 current/recent/older self snapshot.
+- traversal에서 15%의 opponent role을 휴리스틱이 담당 → self-mirror 평형
+  부분 절단.
+
+가설: "self-mirror over-opening 평형을 안chor가 깰 수 있는가."
+
+결과 (1219 iter / 4h 풀 런):
+
+| metric | 값 |
+| --- | ---: |
+| anchor traversal rate | 15.7% (mechanism 정상) |
+| safe 상대 avg_diff | -57.11 |
+| opened_colors | 4.83 |
+| 5-color opening 빈도 | ~86% |
+| random avg_diff | +48.31 (후퇴 없음) |
+
+판정 (commit 메시지 그대로): "anchor pressure 0.15가 over-opening 평형을
+깨지 못한 것으로 판정."
+
+함의 — opponent pool에 외부 정책 일부 섞기는 0.15 정도로는 trap을 못 깬다.
+더 큰 비율(0.5+)은 사실상 self-play 가설 폐기와 동일하므로 별개 카테고리로
+취급해야 한다. discard_only를 anchor로 섞는 변형은 더 약한 신호이므로 같은
+weight로는 더 나쁠 가능성이 큼.
+
 ### Negative unsampled regret was not sufficient
 
 The `epsilon=0.05` plus `outcome_unsampled_regret=negative_node_value` variant
