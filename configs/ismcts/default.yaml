@@ -17,8 +17,8 @@ encoding:
   slot_aware_playability: true
 network:
   kind: mlp
-  hidden_size: 512
-  num_layers: 3
+  hidden_size: 768
+  num_layers: 4
   activation: relu
 mcts:
   n_simulations: 50
@@ -28,7 +28,7 @@ mcts:
   virtual_loss_value: 5.0
   eval_n_simulations: 16
   rollout_policy: heuristic_balanced
-  use_rollout_value: false
+  use_rollout_value: true
   root_dirichlet_alpha: 0.3
   root_dirichlet_epsilon: 0.4
 temperature:
