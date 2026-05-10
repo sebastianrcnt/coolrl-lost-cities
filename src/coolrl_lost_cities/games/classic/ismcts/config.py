@@ -62,6 +62,11 @@ class TrainingConfig(StrictModel):
     interleave_max_batch: int = 64
     num_workers: int = 1
     worker_device: str = "cpu"
+    # Multiplier on the value-head MSE loss (already normalized by value_scale**2).
+    # Default 1.0 keeps current behavior; raising it (e.g. 50-100) makes the value
+    # head learn faster relative to policy loss. Useful when value_prediction_error
+    # is large but loss/value is tiny because of the normalization.
+    value_loss_weight: float = 1.0
 
     @field_validator(
         "games_per_iter",

@@ -261,7 +261,8 @@ class IsMctsTrainer:
         policy_loss = -(pi * log_probs).sum(dim=-1).mean()
         v_scale = float(self.network.value_scale)
         value_loss = nn.functional.mse_loss(value_pred / v_scale, value_target / v_scale)
-        loss = policy_loss + value_loss
+        value_weight = float(self.config.training.value_loss_weight)
+        loss = policy_loss + value_weight * value_loss
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         if self.config.optimization.grad_clip > 0:
