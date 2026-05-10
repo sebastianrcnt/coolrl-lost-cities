@@ -8,10 +8,12 @@ from typing import Any
 import numpy as np
 import torch
 
+from coolrl_lost_cities.games.classic.bots.discard_only import DiscardOnlyBot
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import encode_info_state
 from coolrl_lost_cities.games.classic.deep_cfr.memory import TrainingSample
 from coolrl_lost_cities.games.classic.deep_cfr.traversal_stats import TraversalStats
 from coolrl_lost_cities.games.classic.game import GameState
+from coolrl_lost_cities.games.classic.snapshots import snapshot_from_state
 
 
 def _next_u32(state: int) -> tuple[int, int]:
@@ -376,6 +378,9 @@ class InterleavedContext:
         self.last_value = 0.0
         self.done = False
         self.value = 0.0
+        self._discard_only_bot: DiscardOnlyBot | None = (
+            DiscardOnlyBot() if cfg.opponent_policy == "discard_only" else None
+        )
 
     def advance_until_policy(self, context_index: int) -> None:
         while not self.done and self.pending is None and self.stack:
@@ -454,9 +459,32 @@ class InterleavedContext:
             self._return_value(cutoff)
             return
         player = int(self.state.current_player)
+        legal_actions = self.state.unified_legal_actions()
+        if not legal_actions:
+            self.stats.terminals += 1
+            _record_endpoint(
+                self.stats,
+                depth,
+                self.cfg.endpoint_depth_bucket_width,
+                self.cfg.endpoint_depth_bucket_max,
+            )
+            self._return_value(float(self.state.score_diff(self.traverser)))
+            return
+        if player != self.traverser and self._discard_only_bot is not None:
+            snapshot = snapshot_from_state(self.state)
+            action = int(
+                self._discard_only_bot._act_unified(
+                    snapshot.phase, snapshot.legal_mask, snapshot.card_action_size
+                )
+            )
+            swapped_deck_index = self._sample_deck_draw_chance(action)
+            self.state.push_unified_action(action)
+            self.stack.append(FixedActionFrame(swapped_deck_index=swapped_deck_index))
+            self.stack.append(EnterFrame(depth + 1))
+            return
         info_state = encode_info_state(self.state, player, self.cfg.encoding)
         legal_mask = np.zeros(self.cfg.action_size, dtype=bool)
-        legal_mask[self.state.unified_legal_actions()] = True
+        legal_mask[legal_actions] = True
         network_kind = (
             "strategy"
             if player != self.traverser and self.cfg.opponent_policy == "average_strategy"

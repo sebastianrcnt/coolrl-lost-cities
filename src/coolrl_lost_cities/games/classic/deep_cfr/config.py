@@ -150,9 +150,17 @@ class TraversalConfig(StrictModel):
     @field_validator("opponent_policy")
     @classmethod
     def _validate_opponent_policy(cls, value: str) -> str:
-        if value not in {"network", "heuristic_balanced", "self_play_league", "average_strategy"}:
+        allowed = {
+            "network",
+            "heuristic_balanced",
+            "self_play_league",
+            "average_strategy",
+            "discard_only",
+        }
+        if value not in allowed:
             raise ValueError(
-                "must be 'network', 'heuristic_balanced', 'self_play_league', or 'average_strategy'"
+                "must be 'network', 'heuristic_balanced', 'self_play_league', "
+                "'average_strategy', or 'discard_only'"
             )
         return value
 
@@ -189,10 +197,10 @@ class TraversalConfig(StrictModel):
         if self.scheduler == "interleaved":
             if self.sampling_mode != "outcome":
                 raise ValueError("scheduler='interleaved' currently supports only outcome sampling")
-            if self.opponent_policy not in {"network", "average_strategy"}:
+            if self.opponent_policy not in {"network", "average_strategy", "discard_only"}:
                 raise ValueError(
                     "scheduler='interleaved' currently supports only "
-                    "opponent_policy='network' or 'average_strategy'"
+                    "opponent_policy='network', 'average_strategy', or 'discard_only'"
                 )
             if self.cutoff_rollouts != 0 or self.cutoff_value_mode != "score_diff":
                 raise ValueError(
@@ -207,6 +215,11 @@ class TraversalConfig(StrictModel):
                 raise ValueError("interleave_width must be positive")
             if self.interleave_max_batch <= 0:
                 raise ValueError("interleave_max_batch must be positive")
+        if self.scheduler == "recursive" and self.opponent_policy == "discard_only":
+            raise ValueError(
+                "opponent_policy='discard_only' is currently only supported with "
+                "scheduler='interleaved'."
+            )
         return self
 
     def resolved_num_workers(self, batches: int | None = None) -> int:

@@ -19,6 +19,9 @@ class PlotSpec:
     kind: str = "eval"
     fixed_ylim: tuple[float, float] | None = None
     opponents: tuple[str, ...] | None = None
+    secondary_metrics: tuple[str, ...] = ()
+    secondary_ylabel: str | None = None
+    secondary_scale: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -33,64 +36,45 @@ SECTIONS: tuple[SectionSpec, ...] = (
         "Core",
         "analysis_00_core.png",
         (
-            PlotSpec("Advantage Loss", ("loss/advantage",), "loss", kind="train"),
-            PlotSpec("Strategy Loss", ("loss/strategy",), "loss", kind="train"),
             PlotSpec(
-                "Avg Score Diff (heuristic_cautious)",
-                ("avg_score_diff0",),
-                "score diff",
-                opponents=("heuristic_cautious",),
+                "Losses (advantage / strategy)",
+                ("loss/advantage",),
+                "advantage MSE",
+                kind="train",
+                secondary_metrics=("loss/strategy",),
+                secondary_ylabel="strategy CE",
             ),
+            PlotSpec("Avg Score Diff (all opponents)", ("avg_score_diff0",), "score diff"),
             PlotSpec(
-                "Win Rate (heuristic_cautious)",
+                "Win Rate (all opponents)",
                 ("win_rate0",),
                 "rate (%)",
                 scale=100.0,
                 fixed_ylim=(0, 100),
-                opponents=("heuristic_cautious",),
             ),
             PlotSpec(
-                "Win Rate (random)",
-                ("win_rate0",),
-                "rate (%)",
-                scale=100.0,
-                fixed_ylim=(0, 100),
-                opponents=("random",),
-            ),
-            PlotSpec(
-                "Avg Opened Colors (heuristic_cautious)",
+                "Avg Opened Colors (all opponents)",
                 ("avg_opened_colors",),
                 "colors",
                 fixed_ylim=(0, 5),
-                opponents=("heuristic_cautious",),
             ),
             PlotSpec(
-                "Positive Expedition Rate (heuristic_cautious)",
-                ("positive_expedition_rate",),
+                "Positive / Bonus Expedition Rate (heuristic_cautious)",
+                ("positive_expedition_rate", "bonus_expedition_rate"),
                 "rate (%)",
                 scale=100.0,
                 fixed_ylim=(0, 100),
                 opponents=("heuristic_cautious",),
             ),
             PlotSpec(
-                "Bonus Expedition Rate (heuristic_cautious)",
-                ("bonus_expedition_rate",),
-                "rate (%)",
-                scale=100.0,
-                fixed_ylim=(0, 100),
-                opponents=("heuristic_cautious",),
-            ),
-            PlotSpec(
-                "Score per Opened Color (heuristic_cautious)",
+                "Score per Opened Color (all opponents)",
                 ("score_per_opened_color",),
                 "score / color",
-                opponents=("heuristic_cautious",),
             ),
             PlotSpec(
-                "Policy Entropy (heuristic_cautious)",
+                "Policy Entropy (all opponents)",
                 ("policy_entropy",),
                 "entropy",
-                opponents=("heuristic_cautious",),
             ),
         ),
     ),
@@ -98,8 +82,14 @@ SECTIONS: tuple[SectionSpec, ...] = (
         "Loss",
         "analysis_01_loss.png",
         (
-            PlotSpec("Advantage Loss", ("loss/advantage",), "loss", kind="train"),
-            PlotSpec("Strategy Loss", ("loss/strategy",), "loss", kind="train"),
+            PlotSpec(
+                "Losses (advantage / strategy)",
+                ("loss/advantage",),
+                "advantage MSE",
+                kind="train",
+                secondary_metrics=("loss/strategy",),
+                secondary_ylabel="strategy CE",
+            ),
             PlotSpec(
                 "Samples",
                 ("samples/advantage", "samples/strategy"),
@@ -129,32 +119,12 @@ SECTIONS: tuple[SectionSpec, ...] = (
         "analysis_03_action.png",
         (
             PlotSpec(
-                "Play Action Rate",
-                ("play_action_rate",),
+                "Action Rates (heuristic_cautious)",
+                ("play_action_rate", "discard_action_rate", "draw_deck_rate", "draw_pile_rate"),
                 "rate (%)",
                 scale=100.0,
                 fixed_ylim=(0, 100),
-            ),
-            PlotSpec(
-                "Discard Action Rate",
-                ("discard_action_rate",),
-                "rate (%)",
-                scale=100.0,
-                fixed_ylim=(0, 100),
-            ),
-            PlotSpec(
-                "Draw Deck Rate",
-                ("draw_deck_rate",),
-                "rate (%)",
-                scale=100.0,
-                fixed_ylim=(0, 100),
-            ),
-            PlotSpec(
-                "Draw Pile Rate",
-                ("draw_pile_rate",),
-                "rate (%)",
-                scale=100.0,
-                fixed_ylim=(0, 100),
+                opponents=("heuristic_cautious",),
             ),
         ),
     ),
@@ -171,6 +141,7 @@ SECTIONS: tuple[SectionSpec, ...] = (
                 fixed_ylim=(0, 100),
             ),
             PlotSpec("Expedition Cards", ("avg_expedition_cards",), "cards"),
+            PlotSpec("Avg Game Length", ("avg_game_length",), "steps"),
         ),
     ),
     SectionSpec(
@@ -178,28 +149,19 @@ SECTIONS: tuple[SectionSpec, ...] = (
         "analysis_06_expedition_outcomes.png",
         (
             PlotSpec(
-                "Positive Expedition Rate",
-                ("positive_expedition_rate",),
+                "Expedition Outcome Rates (heuristic_cautious)",
+                (
+                    "positive_expedition_rate",
+                    "negative_expedition_rate",
+                    "bonus_expedition_rate",
+                ),
                 "rate (%)",
                 scale=100.0,
                 fixed_ylim=(0, 100),
+                opponents=("heuristic_cautious",),
             ),
             PlotSpec(
-                "Negative Expedition Rate",
-                ("negative_expedition_rate",),
-                "rate (%)",
-                scale=100.0,
-                fixed_ylim=(0, 100),
-            ),
-            PlotSpec(
-                "Bonus Expedition Rate",
-                ("bonus_expedition_rate",),
-                "rate (%)",
-                scale=100.0,
-                fixed_ylim=(0, 100),
-            ),
-            PlotSpec(
-                "Per-Game Expedition Counts",
+                "Per-Game Expedition Counts (heuristic_cautious)",
                 (
                     "per_game_positive_expeditions",
                     "per_game_negative_expeditions",
@@ -207,9 +169,18 @@ SECTIONS: tuple[SectionSpec, ...] = (
                     "per_game_below_minus_20_expeditions",
                 ),
                 "expeditions / game",
+                opponents=("heuristic_cautious",),
             ),
-            PlotSpec("Final Expedition Score", ("avg_final_score_per_opened_expedition",), "score"),
-            PlotSpec("Score per Opened Color", ("score_per_opened_color",), "score / color"),
+            PlotSpec(
+                "Final Expedition Score (all opponents)",
+                ("avg_final_score_per_opened_expedition",),
+                "score",
+            ),
+            PlotSpec(
+                "Score per Opened Color (all opponents)",
+                ("score_per_opened_color",),
+                "score / color",
+            ),
         ),
     ),
     SectionSpec(
@@ -441,19 +412,13 @@ def plot_section(
     for ax in axes_flat[next_axis:]:
         ax.axis("off")
 
-    if section.name != "Traversal":
-        handles, labels = _legend_items(axes_flat)
-        if handles:
-            fig.legend(
-                handles, labels, loc="upper center", ncols=min(len(labels), 6), fontsize="small"
-            )
     suffix = f" ({smoothing_window}-iter moving average)" if smoothing_window > 1 else ""
     fig.suptitle(
         f"Lost Cities Deep CFR {section.name} metrics{suffix}",
         fontsize=14,
         fontweight="bold",
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
     if not plotted_any:
         plt.close(fig)
         return False
@@ -598,6 +563,35 @@ def _plot_train_spec(
             )
             or plotted
         )
+    if spec.secondary_metrics:
+        ax2 = ax.twinx()
+        secondary_palette = ("tab:red", "tab:purple", "tab:brown", "tab:olive")
+        for idx, metric in enumerate(spec.secondary_metrics):
+            pairs = []
+            for row in rows:
+                if "iteration" not in row:
+                    continue
+                value = _train_value(row, metric)
+                if value is None:
+                    continue
+                pairs.append((int(row["iteration"]), value * spec.secondary_scale))
+            color = (
+                _train_metric_color(metric, section_title=spec.title)
+                or secondary_palette[idx % len(secondary_palette)]
+            )
+            plotted = (
+                _plot_pairs(
+                    ax2,
+                    pairs,
+                    label=_train_metric_label(metric),
+                    color=color,
+                    smoothing_window=smoothing_window,
+                )
+                or plotted
+            )
+        if spec.secondary_ylabel:
+            ax2.set_ylabel(spec.secondary_ylabel)
+        ax2.grid(False)
     return plotted
 
 
@@ -632,8 +626,10 @@ def _plot_eval_spec(
 ) -> bool:
     plotted = False
     multi_metric = len(spec.metrics) > 1
+    color_by_metric = multi_metric and len(opponents) == 1
+    metric_palette = ("tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown")
     for opponent in opponents:
-        for metric in spec.metrics:
+        for idx, metric in enumerate(spec.metrics):
             pairs: list[tuple[int, float]] = []
             for row in rows:
                 if "iteration" not in row:
@@ -645,16 +641,23 @@ def _plot_eval_spec(
                     value = float("nan")
                 pairs.append((int(row["iteration"]), value * spec.scale))
 
-            label = opponent
-            if multi_metric:
-                label = f"{opponent}: {_short_metric_label(metric)}"
+            if color_by_metric:
+                label = _short_metric_label(metric)
+                color = metric_palette[idx % len(metric_palette)]
+                linestyle = "-"
+            else:
+                label = opponent
+                if multi_metric:
+                    label = f"{opponent}: {_short_metric_label(metric)}"
+                color = _opponent_color(opponent)
+                linestyle = _metric_linestyle(metric) if multi_metric else "-"
             plotted = (
                 _plot_pairs(
                     ax,
                     pairs,
                     label=label,
-                    color=_opponent_color(opponent),
-                    linestyle=_metric_linestyle(metric) if multi_metric else "-",
+                    color=color,
+                    linestyle=linestyle,
                     smoothing_window=smoothing_window,
                 )
                 or plotted
@@ -823,9 +826,17 @@ def _finish_axis(
         ax.set_ylim(*fixed_ylim)
     ax.grid(True, alpha=0.3)
     if plotted:
-        handles, _ = ax.get_legend_handles_labels()
+        handles, labels = ax.get_legend_handles_labels()
+        for sibling in ax.figure.axes:
+            if sibling is ax:
+                continue
+            if sibling.bbox.bounds != ax.bbox.bounds:
+                continue
+            twin_handles, twin_labels = sibling.get_legend_handles_labels()
+            handles.extend(twin_handles)
+            labels.extend(twin_labels)
         if handles:
-            ax.legend(loc="best", fontsize="x-small")
+            ax.legend(handles, labels, loc="best", fontsize="x-small", framealpha=0.7, frameon=True)
     else:
         ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
 
