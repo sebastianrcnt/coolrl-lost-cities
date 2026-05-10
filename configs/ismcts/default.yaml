@@ -28,6 +28,7 @@ mcts:
   virtual_loss_value: 5.0
   eval_n_simulations: 16
   rollout_policy: heuristic_balanced
+  use_rollout_value: false
   root_dirichlet_alpha: 0.3
   root_dirichlet_epsilon: 0.4
 temperature:

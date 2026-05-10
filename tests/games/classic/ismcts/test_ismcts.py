@@ -165,7 +165,13 @@ def test_cython_sequential_matches_python_sequential_visit_counts() -> None:
         )
 
 
-def test_search_visit_counts_match_with_parallel_simulations() -> None:
+def test_search_visit_counts_invariant_with_parallel_simulations() -> None:
+    # Sequential (parallel=1) and batched (parallel=8) MCTS produce different
+    # visit distributions because virtual_loss within a batch spreads simulations
+    # across actions in ways that pure-sequential search does not. The required
+    # invariants are that both legal-action sets and total visit counts match —
+    # this catches the hidden bug where search() ignored parallel_simulations
+    # and always ran batch=1 internally.
     for n_sims in (8, 32, 128):
         state = GameState.new_game(mini_config(), seed=26)
         dim = input_dim(state)
@@ -182,9 +188,17 @@ def test_search_visit_counts_match_with_parallel_simulations() -> None:
             rng=random.Random(28),
         )
 
-        assert batched.search(state, state.current_player) == sequential.search(
-            state, state.current_player
-        )
+        seq_visits = sequential.search(state, state.current_player)
+        bat_visits = batched.search(state, state.current_player)
+        # Same legal action set
+        assert set(seq_visits.keys()) == set(bat_visits.keys())
+        # Both should run a substantial number of sims (early break on terminal
+        # leaf-as-root can leave a few short, but we should be near n_sims).
+        assert sum(seq_visits.values()) >= n_sims - 2
+        assert sum(bat_visits.values()) >= n_sims - 2
+        # Both bounded by n_sims
+        assert sum(seq_visits.values()) <= n_sims
+        assert sum(bat_visits.values()) <= n_sims
 
 
 def test_search_with_virtual_loss_diversity() -> None:

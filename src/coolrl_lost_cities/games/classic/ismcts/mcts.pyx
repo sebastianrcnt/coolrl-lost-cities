@@ -338,12 +338,16 @@ cdef class IsMctsSearcher:
         )
         cdef int sims = int(n_sims or self.config.n_simulations)
         cdef int completed = 0
+        cdef int batch_size
         cdef list pending
         cdef list legal
         cdef int action
         cdef dict result
         while completed < sims:
-            pending = self.prepare_simulation_batch(state, traverser, 1)
+            batch_size = min(int(self.config.parallel_simulations), sims - completed)
+            if batch_size <= 0:
+                batch_size = 1
+            pending = self.prepare_simulation_batch(state, traverser, batch_size)
             if not pending:
                 break
             self.evaluate_and_backup(pending)
