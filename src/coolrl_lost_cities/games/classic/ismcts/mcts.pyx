@@ -12,7 +12,6 @@ from coolrl_lost_cities.games.classic.bots.heuristic import HeuristicBot as PyHe
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import encode_info_state
 from coolrl_lost_cities.games.classic.game cimport GameState
 
-from .determinization import sample_determinization
 from .info_set import canonical_info_set_key
 
 
@@ -371,7 +370,7 @@ cdef class IsMctsSearcher:
         return pending
 
     cpdef PendingSimulation prepare_simulation(self, GameState root_state, int traverser):
-        cdef GameState state = sample_determinization(root_state, traverser, self.rng)
+        cdef GameState state = root_state.determinize_for_player(traverser, self.rng)
         cdef list path = []
         cdef int depth = 0
         cdef object cached_key = None

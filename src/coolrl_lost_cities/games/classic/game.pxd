@@ -57,6 +57,7 @@ cdef class GameState:
     cdef void _clear(self) noexcept
 
     cpdef GameState clone(self)
+    cpdef GameState determinize_for_player(self, int player, object rng)
     cpdef list legal_card_mask(self)
     cpdef list legal_draw_mask(self)
     cpdef list legal_mask(self)

@@ -17,7 +17,11 @@ from coolrl_lost_cities.games.classic.deep_cfr.evaluate import evaluate_strategy
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
 from .config import IsMctsConfig
-from .evaluate import evaluate_opponents_with_mcts_parallel, evaluate_with_mcts
+from .evaluate import (
+    evaluate_opponents_with_mcts_central,
+    evaluate_opponents_with_mcts_parallel,
+    evaluate_with_mcts,
+)
 from .inference_server import InferenceServer
 from .interleaved_self_play import play_self_play_iteration
 from .network import AlphaZeroLogitsView, AlphaZeroNet
@@ -123,7 +127,19 @@ class IsMctsTrainer:
         )
         self.network.eval()
         sp_started = time.perf_counter()
-        if self.config.training.num_workers > 1:
+        if self.config.training.use_central_scheduler:
+            iteration_samples = play_self_play_iteration(
+                self.network,
+                self.config.mcts,
+                self.config.training,
+                self.game_config,
+                self.rng,
+                device=self.device,
+                encoding=self.config.encoding,
+                temperature=self.config.temperature.training,
+                max_steps=self.config.evaluation.max_steps,
+            )
+        elif self.config.training.num_workers > 1:
             iteration_samples = self._run_self_play_parallel(iteration)
         else:
             iteration_samples = play_self_play_iteration(
@@ -332,6 +348,41 @@ class IsMctsTrainer:
             return {}
         self.network.eval()
         results: dict[str, float | int] = {}
+        if self.config.training.use_central_scheduler and self.config.mcts.eval_with_mcts:
+            print(
+                f"  eval vs {', '.join(opponents)} (central scheduler)...",
+                flush=True,
+            )
+            eval_mcts_cfg = self.config.mcts.model_copy()
+            if self.config.mcts.eval_n_simulations > 0:
+                eval_mcts_cfg = eval_mcts_cfg.model_copy(
+                    update={"n_simulations": self.config.mcts.eval_n_simulations}
+                )
+            eval_results = evaluate_opponents_with_mcts_central(
+                self.network,
+                self.game_config,
+                eval_mcts_cfg,
+                config=self.config,
+                opponents=tuple(opponents),
+                games=self.config.evaluation.games,
+                seed=self.config.run.seed + iteration * 1000,
+                device=self.device,
+                encoding=self.config.encoding,
+                max_steps=self.config.evaluation.max_steps,
+            )
+            for opponent, result in eval_results.items():
+                key = opponent.replace("-", "_")
+                for metric_key, value in result.items():
+                    results[f"eval/{key}/{metric_key}"] = value
+                par = result.get("play_action_rate", 0.0)
+                sd = result.get("avg_score_diff0", 0.0)
+                wr = result.get("win_rate0", 0.0)
+                print(
+                    f"  eval vs {opponent} done in {result.get('elapsed_seconds', 0.0):.1f}s "
+                    f"PA={par:.2f} W={wr:.2f} S={sd:.1f}",
+                    flush=True,
+                )
+            return results
         eval_workers = max(
             1,
             int(self.config.evaluation.num_workers),

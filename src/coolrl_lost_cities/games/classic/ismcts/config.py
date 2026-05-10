@@ -60,7 +60,8 @@ class TrainingConfig(StrictModel):
     interleave_max_batch: int = 64
     num_workers: int = 1
     worker_device: str = "cpu"
-    use_inference_server: bool = True
+    use_central_scheduler: bool = False
+    use_inference_server: bool = False
     inference_server_max_batch: int = 128
     inference_server_batch_timeout_ms: float = 10.0
 

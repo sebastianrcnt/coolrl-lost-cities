@@ -595,6 +595,29 @@ cdef class GameState:
         other.terminal = self.terminal
         return other
 
+    cpdef GameState determinize_for_player(self, int player, object rng):
+        """Clone and reshuffle hidden opponent hand/deck cards for ``player``."""
+        cdef int p = int(player)
+        cdef int opponent = 1 - p
+        cdef int opponent_hand_len = self.hand_lens[opponent]
+        cdef int unseen_len = opponent_hand_len + self.deck_len
+        cdef int i
+        cdef list unseen = [0] * unseen_len
+        cdef GameState other
+        if p < 0 or p > 1:
+            raise ValueError(f"player must be 0 or 1, got {player}")
+        for i in range(opponent_hand_len):
+            unseen[i] = self.hand_cards[self._hand_index(opponent, i)]
+        for i in range(self.deck_len):
+            unseen[opponent_hand_len + i] = self.deck_cards[i]
+        rng.shuffle(unseen)
+        other = self.clone()
+        for i in range(opponent_hand_len):
+            other.hand_cards[other._hand_index(opponent, i)] = <int>unseen[i]
+        for i in range(self.deck_len):
+            other.deck_cards[i] = <int>unseen[opponent_hand_len + i]
+        return other
+
     cpdef list legal_card_mask(self):
         cdef list mask = [False] * (2 * self.hand_size)
         cdef int slot

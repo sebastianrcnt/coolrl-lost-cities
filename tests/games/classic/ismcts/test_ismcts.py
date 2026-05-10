@@ -18,6 +18,7 @@ from coolrl_lost_cities.games.classic.bots.heuristic_py import (
 from coolrl_lost_cities.games.classic.ismcts.config import IsMctsConfig, MctsConfig
 from coolrl_lost_cities.games.classic.ismcts.determinization import sample_determinization
 from coolrl_lost_cities.games.classic.ismcts.evaluate import (
+    evaluate_opponents_with_mcts_central,
     evaluate_opponents_with_mcts_parallel,
 )
 from coolrl_lost_cities.games.classic.ismcts.inference_server import (
@@ -512,6 +513,7 @@ def test_parallel_self_play_server_matches_sample_count(tmp_path) -> None:
             "gradient_steps_per_iter": 1,
             "batch_size": 8,
             "num_workers": 2,
+            "use_central_scheduler": False,
         },
         "checkpoint": {"save_every": 0},
         "evaluation": {"eval_every": 0, "num_workers": 1, "max_steps": 80},
@@ -545,6 +547,59 @@ def test_parallel_self_play_server_matches_sample_count(tmp_path) -> None:
     on_metrics = on_trainer.train()[0].to_dict()
 
     assert on_metrics["samples/added"] == off_metrics["samples/added"]
+
+
+def test_central_eval_matches_parallel_stats() -> None:
+    config = IsMctsConfig.model_validate(
+        {
+            "run": {"seed": 46, "device": "cpu"},
+            "rules": {
+                "n_colors": 3,
+                "n_ranks": 5,
+                "n_handshakes": 1,
+                "hand_size": 4,
+                "bonus_threshold": 4,
+            },
+            "network": {"hidden_size": 16, "num_layers": 1},
+            "mcts": {"n_simulations": 1, "parallel_simulations": 1, "use_rollout_value": False},
+            "training": {"num_workers": 2, "interleave_games": 2, "interleave_max_batch": 8},
+            "evaluation": {"games": 2, "opponents": ["random"], "num_workers": 2, "max_steps": 80},
+        }
+    )
+    game_config = config.rules.to_lost_cities_config(seed=config.run.seed)
+    state = GameState.new_game(game_config, seed=config.run.seed)
+    torch.manual_seed(47)
+    net = AlphaZeroNet(input_dim(state), state.action_size, hidden_size=16, num_layers=1)
+    parallel = evaluate_opponents_with_mcts_parallel(
+        net,
+        game_config,
+        config.mcts,
+        config=config,
+        opponents=("random",),
+        games=2,
+        seed=48,
+        num_workers=2,
+        max_steps=80,
+    )
+    central = evaluate_opponents_with_mcts_central(
+        net,
+        game_config,
+        config.mcts,
+        config=config,
+        opponents=("random",),
+        games=2,
+        seed=48,
+        device="cpu",
+        max_steps=80,
+    )
+
+    assert central["random"]["games"] == parallel["random"]["games"]
+    assert central["random"]["policy_turns"] == parallel["random"]["policy_turns"]
+    assert central["random"]["max_step_timeouts"] == parallel["random"]["max_step_timeouts"]
+    assert np.isclose(
+        central["random"]["avg_score_diff0"],
+        parallel["random"]["avg_score_diff0"],
+    )
 
 
 def test_parallel_eval_server_matches_local_stats() -> None:

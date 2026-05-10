@@ -36,7 +36,8 @@ training:
   replay_capacity: 100000
   interleave_games: 8
   interleave_max_batch: 64
-  use_inference_server: true
+  use_central_scheduler: false
+  use_inference_server: false
   inference_server_max_batch: 128
   inference_server_batch_timeout_ms: 10.0
 optimization:
