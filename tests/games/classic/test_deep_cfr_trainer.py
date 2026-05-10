@@ -1455,3 +1455,42 @@ def test_first_open_prior_zero_alpha_is_noop() -> None:
     target = np.zeros(legal_mask.shape[0], dtype=np.float32)
     _apply_first_open_prior(target, state, player, legal_mask, sampled_action=0, alpha=0.0)
     assert np.all(target == 0.0)
+
+
+def test_interleaved_regret_matching_argmax_tiebreak_concentrates_on_best() -> None:
+    from coolrl_lost_cities.games.classic.deep_cfr.interleaved_traversal import _regret_matching
+
+    advantages = np.array([-1.0, -0.5, -0.5, -2.0, -0.5], dtype=np.float32)
+    legal_mask = np.array([True, True, True, True, True])
+
+    uniform_policy, fallback_u, _, _ = _regret_matching(
+        advantages, legal_mask, epsilon=1.0e-8, fallback_mode="uniform"
+    )
+    argmax_policy, fallback_a, tie_size, _ = _regret_matching(
+        advantages, legal_mask, epsilon=1.0e-8, fallback_mode="argmax_tiebreak"
+    )
+
+    assert fallback_u is True
+    assert fallback_a is True
+    assert tie_size == 3
+    assert np.allclose(uniform_policy, np.full(5, 0.2, dtype=np.float32))
+    expected_argmax = np.zeros(5, dtype=np.float32)
+    expected_argmax[1] = 1.0
+    assert np.allclose(argmax_policy, expected_argmax)
+
+
+def test_interleaved_regret_matching_no_fallback_unchanged_by_mode() -> None:
+    from coolrl_lost_cities.games.classic.deep_cfr.interleaved_traversal import _regret_matching
+
+    advantages = np.array([1.0, 3.0, 0.0, 2.0], dtype=np.float32)
+    legal_mask = np.array([True, True, True, True])
+    policy_uniform, fallback_u, _, _ = _regret_matching(
+        advantages, legal_mask, epsilon=1.0e-8, fallback_mode="uniform"
+    )
+    policy_argmax, fallback_a, _, _ = _regret_matching(
+        advantages, legal_mask, epsilon=1.0e-8, fallback_mode="argmax_tiebreak"
+    )
+    assert fallback_u is False
+    assert fallback_a is False
+    assert np.allclose(policy_uniform, policy_argmax)
+    assert np.allclose(policy_uniform.sum(), 1.0)

@@ -448,6 +448,7 @@ class DeepCFRTrainer:
                         outcome_unsampled_first_open_prior_alpha=(
                             self.config.traversal.outcome_unsampled_first_open_prior_alpha
                         ),
+                        all_negative_fallback=(self.config.regret_matching.all_negative_fallback),
                         opponent_policy=self.config.traversal.opponent_policy,
                         endpoint_depth_bucket_width=(
                             self.config.traversal.endpoint_depth_bucket_width

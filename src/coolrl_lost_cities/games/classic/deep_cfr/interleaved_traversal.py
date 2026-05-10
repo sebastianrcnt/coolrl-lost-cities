@@ -41,7 +41,20 @@ def _regret_matching(
     advantages: np.ndarray,
     legal_mask: np.ndarray,
     epsilon: float,
+    fallback_mode: str = "uniform",
 ) -> tuple[np.ndarray, bool, int, bool]:
+    """Compute regret-matching policy with fallback when no positive regrets.
+
+    ``fallback_mode``:
+      - ``"uniform"``: spread mass uniformly across all legal actions.
+      - ``"argmax_tiebreak"``: concentrate mass on a single best-advantage
+        action (lowest index among ties), matching the spirit of the
+        Cython recursive traverser's argmax_tiebreak fallback. Note: the
+        Cython traverser randomises the tiebreak using its per-traverser
+        RNG; the interleaved scheduler uses deterministic lowest-index
+        selection so behaviour stays reproducible without per-trajectory
+        RNG plumbing into the batched policy.
+    """
     policy = np.zeros_like(advantages, dtype=np.float32)
     legal = np.flatnonzero(legal_mask)
     positives = np.maximum(advantages[legal], 0.0)
@@ -59,7 +72,10 @@ def _regret_matching(
     tied = legal[np.flatnonzero(advantages[legal] == best)]
     tie_size = int(len(tied))
     full_tie = tie_size > 1 and tie_size == len(legal)
-    policy[legal] = 1.0 / float(len(legal))
+    if fallback_mode == "argmax_tiebreak":
+        policy[int(tied[0])] = 1.0
+    else:
+        policy[legal] = 1.0 / float(len(legal))
     return policy, fallback, tie_size, full_tie
 
 
@@ -179,6 +195,7 @@ class InterleavedTraversalConfig:
     outcome_sampling_value_clip: float | None
     outcome_unsampled_regret: str
     outcome_unsampled_first_open_prior_alpha: float
+    all_negative_fallback: str
     max_depth: int | None
     max_nodes: int | None
     strategy_sample_interval: int
@@ -257,12 +274,14 @@ class BatchedPolicy:
         epsilon: float,
         strategy_network: torch.nn.Module | None = None,
         deterministic: bool = False,
+        fallback_mode: str = "uniform",
     ) -> None:
         self.networks = networks
         self.strategy_network = strategy_network
         self.device = device
         self.epsilon = epsilon
         self.deterministic = deterministic
+        self.fallback_mode = fallback_mode
         self.batch_sizes: list[int] = []
         self.forward_seconds = 0.0
 
@@ -312,7 +331,10 @@ class BatchedPolicy:
                     full_tie = False
                 else:
                     policy, fallback, tie_size, full_tie = _regret_matching(
-                        values[local_idx], request.legal_mask, self.epsilon
+                        values[local_idx],
+                        request.legal_mask,
+                        self.epsilon,
+                        self.fallback_mode,
                     )
                 out[request_idx] = PolicyResult(
                     info_state=request.info_state,
@@ -704,6 +726,7 @@ def run_interleaved_traversal_batch(
     outcome_unsampled_regret: str,
     opponent_policy: str,
     outcome_unsampled_first_open_prior_alpha: float = 0.0,
+    all_negative_fallback: str = "uniform",
     endpoint_depth_bucket_width: int,
     endpoint_depth_bucket_max: int,
     seed: int,
@@ -720,6 +743,7 @@ def run_interleaved_traversal_batch(
         outcome_sampling_value_clip=outcome_sampling_value_clip,
         outcome_unsampled_regret=outcome_unsampled_regret,
         outcome_unsampled_first_open_prior_alpha=outcome_unsampled_first_open_prior_alpha,
+        all_negative_fallback=all_negative_fallback,
         max_depth=max_depth,
         max_nodes=max_nodes,
         strategy_sample_interval=strategy_sample_interval,
@@ -740,6 +764,7 @@ def run_interleaved_traversal_batch(
         epsilon=cfg.epsilon,
         strategy_network=strategy_network,
         deterministic=cfg.deterministic,
+        fallback_mode=cfg.all_negative_fallback,
     )
     scheduler = InterleavedTraversalScheduler(cfg, policy)
     _values, _rng_out, stats_rows, sample_rows, batch_sizes = scheduler.run(

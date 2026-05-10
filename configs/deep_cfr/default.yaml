@@ -31,7 +31,7 @@ traversal:
   max_depth: null
   max_nodes_per_traversal: 1000
   regret_matching_epsilon: 0.0001
-  outcome_sampling_epsilon: 0.2
+  outcome_sampling_epsilon: 0.05
   outcome_sampling_value_clip: 500.0
   outcome_unsampled_regret: zero
   cutoff_value_mode: score_diff

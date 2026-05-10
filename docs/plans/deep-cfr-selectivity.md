@@ -608,7 +608,42 @@ architecture has been run yet. Fair test deferred — the diagnosis from
 sections 4–5 (selection bias, post-open behaviour) suggests that even a
 correct color-aware encoder would not break the closed loop on its own.
 
-### 8. Short open-selectivity ablation
+### 8. Interleaved scheduler honours all_negative_fallback (2026-05-10)
+
+The interleaved traversal scheduler's `_regret_matching` was hard-coded to
+spread fallback policy uniformly across legal actions, regardless of the
+configured `regret_matching.all_negative_fallback`. The default config has
+shipped with `all_negative_fallback: argmax_tiebreak` since
+`618d5f8 Promote avg-strategy 1000iter to default.yaml` based on prior
+20-iteration audit + 1000-iteration empirical evidence (see
+`docs/archive/deep-cfr-regret-fallback-audit-2026-05-07.md`), but the
+default scheduler was switched to interleaved in `09bbe7c Make interleaved
+traversal the default`, after which the configured fallback mode silently
+no-op'd in interleaved code paths.
+
+Fix:
+
+- `_regret_matching(advantages, legal_mask, epsilon, fallback_mode="uniform")`
+  in `interleaved_traversal.py` now honours `argmax_tiebreak` by
+  concentrating policy mass on the lowest-index tied action (deterministic
+  tiebreak; the Cython recursive traverser randomises ties using its
+  per-traverser RNG, which the batched policy does not have).
+- `BatchedPolicy` accepts `fallback_mode` and threads it through.
+- `InterleavedTraversalConfig` carries `all_negative_fallback`.
+- `run_interleaved_traversal_batch`, `trainer.py`, `workers.py`, and the
+  `analyze_first_open_targets.py` callers pass the field through.
+
+Also bumped `traversal.outcome_sampling_epsilon` in `default.yaml` from
+0.2 to 0.05. The 200-iteration sweep (section 1) showed 0.05 produced the
+best short-run safe_heuristic_strict score diff (-40.01 vs -57.87 for
+0.20). All recent experimental runs already used 0.05; the default now
+matches actual experimental practice.
+
+These changes do not target the diagnosed selection-bias bottleneck. They
+align config intent with actual scheduler behaviour and make the default
+config reproduce known-best knob settings out of the box.
+
+### 9. Short open-selectivity ablation
 
 Run a 200-300 iteration ablation only after the target audit identifies a
 specific change. Candidate changes include:

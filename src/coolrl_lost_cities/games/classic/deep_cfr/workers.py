@@ -190,6 +190,7 @@ def run_traversal_worker_batch(batch: TraversalWorkerBatch) -> TraversalWorkerRe
                     outcome_unsampled_first_open_prior_alpha=(
                         cfg.traversal.outcome_unsampled_first_open_prior_alpha
                     ),
+                    all_negative_fallback=cfg.regret_matching.all_negative_fallback,
                     opponent_policy=cfg.traversal.opponent_policy,
                     endpoint_depth_bucket_width=cfg.traversal.endpoint_depth_bucket_width,
                     endpoint_depth_bucket_max=cfg.traversal.endpoint_depth_bucket_max,
