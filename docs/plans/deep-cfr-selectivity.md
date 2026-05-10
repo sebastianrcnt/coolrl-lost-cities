@@ -45,6 +45,26 @@ Short 200-iteration ablations with `outcome_unsampled_regret=zero`:
 Conclusion: `epsilon=0.05` was the best short-run candidate. Lowering to
 `0.02` was worse, and larger values were also worse.
 
+### regret_matching_epsilon = 1e-4 was the zero-pit countermeasure (prior repo)
+
+이전 레포(`../coolrl`)에서 zero-pit 발생 당시 시도한 epsilon 튜닝 기록
+(commit `5a98855`, `da0d4cd`, 2026-05-06). 이건 `outcome_sampling_epsilon`이
+아니라 `regret_matching_epsilon`이라는 별도 파라미터.
+
+- **eps1e3** (`regret_matching_epsilon=1.0e-3`): zero-pit timeout은 줄였지만
+  safe 계열 avg_diff 개선 X. selectivity floor를 과하게 만들 가능성 의심.
+- **eps1e4** (`regret_matching_epsilon=1.0e-4`): floor 더 낮춰서 219 iter
+  수동 중단. random 승률 0.86 / score_diff +32, safe 승률 0.03~0.05 /
+  score_diff -57~-74. zero-pit timeout은 거의 안 나오지만 selectivity
+  실패는 그대로.
+
+`1.0e-4`가 그때 best로 채택되어 현재 `default.yaml`의 기본값으로 남아 있음
+(`regret_matching_epsilon: 0.0001`). R0, R1 양쪽 모두 이 설정 사용 중.
+
+**이 lever는 이미 당겨져 있다.** R1에서 zero-pit이 다시 나타난 것은
+floor가 풀려서가 아니라, opponent=discard_only가 "do nothing" 균형을
+*수학적으로* 안전하게 만든 별개 원인. epsilon 재조정으로 풀리는 구조가 아님.
+
 ### Negative unsampled regret was not sufficient
 
 The `epsilon=0.05` plus `outcome_unsampled_regret=negative_node_value` variant
