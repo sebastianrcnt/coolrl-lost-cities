@@ -1,8 +1,8 @@
 run:
   experiment_name: ismcts-default
-  max_iterations: 100
+  max_iterations: 500
   seed: 1
-  device: auto
+  device: cuda
 rules:
   n_colors: 5
   n_ranks: 9
@@ -22,10 +22,14 @@ network:
   activation: relu
 mcts:
   n_simulations: 50
-  c_puct: 1.5
+  c_puct: 3.0
   max_depth: 200
-  parallel_simulations: 8
-  virtual_loss_value: 1.0
+  parallel_simulations: 64
+  virtual_loss_value: 5.0
+  eval_n_simulations: 16
+  rollout_policy: heuristic_balanced
+  root_dirichlet_alpha: 0.3
+  root_dirichlet_epsilon: 0.25
 temperature:
   training: 1.0
   eval: 0.0
@@ -36,15 +40,17 @@ training:
   replay_capacity: 100000
   interleave_games: 8
   interleave_max_batch: 64
+  num_workers: 8
+  worker_device: cuda
 optimization:
   learning_rate: 0.0003
   grad_clip: 5.0
 checkpoint:
-  save_every: 10
+  save_every: 20
   save_latest: true
 evaluation:
-  eval_every: 10
-  games: 20
+  eval_every: 5
+  games: 5
   opponents: [random, discard-only, heuristic-cautious]
-  max_steps: 10000
-  num_workers: 1
+  max_steps: 500
+  num_workers: 8

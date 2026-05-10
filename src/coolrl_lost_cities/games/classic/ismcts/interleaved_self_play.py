@@ -181,6 +181,7 @@ def _evaluate_global_batch(
                 item.legal_actions,
                 priors_by_id[id(item)],
                 values_by_id[id(item)],
+                not item.path,  # is_root for Dirichlet noise
             )
         job.searcher._backup(item.path, value, item.leaf_player)
 
@@ -222,7 +223,15 @@ def _finish_decision(
 
 
 def _finalize_context(context: _GameContext) -> list[ReplaySample]:
-    final_diff0 = float(context.state.score_diff(0))
+    # If the game did not terminate naturally (hit max_steps), the score
+    # reflects an incomplete game — typically a "stall" outcome where both
+    # sides have under-developed expeditions. Treating that as a real win
+    # for either player creates a degenerate stall-and-pray learning
+    # signal. Zero it out so the trajectory is neutral.
+    if not context.state.terminal:
+        final_diff0 = 0.0
+    else:
+        final_diff0 = float(context.state.score_diff(0))
     samples: list[ReplaySample] = []
     for decision in context.decisions:
         value = final_diff0 if decision.player == 0 else -final_diff0

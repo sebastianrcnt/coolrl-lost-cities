@@ -489,6 +489,7 @@ cdef class IsMctsSearcher:
                     item.legal_actions,
                     priors_by_id[id(item)],
                     values_by_id[id(item)],
+                    not item.path,  # is_root: empty path means leaf == root
                 )
             self._backup(item.path, value, item.leaf_player)
 
@@ -500,14 +501,32 @@ cdef class IsMctsSearcher:
         list legal_actions,
         object probs,
         double network_value,
+        bint is_root=False,
     ):
         cdef int action
+        cdef int i
+        cdef int n_legal
+        cdef double alpha
+        cdef double epsilon
         cdef object rollout_value
+        cdef object noise
+        cdef object np_rng
         legal_actions = self._unified_legal_actions_list_c(state)
         if not legal_actions:
             node.terminal = True
             return float(state.total_scores[player] - state.total_scores[1 - player])
         node.expanded = True
+        # Dirichlet noise at root (AlphaZero pattern: force exploration of low-prior actions)
+        alpha = float(self.config.root_dirichlet_alpha)
+        epsilon = float(self.config.root_dirichlet_epsilon)
+        if is_root and alpha > 0.0 and epsilon > 0.0:
+            n_legal = len(legal_actions)
+            # Use numpy with seed from self.rng for reproducibility under fixed seeds
+            np_rng = np.random.default_rng(self.rng.randrange(2**31))
+            noise = np_rng.dirichlet([alpha] * n_legal)
+            for i in range(n_legal):
+                action = legal_actions[i]
+                probs[action] = (1.0 - epsilon) * float(probs[action]) + epsilon * float(noise[i])
         for action in legal_actions:
             (<_ArrayMap>node.priors).set_float(action, float(probs[action]))
             if not (<_ArrayMap>node.visits).has(action):

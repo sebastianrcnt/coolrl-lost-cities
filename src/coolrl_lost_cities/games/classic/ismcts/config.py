@@ -30,6 +30,8 @@ class MctsConfig(StrictModel):
     virtual_loss_value: float = 1.0
     eval_with_mcts: bool = True
     eval_n_simulations: int = 0
+    root_dirichlet_alpha: float = 0.0
+    root_dirichlet_epsilon: float = 0.0
 
     @field_validator("n_simulations", "max_depth", "parallel_simulations")
     @classmethod

@@ -112,6 +112,16 @@ def main(argv: list[str] | None = None) -> None:
     train.add_argument("--wandb-tag", action="append", default=[])
     train.add_argument("--wandb-notes")
     train.set_defaults(func=train_command)
+
+    from .eval_checkpoint import add_eval_args, run_eval
+
+    eval_cmd = subparsers.add_parser(
+        "eval",
+        help="Evaluate a saved checkpoint vs heuristic bots in parallel.",
+    )
+    add_eval_args(eval_cmd)
+    eval_cmd.set_defaults(func=lambda a: run_eval(a))
+
     args = parser.parse_args(argv)
     args.func(args)
 
