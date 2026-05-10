@@ -9,10 +9,12 @@ wheels/
 runs/
 /runs
 
-# Cython-generated sources
-src/coolrl_lost_cities/games/classic/game.c
-src/coolrl_lost_cities/games/classic/engines/fast.c
-src/coolrl_lost_cities/games/classic/deep_cfr/*.c
+# Cython-generated sources (auto-generated from .pyx anywhere under src/)
+src/**/*.c
+
+# Local session / lock files
+.compute.lock
+.claude/
 
 # Rust build output
 target/
