@@ -65,6 +65,38 @@ Conclusion: `epsilon=0.05` was the best short-run candidate. Lowering to
 floor가 풀려서가 아니라, opponent=discard_only가 "do nothing" 균형을
 *수학적으로* 안전하게 만든 별개 원인. epsilon 재조정으로 풀리는 구조가 아님.
 
+### past-self 풀만으로는 trap 못 깸 (prior repo)
+
+이전 레포(`../coolrl`) `full_depth` 실험 (commit `33e0368`, 2026-05-06).
+
+설정 (anchor 없음, 순수 past-self pool):
+
+```yaml
+self_play_league:
+  current_weight: 0.5
+  recent_weight: 0.3
+  older_weight: 0.2
+  max_snapshots: 20
+  recent_window: 5
+```
+
+가설: opponent로 본인 최신만 쓰는 self-mirror 평형이 selectivity emergence를
+막는다면, 과거 자아 snapshot을 섞으면 평형이 깨진다.
+
+결과 (iter 322 종료):
+
+- safe 상대 opened_colors: **4.94~4.96** (거의 전색 opening)
+- 5-color opening 빈도: 91% → 93% (iter 110→180, 감소 없음)
+- safe avg_diff: eps1e4 baseline 대비 +25점 회복 (recovery skill은 emerge)
+- terminal rate 100%, node cutoff 0% (truncation 정상)
+
+판정 (commit 메시지 그대로): "recovery는 self-play로 emerge했지만 selectivity는
+현재 league 평형 안에서 emerge하지 않는다."
+
+함의 — past-self를 섞어도 본인 과거 자아는 같은 trap policy의 시간축 평행이동일
+뿐이라 self-mirror 평형이 사실상 그대로 유지된다. selectivity는 self-play 가족
+내부 다양성으로 풀리지 않는다.
+
 ### self_play_league에 heuristic anchor 0.15 주입은 trap을 깨지 못함 (prior repo)
 
 이전 레포(`../coolrl`) `anchor_safe015` 실험 (commit `279d726`, `a77464b`,
