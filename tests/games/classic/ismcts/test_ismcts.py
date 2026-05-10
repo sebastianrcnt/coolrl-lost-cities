@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import multiprocessing as mp
 import random
 import sys
 from pathlib import Path
@@ -16,6 +17,13 @@ from coolrl_lost_cities.games.classic.bots.heuristic_py import (
 )
 from coolrl_lost_cities.games.classic.ismcts.config import IsMctsConfig, MctsConfig
 from coolrl_lost_cities.games.classic.ismcts.determinization import sample_determinization
+from coolrl_lost_cities.games.classic.ismcts.evaluate import (
+    evaluate_opponents_with_mcts_parallel,
+)
+from coolrl_lost_cities.games.classic.ismcts.inference_server import (
+    InferenceClient,
+    InferenceServer,
+)
 from coolrl_lost_cities.games.classic.ismcts.info_set import canonical_info_set_key
 from coolrl_lost_cities.games.classic.ismcts.interleaved_self_play import (
     play_self_play_iteration,
@@ -450,3 +458,162 @@ def test_smoke_iter_with_batching(tmp_path) -> None:
     assert "mcts/avg_visit_entropy" in metrics
     assert "mcts/value_prediction_error" in metrics
     assert "mcts/policy_mcts_kl" in metrics
+
+
+def test_inference_server_roundtrip_shapes() -> None:
+    state = GameState.new_game(mini_config(), seed=41)
+    net = AlphaZeroNet(input_dim(state), state.action_size, hidden_size=8, num_layers=1)
+    ctx = mp.get_context("spawn")
+    manager = ctx.Manager()
+    try:
+        request_queue = manager.Queue()
+        response_queues = [manager.Queue()]
+        server = InferenceServer(
+            net,
+            torch.device("cpu"),
+            request_queue,
+            response_queues,
+            max_batch=4,
+        )
+        server.start()
+        try:
+            client = InferenceClient(0, request_queue, response_queues[0])
+            infos = []
+            masks = []
+            for player in (0, 1, 0):
+                infos.append(encode_info_state(state, player))
+                masks.append(np.asarray(state.unified_legal_mask(), dtype=bool))
+            priors, values = client.infer(np.stack(infos), np.stack(masks))
+        finally:
+            server.stop()
+    finally:
+        manager.shutdown()
+
+    assert priors.shape == (3, state.action_size)
+    assert values.shape == (3,)
+    assert np.allclose(priors.sum(axis=1), 1.0)
+    assert np.all(priors[:, ~np.asarray(state.unified_legal_mask(), dtype=bool)] == 0.0)
+
+
+def test_parallel_self_play_server_matches_sample_count(tmp_path) -> None:
+    base_config = {
+        "run": {"max_iterations": 1, "seed": 42, "device": "cpu"},
+        "rules": {
+            "n_colors": 3,
+            "n_ranks": 5,
+            "n_handshakes": 1,
+            "hand_size": 4,
+            "bonus_threshold": 4,
+        },
+        "network": {"hidden_size": 16, "num_layers": 1},
+        "mcts": {"n_simulations": 2, "parallel_simulations": 2, "use_rollout_value": False},
+        "training": {
+            "games_per_iter": 2,
+            "gradient_steps_per_iter": 1,
+            "batch_size": 8,
+            "num_workers": 2,
+        },
+        "checkpoint": {"save_every": 0},
+        "evaluation": {"eval_every": 0, "num_workers": 1, "max_steps": 80},
+    }
+    off = IsMctsConfig.model_validate(
+        {
+            **base_config,
+            "training": {**base_config["training"], "use_inference_server": False},
+        }
+    )
+    on = IsMctsConfig.model_validate(
+        {
+            **base_config,
+            "training": {**base_config["training"], "use_inference_server": True},
+        }
+    )
+    torch.manual_seed(45)
+    off_trainer = IsMctsTrainer(
+        off,
+        off.rules.to_lost_cities_config(seed=off.run.seed),
+        run_dir=tmp_path / "off",
+    )
+    torch.manual_seed(45)
+    on_trainer = IsMctsTrainer(
+        on,
+        on.rules.to_lost_cities_config(seed=on.run.seed),
+        run_dir=tmp_path / "on",
+    )
+
+    off_metrics = off_trainer.train()[0].to_dict()
+    on_metrics = on_trainer.train()[0].to_dict()
+
+    assert on_metrics["samples/added"] == off_metrics["samples/added"]
+
+
+def test_parallel_eval_server_matches_local_stats() -> None:
+    config = IsMctsConfig.model_validate(
+        {
+            "run": {"seed": 43, "device": "cpu"},
+            "rules": {
+                "n_colors": 3,
+                "n_ranks": 5,
+                "n_handshakes": 1,
+                "hand_size": 4,
+                "bonus_threshold": 4,
+            },
+            "network": {"hidden_size": 16, "num_layers": 1},
+            "mcts": {"n_simulations": 2, "parallel_simulations": 2, "use_rollout_value": False},
+            "training": {"num_workers": 2},
+            "evaluation": {"games": 2, "opponents": ["random"], "num_workers": 2, "max_steps": 80},
+        }
+    )
+    game_config = config.rules.to_lost_cities_config(seed=config.run.seed)
+    state = GameState.new_game(game_config, seed=config.run.seed)
+    net = AlphaZeroNet(input_dim(state), state.action_size, hidden_size=16, num_layers=1)
+    local = evaluate_opponents_with_mcts_parallel(
+        net,
+        game_config,
+        config.mcts,
+        config=config,
+        opponents=("random",),
+        games=2,
+        seed=44,
+        num_workers=2,
+        max_steps=80,
+    )
+
+    ctx = mp.get_context("spawn")
+    manager = ctx.Manager()
+    try:
+        request_queue = manager.Queue()
+        response_queues = [manager.Queue() for _ in range(2)]
+        server = InferenceServer(
+            net,
+            torch.device("cpu"),
+            request_queue,
+            response_queues,
+            max_batch=8,
+        )
+        server.start()
+        try:
+            server_result = evaluate_opponents_with_mcts_parallel(
+                net,
+                game_config,
+                config.mcts,
+                config=config,
+                opponents=("random",),
+                games=2,
+                seed=44,
+                num_workers=2,
+                max_steps=80,
+                request_queue=request_queue,
+                response_queues=response_queues,
+            )
+        finally:
+            server.stop()
+    finally:
+        manager.shutdown()
+
+    for key in ("games", "wins0", "wins1", "draws", "policy_turns", "max_step_timeouts"):
+        assert server_result["random"][key] == local["random"][key]
+    assert np.isclose(
+        server_result["random"]["avg_score_diff0"],
+        local["random"]["avg_score_diff0"],
+    )

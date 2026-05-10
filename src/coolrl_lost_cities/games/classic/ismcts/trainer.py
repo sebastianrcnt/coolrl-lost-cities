@@ -17,11 +17,12 @@ from coolrl_lost_cities.games.classic.deep_cfr.evaluate import evaluate_strategy
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
 from .config import IsMctsConfig
-from .evaluate import evaluate_with_mcts
+from .evaluate import evaluate_opponents_with_mcts_parallel, evaluate_with_mcts
+from .inference_server import InferenceServer
 from .interleaved_self_play import play_self_play_iteration
 from .network import AlphaZeroLogitsView, AlphaZeroNet
 from .replay_buffer import ReplayBuffer, ReplaySample
-from .workers import SelfPlayWorkerBatch, run_self_play_worker
+from .workers import SelfPlayWorkerBatch, init_inference_queues, run_self_play_worker
 
 
 @dataclass
@@ -182,10 +183,14 @@ class IsMctsTrainer:
         base = total_games // effective_workers
         remainder = total_games % effective_workers
         per_worker = [base + (1 if i < remainder else 0) for i in range(effective_workers)]
-        # Move network state dict to CPU for cross-process transfer.
-        cpu_state = {
-            name: tensor.detach().cpu() for name, tensor in self.network.state_dict().items()
-        }
+        use_inference_server = bool(training_cfg.use_inference_server and effective_workers > 1)
+        # Move network state dict to CPU for cross-process transfer when workers
+        # run local inference. In server mode, workers never deserialize the model.
+        cpu_state = (
+            None
+            if use_inference_server
+            else {name: tensor.detach().cpu() for name, tensor in self.network.state_dict().items()}
+        )
         config_dict = self.config.to_dict()
         game_snapshot = self.game_config.to_snapshot()
         max_steps = self.config.evaluation.max_steps
@@ -205,6 +210,7 @@ class IsMctsTrainer:
                     temperature=temperature,
                     max_steps=max_steps,
                     device=worker_device,
+                    use_inference_server=use_inference_server,
                 )
             )
         samples: list[ReplaySample] = []
@@ -215,19 +221,60 @@ class IsMctsTrainer:
             flush=True,
         )
         spawn_started = time.perf_counter()
-        with ProcessPoolExecutor(max_workers=effective_workers, mp_context=ctx) as executor:
-            futures = [executor.submit(run_self_play_worker, batch) for batch in batches]
-            print(
-                f"  workers submitted in {time.perf_counter() - spawn_started:.1f}s, waiting for results...",
-                flush=True,
+        request_queue = ctx.Queue() if use_inference_server else None
+        response_queues = (
+            [ctx.Queue() for _ in range(effective_workers)] if use_inference_server else None
+        )
+        server = (
+            InferenceServer(
+                self.network,
+                self.device,
+                request_queue,
+                response_queues,
+                max_batch=int(training_cfg.inference_server_max_batch),
+                batch_timeout_seconds=float(training_cfg.inference_server_batch_timeout_ms)
+                / 1000.0,
             )
-            results = []
-            for future in futures:
-                res = future.result()
-                results.append(res)
+            if use_inference_server
+            else None
+        )
+        try:
+            if server is not None:
+                server.start()
+            executor_kwargs = (
+                {
+                    "initializer": init_inference_queues,
+                    "initargs": (request_queue, response_queues),
+                }
+                if use_inference_server
+                else {}
+            )
+            with ProcessPoolExecutor(
+                max_workers=effective_workers,
+                mp_context=ctx,
+                **executor_kwargs,
+            ) as executor:
+                futures = [executor.submit(run_self_play_worker, batch) for batch in batches]
                 print(
-                    f"  worker {res.worker_index} done ({len(res.samples)} samples, "
-                    f"elapsed {time.perf_counter() - spawn_started:.1f}s)",
+                    f"  workers submitted in {time.perf_counter() - spawn_started:.1f}s, waiting for results...",
+                    flush=True,
+                )
+                results = []
+                for future in futures:
+                    res = future.result()
+                    results.append(res)
+                    print(
+                        f"  worker {res.worker_index} done ({len(res.samples)} samples, "
+                        f"elapsed {time.perf_counter() - spawn_started:.1f}s)",
+                        flush=True,
+                    )
+        finally:
+            if server is not None:
+                server.stop()
+                print(
+                    "  inference server "
+                    f"batches={server.forward_batches} requests={server.forward_requests} "
+                    f"positions={server.forward_positions}",
                     flush=True,
                 )
         for result in sorted(results, key=lambda item: item.worker_index):
@@ -285,6 +332,87 @@ class IsMctsTrainer:
             return {}
         self.network.eval()
         results: dict[str, float | int] = {}
+        eval_workers = max(
+            1,
+            int(self.config.evaluation.num_workers),
+            int(self.config.training.num_workers),
+        )
+        use_eval_server = bool(
+            self.config.training.use_inference_server
+            and self.config.mcts.eval_with_mcts
+            and eval_workers > 1
+        )
+        if self.config.mcts.eval_with_mcts and eval_workers > 1:
+            print(
+                f"  eval vs {', '.join(opponents)} (workers={eval_workers}, "
+                f"inference_server={use_eval_server})...",
+                flush=True,
+            )
+            eval_mcts_cfg = self.config.mcts.model_copy()
+            if self.config.mcts.eval_n_simulations > 0:
+                eval_mcts_cfg = eval_mcts_cfg.model_copy(
+                    update={"n_simulations": self.config.mcts.eval_n_simulations}
+                )
+            ctx = mp.get_context("spawn")
+            request_queue = ctx.Queue() if use_eval_server else None
+            response_queues = (
+                [ctx.Queue() for _ in range(eval_workers)] if use_eval_server else None
+            )
+            server = (
+                InferenceServer(
+                    self.network,
+                    self.device,
+                    request_queue,
+                    response_queues,
+                    max_batch=int(self.config.training.inference_server_max_batch),
+                    batch_timeout_seconds=float(
+                        self.config.training.inference_server_batch_timeout_ms
+                    )
+                    / 1000.0,
+                )
+                if use_eval_server
+                else None
+            )
+            started = time.perf_counter()
+            try:
+                if server is not None:
+                    server.start()
+                eval_results = evaluate_opponents_with_mcts_parallel(
+                    self.network,
+                    self.game_config,
+                    eval_mcts_cfg,
+                    config=self.config,
+                    opponents=tuple(opponents),
+                    games=self.config.evaluation.games,
+                    seed=self.config.run.seed + iteration * 1000,
+                    num_workers=eval_workers,
+                    max_steps=self.config.evaluation.max_steps,
+                    request_queue=request_queue,
+                    response_queues=response_queues,
+                )
+            finally:
+                if server is not None:
+                    server.stop()
+                    print(
+                        "  eval inference server "
+                        f"batches={server.forward_batches} requests={server.forward_requests} "
+                        f"positions={server.forward_positions}",
+                        flush=True,
+                    )
+            for opponent, result in eval_results.items():
+                key = opponent.replace("-", "_")
+                for metric_key, value in result.items():
+                    results[f"eval/{key}/{metric_key}"] = value
+                par = result.get("play_action_rate", 0.0)
+                sd = result.get("avg_score_diff0", 0.0)
+                wr = result.get("win_rate0", 0.0)
+                print(
+                    f"  eval vs {opponent} done in {result.get('elapsed_seconds', 0.0):.1f}s "
+                    f"PA={par:.2f} W={wr:.2f} S={sd:.1f}",
+                    flush=True,
+                )
+            print(f"  eval opponents done in {time.perf_counter() - started:.1f}s", flush=True)
+            return results
         for opponent in opponents:
             print(f"  eval vs {opponent}...", flush=True)
             opp_started = time.perf_counter()

@@ -10,6 +10,7 @@ from coolrl_lost_cities.games.classic.deep_cfr.encoding import encode_info_state
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
 from .config import MctsConfig, TrainingConfig
+from .inference_server import InferenceClient
 from .info_set import canonical_info_set_key
 from .mcts import IsMctsSearcher, PendingSimulation
 from .network import AlphaZeroNet
@@ -55,6 +56,7 @@ def play_self_play_iteration(
     encoding=None,
     temperature: float = 1.0,
     max_steps: int = 10_000,
+    inference_client: InferenceClient | None = None,
 ) -> list[ReplaySample]:
     device = torch.device(device)
     completed: list[list[ReplaySample]] = []
@@ -102,7 +104,13 @@ def play_self_play_iteration(
 
         active = still_active
         if jobs:
-            _run_search_jobs(network, jobs, training_config.interleave_max_batch, device)
+            _run_search_jobs(
+                network,
+                jobs,
+                training_config.interleave_max_batch,
+                device,
+                inference_client=inference_client,
+            )
             for job in jobs:
                 _finish_decision(job, mcts_config, encoding, temperature)
 
@@ -119,6 +127,8 @@ def _run_search_jobs(
     jobs: list[_SearchJob],
     max_batch: int,
     device: torch.device,
+    *,
+    inference_client: InferenceClient | None = None,
 ) -> None:
     while any(job.remaining > 0 for job in jobs):
         pending: list[tuple[_SearchJob, PendingSimulation]] = []
@@ -141,13 +151,15 @@ def _run_search_jobs(
                 break
         if not pending:
             break
-        _evaluate_global_batch(network, pending, device)
+        _evaluate_global_batch(network, pending, device, inference_client=inference_client)
 
 
 def _evaluate_global_batch(
     network: AlphaZeroNet,
     pending: list[tuple[_SearchJob, PendingSimulation]],
     device: torch.device,
+    *,
+    inference_client: InferenceClient | None = None,
 ) -> None:
     network_pending = [(job, item) for job, item in pending if item.terminal_value is None]
     values_by_id: dict[int, float] = {}
@@ -159,12 +171,17 @@ def _evaluate_global_batch(
         masks = np.stack(
             [item.legal_mask for _job, item in network_pending if item.legal_mask is not None]
         )
-        with torch.inference_mode():
-            x = torch.as_tensor(infos, dtype=torch.float32, device=device)
-            mask = torch.as_tensor(masks, dtype=torch.bool, device=device)
-            probs = network.policy_distribution(x, mask).detach().cpu().numpy()
-            _logits, values = network(x, mask)
-            values_np = values.detach().cpu().numpy()
+        if inference_client is None:
+            with torch.inference_mode():
+                x = torch.as_tensor(infos, dtype=torch.float32, device=device)
+                mask = torch.as_tensor(masks, dtype=torch.bool, device=device)
+                logits, values = network(x, mask)
+                policy = torch.softmax(logits, dim=-1).masked_fill(~mask, 0.0)
+                normalizer = policy.sum(dim=-1, keepdim=True).clamp_min(1.0e-12)
+                probs = (policy / normalizer).detach().cpu().numpy()
+                values_np = values.detach().cpu().numpy()
+        else:
+            probs, values_np = inference_client.infer(infos, masks)
         for index, (_job, item) in enumerate(network_pending):
             priors_by_id[id(item)] = probs[index]
             values_by_id[id(item)] = float(values_np[index])

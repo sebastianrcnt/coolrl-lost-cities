@@ -60,6 +60,9 @@ class TrainingConfig(StrictModel):
     interleave_max_batch: int = 64
     num_workers: int = 1
     worker_device: str = "cpu"
+    use_inference_server: bool = True
+    inference_server_max_batch: int = 128
+    inference_server_batch_timeout_ms: float = 10.0
 
     @field_validator(
         "games_per_iter",
@@ -69,9 +72,17 @@ class TrainingConfig(StrictModel):
         "interleave_games",
         "interleave_max_batch",
         "num_workers",
+        "inference_server_max_batch",
     )
     @classmethod
     def _positive_int(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("must be positive")
+        return value
+
+    @field_validator("inference_server_batch_timeout_ms")
+    @classmethod
+    def _positive_float(cls, value: float) -> float:
         if value <= 0:
             raise ValueError("must be positive")
         return value
