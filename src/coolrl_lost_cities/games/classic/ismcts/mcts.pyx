@@ -296,6 +296,12 @@ cdef class IsMctsSearcher:
     cdef public MctsTree tree
     cdef HeuristicBot _rollout_bot
     cdef int action_size
+    # Opponent-aware search: when set, the search treats one seat as a fixed
+    # external policy (heuristic bot). Opponent moves are applied directly
+    # without entering the tree, and all values are taken from the
+    # traverser's perspective. None for standard symmetric self-play search.
+    cdef public object _opponent_bot
+    cdef public int _traverser_seat
 
     def __init__(
         self,
@@ -318,6 +324,12 @@ cdef class IsMctsSearcher:
         self._rollout_bot = (
             <HeuristicBot>PyHeuristicBot() if config.rollout_policy == "heuristic_balanced" else None
         )
+        self._opponent_bot = None
+        self._traverser_seat = -1
+
+    def set_opponent_bot(self, object bot, *, int traverser_seat):
+        self._opponent_bot = bot
+        self._traverser_seat = traverser_seat
 
     cdef inline int _from_unified_action_c(self, GameState state, int action_id) noexcept:
         cdef int card_action_size = 2 * state.hand_size
@@ -390,19 +402,41 @@ cdef class IsMctsSearcher:
         cdef int actions[MAX_ACTIONS]
         cdef int action_count
         cdef int i
+        cdef bint opponent_aware = self._opponent_bot is not None
+        cdef int leaf_player_seat
+        cdef int trav_seat = self._traverser_seat
+        cdef object phase_action
+        cdef int unified_action
         while True:
             player = state.current_player
             if state.terminal or depth >= int(self.config.max_depth):
+                if opponent_aware:
+                    leaf_player_seat = trav_seat
+                else:
+                    leaf_player_seat = player
                 return PendingSimulation(
                     path=path,
                     leaf_state=state,
                     leaf_node=None,
-                    leaf_player=player,
+                    leaf_player=leaf_player_seat,
                     info_state=None,
                     legal_mask=None,
                     legal_actions=[],
-                    terminal_value=float(state.total_scores[player] - state.total_scores[1 - player]),
+                    terminal_value=float(
+                        state.total_scores[leaf_player_seat]
+                        - state.total_scores[1 - leaf_player_seat]
+                    ),
                 )
+            # Opponent-aware: if it's the opponent's turn, let the heuristic
+            # bot move directly instead of expanding the tree.
+            if opponent_aware and player != trav_seat:
+                phase_action = self._opponent_bot.act(state)
+                unified_action = state.to_unified_action(phase_action)
+                local_action = self._from_unified_action_c(state, unified_action)
+                state._push_action_c(local_action)
+                cached_key = None
+                depth += 1
+                continue
             if cached_key is None:
                 key = canonical_info_set_key(state, player)
             else:
@@ -413,15 +447,22 @@ cdef class IsMctsSearcher:
                 legal_actions = [actions[i] for i in range(action_count)]
                 if not legal_actions:
                     node.terminal = True
+                    if opponent_aware:
+                        leaf_player_seat = trav_seat
+                    else:
+                        leaf_player_seat = player
                     return PendingSimulation(
                         path=path,
                         leaf_state=state,
                         leaf_node=node,
-                        leaf_player=player,
+                        leaf_player=leaf_player_seat,
                         info_state=None,
                         legal_mask=None,
                         legal_actions=[],
-                        terminal_value=float(state.total_scores[player] - state.total_scores[1 - player]),
+                        terminal_value=float(
+                            state.total_scores[leaf_player_seat]
+                            - state.total_scores[1 - leaf_player_seat]
+                        ),
                     )
                 return PendingSimulation(
                     path=path,

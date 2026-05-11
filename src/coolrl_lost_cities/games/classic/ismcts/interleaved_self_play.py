@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
+from coolrl_lost_cities.games.classic.bots.registry import build_bot
 from coolrl_lost_cities.games.classic.deep_cfr.encoding import encode_info_state
 from coolrl_lost_cities.games.classic.game import GameState, LostCitiesConfig
 
@@ -34,6 +35,11 @@ class _GameContext:
     game_index: int
     decisions: list[_PendingDecision] = field(default_factory=list)
     steps: int = 0
+    # Mixed-opponent setup: when traverser_seat is not None, only that seat
+    # uses MCTS+network; the other seat is played by `opponent_bot`. None for
+    # pure self-play games (both seats use MCTS).
+    traverser_seat: int | None = None
+    opponent_bot: object | None = None
 
 
 @dataclass
@@ -61,15 +67,28 @@ def play_self_play_iteration(
     active: list[_GameContext] = []
     started = 0
     target_games = training_config.games_per_iter
+    mixed_fraction = float(training_config.mixed_opponent_fraction)
 
     def fill_active() -> None:
         nonlocal started
         while len(active) < training_config.interleave_games and started < target_games:
+            traverser_seat: int | None = None
+            opponent_bot = None
+            if mixed_fraction > 0.0 and rng.random() < mixed_fraction:
+                # Alternate trainee seat so MCTS sees both first- and
+                # second-player perspectives equally.
+                traverser_seat = started % 2
+                opponent_bot = build_bot(
+                    training_config.mixed_opponent_bot,
+                    seed=rng.randrange(2**31),
+                )
             active.append(
                 _GameContext(
                     state=GameState.new_game(game_config, seed=rng.randrange(2**31)),
                     rng=random.Random(rng.randrange(2**31)),
                     game_index=started,
+                    traverser_seat=traverser_seat,
+                    opponent_bot=opponent_bot,
                 )
             )
             started += 1
@@ -83,6 +102,19 @@ def play_self_play_iteration(
                 completed.append(_finalize_context(context))
                 continue
             player = int(context.state.current_player)
+            # Mixed-opponent: if it's the opponent's turn in a mixed game,
+            # let the heuristic bot move directly (no MCTS, no sample).
+            if (
+                context.traverser_seat is not None
+                and context.opponent_bot is not None
+                and player != context.traverser_seat
+            ):
+                phase_action = context.opponent_bot.act(context.state)
+                unified = context.state.to_unified_action(phase_action)
+                context.state.apply_unified_action(unified)
+                context.steps += 1
+                still_active.append(context)
+                continue
             searcher = IsMctsSearcher(
                 network,
                 mcts_config,
@@ -90,6 +122,18 @@ def play_self_play_iteration(
                 encoding=encoding,
                 rng=random.Random(context.rng.randrange(2**31)),
             )
+            # Pass opponent bot into the searcher for opponent-aware
+            # determinization (search models the real opponent the trainee
+            # faces, not a self-play mirror).
+            if (
+                mcts_config.opponent_aware_search
+                and context.traverser_seat is not None
+                and context.opponent_bot is not None
+            ):
+                searcher.set_opponent_bot(
+                    context.opponent_bot,
+                    traverser_seat=context.traverser_seat,
+                )
             jobs.append(
                 _SearchJob(
                     context=context,

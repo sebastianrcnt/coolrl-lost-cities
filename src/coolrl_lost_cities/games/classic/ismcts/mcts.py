@@ -89,6 +89,13 @@ class IsMctsSearcher:
         self._rollout_bot = (
             HeuristicBot() if config.rollout_policy == "heuristic_balanced" else None
         )
+        # Opponent-aware search: see mcts.pyx for the rationale.
+        self._opponent_bot: object | None = None
+        self._traverser_seat: int = -1
+
+    def set_opponent_bot(self, bot: object, *, traverser_seat: int) -> None:
+        self._opponent_bot = bot
+        self._traverser_seat = int(traverser_seat)
 
     def search(
         self,
@@ -133,34 +140,45 @@ class IsMctsSearcher:
         # Cache the info-set key for the current node so we don't recompute it
         # after applying an action (the child's key becomes the next iter's key).
         cached_key: bytes | None = None
+        opponent_aware = self._opponent_bot is not None
+        trav_seat = self._traverser_seat
         while True:
             player = int(state.current_player)
             if state.terminal or depth >= self.config.max_depth:
+                leaf_seat = trav_seat if opponent_aware else player
                 return PendingSimulation(
                     path=path,
                     leaf_state=state,
                     leaf_node=None,
-                    leaf_player=player,
+                    leaf_player=leaf_seat,
                     info_state=None,
                     legal_mask=None,
                     legal_actions=[],
-                    terminal_value=float(state.score_diff(player)),
+                    terminal_value=float(state.score_diff(leaf_seat)),
                 )
+            if opponent_aware and player != trav_seat:
+                phase_action = self._opponent_bot.act(state)
+                unified = state.to_unified_action(phase_action)
+                state.apply_unified_action(unified)
+                cached_key = None
+                depth += 1
+                continue
             key = cached_key if cached_key is not None else canonical_info_set_key(state, player)
             node = self.tree.get_or_create(key, player=player, terminal=state.terminal)
             if not node.is_expanded():
                 legal_actions = state.unified_legal_actions()
                 if not legal_actions:
                     node.terminal = True
+                    leaf_seat = trav_seat if opponent_aware else player
                     return PendingSimulation(
                         path=path,
                         leaf_state=state,
                         leaf_node=node,
-                        leaf_player=player,
+                        leaf_player=leaf_seat,
                         info_state=None,
                         legal_mask=None,
                         legal_actions=[],
-                        terminal_value=float(state.score_diff(player)),
+                        terminal_value=float(state.score_diff(leaf_seat)),
                     )
                 return PendingSimulation(
                     path=path,

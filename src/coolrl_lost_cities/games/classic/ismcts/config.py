@@ -38,6 +38,12 @@ class MctsConfig(StrictModel):
     # bad backup permanently kills an action. Setting q_scale=100 normalizes Q
     # to ~[-1, 1] (consistent with AlphaZero's convention).
     q_scale: float = 100.0
+    # Opponent-aware search: when set, the search tree treats the opponent
+    # seat as a fixed external policy (heuristic bot) instead of expanding it
+    # with the network's priors/value. Used during mixed-opponent self-play
+    # so root visit distributions reflect the *actual* opponent the trainee
+    # faces. Bot name is taken from training.mixed_opponent_bot.
+    opponent_aware_search: bool = False
 
     @field_validator("n_simulations", "max_depth", "parallel_simulations")
     @classmethod
@@ -90,6 +96,15 @@ class TrainingConfig(StrictModel):
     md_target_alpha_start: float = 0.3
     md_target_alpha_end: float = 0.8
     md_target_alpha_iters: int = 500
+    # Mixed-opponent self-play: a fraction of games per iteration are played
+    # against a fixed external bot instead of the current network. Only the
+    # trainee's decisions are stored as policy targets; opponent moves are
+    # taken by `mixed_opponent_bot.act(state)`. Combined with
+    # mcts.opponent_aware_search, the MCTS tree models the opponent as that
+    # same bot so root-visit distributions reflect the real opponent.
+    # Set fraction=0 to disable (pure self-play).
+    mixed_opponent_fraction: float = 0.0
+    mixed_opponent_bot: str = "heuristic-balanced"
 
     @field_validator(
         "games_per_iter",
