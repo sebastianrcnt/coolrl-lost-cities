@@ -67,6 +67,13 @@ class TrainingConfig(StrictModel):
     # head learn faster relative to policy loss. Useful when value_prediction_error
     # is large but loss/value is tiny because of the normalization.
     value_loss_weight: float = 1.0
+    # Optional KL anchor to a reference (e.g. behavior-cloned) policy. The
+    # reference network is loaded once at trainer start and frozen; on every
+    # gradient step we add `kl_anchor_beta * KL(current || reference)` to the
+    # loss. Anchors self-play training to the pretrained policy and prevents
+    # catastrophic forgetting / drift to weak self-play equilibria.
+    kl_anchor_ckpt: str | None = None
+    kl_anchor_beta: float = 0.0
 
     @field_validator(
         "games_per_iter",

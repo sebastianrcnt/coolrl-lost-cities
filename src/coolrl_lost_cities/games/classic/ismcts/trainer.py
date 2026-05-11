@@ -83,6 +83,28 @@ class IsMctsTrainer:
         self.metrics_path = self.run_dir / "metrics.jsonl"
         self.rng = random.Random(config.run.seed)
 
+        # Optional KL anchor: load a frozen reference network whose policy we
+        # use to regularize updates (KL(current || reference) added to loss).
+        # Prevents drift from a BC pretrained baseline during self-play.
+        self.kl_anchor_ref: AlphaZeroNet | None = None
+        self.kl_anchor_beta = float(config.training.kl_anchor_beta)
+        if config.training.kl_anchor_ckpt and self.kl_anchor_beta > 0.0:
+            ref_path = Path(config.training.kl_anchor_ckpt)
+            if not ref_path.exists():
+                raise FileNotFoundError(f"kl_anchor_ckpt not found: {ref_path}")
+            ref_payload = torch.load(ref_path, map_location=self.device, weights_only=False)
+            self.kl_anchor_ref = AlphaZeroNet.from_config(
+                self.input_dim, self.action_size, config
+            ).to(self.device)
+            self.kl_anchor_ref.load_state_dict(ref_payload["network"])
+            self.kl_anchor_ref.eval()
+            for p in self.kl_anchor_ref.parameters():
+                p.requires_grad = False
+            print(
+                f"[trainer] KL anchor: ref={ref_path} beta={self.kl_anchor_beta}",
+                flush=True,
+            )
+
     def _resolve_device(self, device: torch.device | str) -> torch.device:
         token = str(device)
         if token == "auto":
@@ -263,6 +285,22 @@ class IsMctsTrainer:
         value_loss = nn.functional.mse_loss(value_pred / v_scale, value_target / v_scale)
         value_weight = float(self.config.training.value_loss_weight)
         loss = policy_loss + value_weight * value_loss
+
+        # KL anchor: KL(current || reference) over legal actions only.
+        # Encourages current policy to stay close to the reference (BC) policy.
+        kl_anchor_loss = 0.0
+        if self.kl_anchor_ref is not None and self.kl_anchor_beta > 0.0:
+            with torch.no_grad():
+                ref_logits, _ref_value = self.kl_anchor_ref(info, legal)
+                ref_log_probs = torch.log_softmax(ref_logits, dim=-1)
+            # KL(current || ref) = sum_a p_cur(a) * (log p_cur(a) - log p_ref(a))
+            cur_probs = log_probs.exp()
+            legal_f = legal.float()
+            kl_per_action = cur_probs * (log_probs - ref_log_probs) * legal_f
+            kl = kl_per_action.sum(dim=-1).mean()
+            loss = loss + self.kl_anchor_beta * kl
+            kl_anchor_loss = float(kl.item())
+
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         if self.config.optimization.grad_clip > 0:
@@ -271,6 +309,9 @@ class IsMctsTrainer:
                 self.config.optimization.grad_clip,
             )
         self.optimizer.step()
+        # Stash auxiliary loss for the IterationMetrics path; we return only
+        # the three primary scalars for backward compatibility.
+        self._last_kl_anchor_loss = kl_anchor_loss
         return float(policy_loss.item()), float(value_loss.item()), float(loss.item())
 
     def _evaluate(self, iteration: int) -> dict[str, float | int]:
