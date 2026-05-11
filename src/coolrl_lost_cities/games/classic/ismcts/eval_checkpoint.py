@@ -33,6 +33,7 @@ class _WorkerJob:
     device: str
     worker_index: int
     verbose: bool
+    n_sims_override: int = 0  # 0 means use checkpoint's eval_n_simulations
 
 
 @dataclass
@@ -85,7 +86,9 @@ def _run_games(job: _WorkerJob) -> _WorkerResult:
     net.eval()
 
     eval_mcts_cfg = cfg.mcts.model_copy()
-    if cfg.mcts.eval_n_simulations > 0:
+    if job.n_sims_override > 0:
+        eval_mcts_cfg = eval_mcts_cfg.model_copy(update={"n_simulations": job.n_sims_override})
+    elif cfg.mcts.eval_n_simulations > 0:
         eval_mcts_cfg = eval_mcts_cfg.model_copy(
             update={"n_simulations": cfg.mcts.eval_n_simulations}
         )
@@ -258,6 +261,12 @@ def add_eval_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Print per-game result lines (turns/score/PA) in addition to per-worker summaries.",
     )
+    parser.add_argument(
+        "--n-sims",
+        type=int,
+        default=0,
+        help="Override n_simulations at eval time (0 = use checkpoint's eval_n_simulations).",
+    )
 
 
 def run_eval(args: argparse.Namespace) -> None:
@@ -294,6 +303,7 @@ def run_eval(args: argparse.Namespace) -> None:
                 device=args.device,
                 worker_index=i,
                 verbose=args.verbose,
+                n_sims_override=int(args.n_sims),
             )
             for i in range(len(slices))
         ]

@@ -140,6 +140,15 @@ def main(argv: list[str] | None = None) -> None:
     add_eval_args(eval_cmd)
     eval_cmd.set_defaults(func=lambda a: run_eval(a))
 
+    from .pretrain import add_pretrain_args, run_pretrain
+
+    pretrain_cmd = subparsers.add_parser(
+        "pretrain",
+        help="Behavior-clone a heuristic bot into the AlphaZero network as a warm start.",
+    )
+    add_pretrain_args(pretrain_cmd)
+    pretrain_cmd.set_defaults(func=lambda a: run_pretrain(a))
+
     args = parser.parse_args(argv)
     args.func(args)
 
