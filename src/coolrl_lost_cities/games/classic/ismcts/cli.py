@@ -79,6 +79,19 @@ def train_command(args: argparse.Namespace) -> None:
         device=config.run.device,
         tracker=tracker,
     )
+    if args.resume_from:
+        import torch
+
+        ckpt = torch.load(args.resume_from, map_location=trainer.device, weights_only=False)
+        trainer.network.load_state_dict(ckpt["network"])
+        if "optimizer" in ckpt:
+            trainer.optimizer.load_state_dict(ckpt["optimizer"])
+        print(
+            f"[resume] loaded network + optimizer from {args.resume_from} "
+            f"(prior iteration={ckpt.get('iteration', '?')}); "
+            f"new run starts at iteration 1 with current config",
+            flush=True,
+        )
     try:
         trainer.train()
     finally:
@@ -111,6 +124,11 @@ def main(argv: list[str] | None = None) -> None:
     train.add_argument("--wandb-job-type")
     train.add_argument("--wandb-tag", action="append", default=[])
     train.add_argument("--wandb-notes")
+    train.add_argument(
+        "--resume-from",
+        default=None,
+        help="Path to a .pt checkpoint to warm-start network + optimizer state.",
+    )
     train.set_defaults(func=train_command)
 
     from .eval_checkpoint import add_eval_args, run_eval
