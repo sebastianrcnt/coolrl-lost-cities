@@ -30,6 +30,10 @@ the workflow document for deciding where new documentation belongs.
 - [Regret-matching all-negative fallback](regret-matching-fallback.md) — Keeps uniform as the safe default while documenting argmax-tiebreak's unsettled early-training effects. (2026-05-07)
 - [Strategy memory recording location](strategy-memory-location.md) — Concludes traverser-node strategy samples are fine for outcome sampling, but external sampling needs OpenSpiel flags. (2026-05-07)
 
+## SO-ISMCTS
+
+- [SO-ISMCTS BC ceiling](ismcts-bc-ceiling-2026-05-11.md) — Finds behavior cloning remains the ceiling under current search and compute budgets. (2026-05-11)
+
 ## Engine / Performance
 
 - [Classic game port architecture](classic-port-notes.md) — Describes the standalone Cython classic engine as the stable rules layer for all consumers. (2026-05-08)
@@ -38,6 +42,5 @@ the workflow document for deciding where new documentation belongs.
 
 ## Other
 
-- [SO-ISMCTS BC ceiling](ismcts-bc-ceiling-2026-05-11.md) — Finds behavior cloning remains the ceiling under current search and compute budgets. (2026-05-11)
 - [Julia port evaluation](julia_port_evaluation.md) — Rejects a full Julia port for now because GPU MLP inference misses the threshold. (2026-05-10)
 - [Test coverage strategy for Python and Cython modules](test-coverage-notes.md) — Recommends Python-first coverage and isolated Cython tracing to protect performance artifacts. (2026-05-08)
