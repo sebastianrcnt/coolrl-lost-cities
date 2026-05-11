@@ -380,6 +380,8 @@ contention slows both unevenly and breaks the comparison.
 | 비용/프로파일 | `docs/reports/<name>-YYYY-MM-DD.md` (dated) |
 | 스크래치 / 연구 스레드 인덱스 | `ideas.md` |
 
+Catalog of current research notes: [docs/research/README.md](docs/research/README.md).
+
 ### Rules
 
 - `docs/archive/`, `runs/archive/`는 read-only.
