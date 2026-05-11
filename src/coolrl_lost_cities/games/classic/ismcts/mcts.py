@@ -263,6 +263,7 @@ class IsMctsSearcher:
         sqrt_total = math.sqrt(max(1, total_visits))
         best_score = -float("inf")
         best_action = legal_actions[0]
+        q_scale = float(getattr(self.config, "q_scale", 100.0)) or 1.0
         for action in legal_actions:
             n = node.visits.get(action, 0)
             virtual = node.virtual_visits.get(action, 0)
@@ -274,7 +275,8 @@ class IsMctsSearcher:
                 q_eff = (
                     node.value_sum.get(action, 0.0) - virtual * self.config.virtual_loss_value
                 ) / n_eff
-            score = q_eff + self.config.c_puct * prior * sqrt_total / (1 + n_eff)
+            # Normalize Q to match exploration-bonus scale; see mcts.pyx for details.
+            score = q_eff / q_scale + self.config.c_puct * prior * sqrt_total / (1 + n_eff)
             if score > best_score:
                 best_score = score
                 best_action = action

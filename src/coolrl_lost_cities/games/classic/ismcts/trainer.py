@@ -104,6 +104,29 @@ class IsMctsTrainer:
                 f"[trainer] KL anchor: ref={ref_path} beta={self.kl_anchor_beta}",
                 flush=True,
             )
+        # Optional mirror-descent reference policy: blend MCTS visit dist
+        # with this reference in log space before computing CE loss.
+        self.md_target_ref: AlphaZeroNet | None = None
+        if config.training.md_target_ref_ckpt:
+            md_ref_path = Path(config.training.md_target_ref_ckpt)
+            if not md_ref_path.exists():
+                raise FileNotFoundError(f"md_target_ref_ckpt not found: {md_ref_path}")
+            md_payload = torch.load(md_ref_path, map_location=self.device, weights_only=False)
+            self.md_target_ref = AlphaZeroNet.from_config(
+                self.input_dim, self.action_size, config
+            ).to(self.device)
+            self.md_target_ref.load_state_dict(md_payload["network"])
+            self.md_target_ref.eval()
+            for p in self.md_target_ref.parameters():
+                p.requires_grad = False
+            print(
+                f"[trainer] mirror-descent ref={md_ref_path} "
+                f"alpha {config.training.md_target_alpha_start} -> "
+                f"{config.training.md_target_alpha_end} over "
+                f"{config.training.md_target_alpha_iters} iters",
+                flush=True,
+            )
+        self._current_md_alpha = float(config.training.md_target_alpha_start)
 
     def _resolve_device(self, device: torch.device | str) -> torch.device:
         token = str(device)
@@ -138,6 +161,15 @@ class IsMctsTrainer:
         return metrics
 
     def run_iteration(self, iteration: int) -> IterationMetrics:
+        # Update mirror-descent alpha schedule (linear from start to end over alpha_iters).
+        if self.md_target_ref is not None:
+            cfg_t = self.config.training
+            n = max(1, int(cfg_t.md_target_alpha_iters))
+            frac = min(1.0, float(iteration) / float(n))
+            self._current_md_alpha = float(
+                cfg_t.md_target_alpha_start
+                + (cfg_t.md_target_alpha_end - cfg_t.md_target_alpha_start) * frac
+            )
         print(
             f"[iter {iteration}] self-play start (workers={self.config.training.num_workers})",
             flush=True,
@@ -280,7 +312,25 @@ class IsMctsTrainer:
         )
         logits, value_pred = self.network(info, legal)
         log_probs = torch.log_softmax(logits, dim=-1)
-        policy_loss = -(pi * log_probs).sum(dim=-1).mean()
+        # Optional mirror-descent target: blend MCTS visit distribution with
+        # the frozen reference (BC) policy in log space, then train CE to that
+        # blended target. This is the standard regularized policy improvement
+        # operator: pi_target = softmax(alpha * log(pi_mcts) + (1-alpha) * log(pi_ref)).
+        if self.md_target_ref is not None:
+            with torch.no_grad():
+                ref_logits, _ref_value = self.md_target_ref(info, legal)
+                ref_log_probs = torch.log_softmax(ref_logits, dim=-1)
+            alpha = float(self._current_md_alpha)
+            # Clamp pi to avoid log(0); MCTS visit dist already has only legal
+            # actions positive, so this affects illegal actions which the mask
+            # in the network forward already zeroed out via -inf logits.
+            log_pi = torch.log(pi.clamp_min(1.0e-12))
+            mixed = alpha * log_pi + (1.0 - alpha) * ref_log_probs
+            mixed = mixed.masked_fill(~legal, torch.finfo(mixed.dtype).min)
+            pi_target = torch.softmax(mixed, dim=-1)
+            policy_loss = -(pi_target * log_probs).sum(dim=-1).mean()
+        else:
+            policy_loss = -(pi * log_probs).sum(dim=-1).mean()
         v_scale = float(self.network.value_scale)
         value_loss = nn.functional.mse_loss(value_pred / v_scale, value_target / v_scale)
         value_weight = float(self.config.training.value_loss_weight)

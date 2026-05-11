@@ -32,6 +32,12 @@ class MctsConfig(StrictModel):
     eval_n_simulations: int = 0
     root_dirichlet_alpha: float = 0.0
     root_dirichlet_epsilon: float = 0.0
+    # Divisor applied to Q values inside PUCT to bring them onto roughly the
+    # same scale as the exploration bonus. With value_scale=100 score units,
+    # raw Q can swing ±100 while c_puct * prior * sqrt(N) is ~1-10, so a single
+    # bad backup permanently kills an action. Setting q_scale=100 normalizes Q
+    # to ~[-1, 1] (consistent with AlphaZero's convention).
+    q_scale: float = 100.0
 
     @field_validator("n_simulations", "max_depth", "parallel_simulations")
     @classmethod
@@ -74,6 +80,16 @@ class TrainingConfig(StrictModel):
     # catastrophic forgetting / drift to weak self-play equilibria.
     kl_anchor_ckpt: str | None = None
     kl_anchor_beta: float = 0.0
+    # Mirror-descent target mixing for policy loss. Alternative to kl_anchor;
+    # blends MCTS visit distribution with the reference (BC) policy in log
+    # space, then trains the network to match. pi_target = softmax(
+    #   alpha * log(pi_mcts) + (1 - alpha) * log(pi_ref)
+    # ). Anneal alpha from low (rely on BC) to high (rely on MCTS) over
+    # training. Requires kl_anchor_ckpt to be set as the reference source.
+    md_target_ref_ckpt: str | None = None
+    md_target_alpha_start: float = 0.3
+    md_target_alpha_end: float = 0.8
+    md_target_alpha_iters: int = 500
 
     @field_validator(
         "games_per_iter",

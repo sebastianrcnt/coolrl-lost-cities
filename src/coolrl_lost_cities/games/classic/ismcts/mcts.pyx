@@ -553,13 +553,17 @@ cdef class IsMctsSearcher:
         cdef double sqrt_total
         cdef double prior
         cdef double q_eff
+        cdef double q_normalized
         cdef double score
         cdef double best_score = -float("inf")
         cdef int best_action = int(legal_actions[0])
+        cdef double q_scale = float(getattr(self.config, "q_scale", 100.0))
         cdef _ArrayMap visits = <_ArrayMap>node.visits
         cdef _ArrayMap virtual_visits = <_ArrayMap>node.virtual_visits
         cdef _ArrayMap priors = <_ArrayMap>node.priors
         cdef _ArrayMap value_sum = <_ArrayMap>node.value_sum
+        if q_scale <= 0.0:
+            q_scale = 1.0
         for action in legal_actions:
             total_visits += visits.get_int(action, 0) + virtual_visits.get_int(action, 0)
         sqrt_total = math.sqrt(max(1, total_visits))
@@ -575,7 +579,12 @@ cdef class IsMctsSearcher:
                     value_sum.get_float(action, 0.0)
                     - virtual * float(self.config.virtual_loss_value)
                 ) / n_eff
-            score = q_eff + float(self.config.c_puct) * prior * sqrt_total / (1 + n_eff)
+            # Normalize Q to roughly [-1, 1] so the exploration bonus
+            # (c_puct * prior * sqrt(N) / (1+n)) competes on the right scale.
+            # Without this, raw score-units Q (±100) dominates and a single
+            # noisy backup kills exploration of low-prior actions.
+            q_normalized = q_eff / q_scale
+            score = q_normalized + float(self.config.c_puct) * prior * sqrt_total / (1 + n_eff)
             if score > best_score:
                 best_score = score
                 best_action = action
